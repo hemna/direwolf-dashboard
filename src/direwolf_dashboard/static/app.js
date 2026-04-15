@@ -298,6 +298,8 @@
                 .addTo(map)
                 .bindPopup(`<b>${callsign}</b><br>Home Station`);
         }
+
+        setInterval(cleanupAnimations, 10000);
     }
 
     async function loadStations() {
@@ -435,6 +437,188 @@
                 }
             }
             delete stationPositionCache[oldestKey];
+        }
+    }
+
+    // --- SVG Arc Animation Icons ---
+    function createTransmitArcIcon(index, color) {
+        const strokeColor = color || '#ff0000';
+        const size = 40 + (index * 8);
+        const center = size / 2;
+        const radius = 10 + (index * 7);
+        const arcAngle = 50;
+        const startAngle = 180 + (90 - arcAngle / 2);
+        const endAngle = startAngle + arcAngle;
+        function polarToCartesian(cx, cy, r, angleDeg) {
+            const rad = (angleDeg * Math.PI) / 180;
+            return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+        }
+        const lStart = polarToCartesian(center, center, radius, startAngle);
+        const lEnd = polarToCartesian(center, center, radius, endAngle);
+        const leftArc = `M ${lStart.x} ${lStart.y} A ${radius} ${radius} 0 0 1 ${lEnd.x} ${lEnd.y}`;
+        const rStartAngle = 360 - endAngle + 180;
+        const rEndAngle = rStartAngle + arcAngle;
+        const rStart = polarToCartesian(center, center, radius, rStartAngle);
+        const rEnd = polarToCartesian(center, center, radius, rEndAngle);
+        const rightArc = `M ${rStart.x} ${rStart.y} A ${radius} ${radius} 0 0 1 ${rEnd.x} ${rEnd.y}`;
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+            <path d="${leftArc}" fill="none" stroke="${strokeColor}" stroke-width="3" stroke-linecap="round" stroke-opacity="0.7"/>
+            <path d="${rightArc}" fill="none" stroke="${strokeColor}" stroke-width="3" stroke-linecap="round" stroke-opacity="0.7"/>
+        </svg>`;
+        const svgUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+        return L.icon({ iconUrl: svgUrl, iconSize: [size, size], iconAnchor: [center, center] });
+    }
+
+    function createReceiveArcIcon(index) {
+        const size = 40 + (index * 8);
+        const center = size / 2;
+        const radius = 10 + (index * 7);
+        const arcAngle = 50;
+        const startAngle = 90 + (90 - arcAngle / 2);
+        const endAngle = startAngle + arcAngle;
+        function polarToCartesian(cx, cy, r, angleDeg) {
+            const rad = (angleDeg * Math.PI) / 180;
+            return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+        }
+        const tStart = polarToCartesian(center, center, radius, startAngle);
+        const tEnd = polarToCartesian(center, center, radius, endAngle);
+        const topArc = `M ${tStart.x} ${tStart.y} A ${radius} ${radius} 0 0 1 ${tEnd.x} ${tEnd.y}`;
+        const bStartAngle = 360 - endAngle + 180;
+        const bEndAngle = bStartAngle + arcAngle;
+        const bStart = polarToCartesian(center, center, radius, bStartAngle);
+        const bEnd = polarToCartesian(center, center, radius, bEndAngle);
+        const bottomArc = `M ${bStart.x} ${bStart.y} A ${radius} ${radius} 0 0 1 ${bEnd.x} ${bEnd.y}`;
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+            <path d="${topArc}" fill="none" stroke="#00cc00" stroke-width="3" stroke-linecap="round" stroke-opacity="0.7"/>
+            <path d="${bottomArc}" fill="none" stroke="#00cc00" stroke-width="3" stroke-linecap="round" stroke-opacity="0.7"/>
+        </svg>`;
+        const svgUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+        return L.icon({ iconUrl: svgUrl, iconSize: [size, size], iconAnchor: [center, center] });
+    }
+
+    // --- Route Polylines ---
+    function createRoutingPolylines(stationLat, stationLng, pathInfo) {
+        if (!pathInfo) return [];
+        const waypoints = [{ lat: stationLat, lng: stationLng }];
+        for (const digiCall of pathInfo.digipeaters) {
+            const pos = getStationPosition(digiCall);
+            if (pos) waypoints.push(pos);
+        }
+        if (pathInfo.igate) {
+            const pos = getStationPosition(pathInfo.igate);
+            if (pos) waypoints.push(pos);
+        }
+        const homeCall = config.station?.callsign;
+        if (homeCall) {
+            const homePos = getStationPosition(homeCall);
+            if (homePos && (waypoints.length === 0 ||
+                waypoints[waypoints.length - 1].lat !== homePos.lat ||
+                waypoints[waypoints.length - 1].lng !== homePos.lng)) {
+                waypoints.push(homePos);
+            }
+        }
+        if (waypoints.length < 2) return [];
+        const polylines = [];
+        for (let i = 0; i < waypoints.length - 1; i++) {
+            const line = L.polyline(
+                [[waypoints[i].lat, waypoints[i].lng], [waypoints[i + 1].lat, waypoints[i + 1].lng]],
+                { color: '#0000ff', weight: 3, opacity: 0.6, dashArray: '4,8', lineCap: 'round', lineJoin: 'round' }
+            );
+            polylines.push(line);
+        }
+        return polylines;
+    }
+
+    // --- Animation Lifecycle ---
+    function trackAnimationElement(element, removeAt) {
+        activeAnimationElements.push({ element, removeAt });
+    }
+
+    function cleanupAnimations() {
+        const now = Date.now();
+        for (let i = activeAnimationElements.length - 1; i >= 0; i--) {
+            const entry = activeAnimationElements[i];
+            if (now >= entry.removeAt) {
+                try { map.removeLayer(entry.element); } catch (e) { /* already removed */ }
+                activeAnimationElements.splice(i, 1);
+            }
+        }
+        const cutoff = now - ANIMATION_COOLDOWN_MS * 2;
+        for (const key of Object.keys(animationThrottle)) {
+            if (animationThrottle[key] < cutoff) delete animationThrottle[key];
+        }
+    }
+
+    // --- Animation Playback ---
+    function playReceiveAnimation(callsign, lat, lng) {
+        const now = Date.now();
+        const throttleKey = 'rx_' + callsign;
+        if (animationThrottle[throttleKey] && now - animationThrottle[throttleKey] < ANIMATION_COOLDOWN_MS) return;
+        animationThrottle[throttleKey] = now;
+        const latLng = [lat, lng];
+        const arcMarkers = [];
+        for (let i = 1; i <= 3; i++) {
+            const m = L.marker(latLng, { icon: createReceiveArcIcon(i), interactive: false, zIndexOffset: 1000 });
+            arcMarkers.push(m);
+            trackAnimationElement(m, now + 1100);
+        }
+        arcMarkers[2].addTo(map);
+        setTimeout(() => { arcMarkers[1].addTo(map); }, 150);
+        setTimeout(() => { arcMarkers[0].addTo(map); }, 300);
+        setTimeout(() => { map.removeLayer(arcMarkers[2]); }, 800);
+        setTimeout(() => { map.removeLayer(arcMarkers[1]); }, 900);
+        setTimeout(() => { map.removeLayer(arcMarkers[0]); }, 1000);
+    }
+
+    function playTransmitAnimation(callsign, lat, lng, pathArray) {
+        const now = Date.now();
+        if (animationThrottle[callsign] && now - animationThrottle[callsign] < ANIMATION_COOLDOWN_MS) return;
+        animationThrottle[callsign] = now;
+        if (Object.keys(animationThrottle).length > 500) {
+            const cutoff = now - ANIMATION_COOLDOWN_MS * 2;
+            for (const key of Object.keys(animationThrottle)) {
+                if (animationThrottle[key] < cutoff) delete animationThrottle[key];
+            }
+        }
+        const latLng = [lat, lng];
+        const pathInfo = parsePath(pathArray);
+        const txColor = pathInfo.isTcpip ? '#333333' : '#ff0000';
+        const arcMarkers = [];
+        for (let i = 1; i <= 3; i++) {
+            const m = L.marker(latLng, { icon: createTransmitArcIcon(i, txColor), interactive: false, zIndexOffset: 1000 });
+            arcMarkers.push(m);
+            trackAnimationElement(m, now + 1100);
+        }
+        const routingLines = createRoutingPolylines(lat, lng, pathInfo);
+        for (const line of routingLines) {
+            trackAnimationElement(line, now + 5500);
+        }
+        const receivers = [];
+        for (const digiCall of pathInfo.digipeaters) {
+            const pos = getStationPosition(digiCall);
+            if (pos) receivers.push({ callsign: digiCall, lat: pos.lat, lng: pos.lng });
+        }
+        if (pathInfo.igate) {
+            const pos = getStationPosition(pathInfo.igate);
+            if (pos) receivers.push({ callsign: pathInfo.igate, lat: pos.lat, lng: pos.lng });
+        }
+        arcMarkers[0].addTo(map);
+        setTimeout(() => { arcMarkers[1].addTo(map); }, 150);
+        setTimeout(() => {
+            arcMarkers[2].addTo(map);
+            for (const line of routingLines) line.addTo(map);
+        }, 300);
+        setTimeout(() => { map.removeLayer(arcMarkers[0]); }, 800);
+        setTimeout(() => { map.removeLayer(arcMarkers[1]); }, 900);
+        setTimeout(() => { map.removeLayer(arcMarkers[2]); }, 1000);
+        for (let i = 0; i < receivers.length; i++) {
+            const rx = receivers[i];
+            setTimeout(() => { playReceiveAnimation(rx.callsign, rx.lat, rx.lng); }, 300 + (i * 300));
+        }
+        if (routingLines.length > 0) {
+            setTimeout(() => {
+                for (const line of routingLines) map.removeLayer(line);
+            }, 5000);
         }
     }
 
