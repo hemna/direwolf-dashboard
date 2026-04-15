@@ -179,6 +179,27 @@ html, body {
     font-size: 11px;
 }
 
+.log-header-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+#btn-clear-log {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    padding: 2px 8px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 11px;
+}
+
+#btn-clear-log:hover {
+    color: var(--danger);
+    border-color: var(--danger);
+}
+
 #log-list {
     flex: 1;
     overflow-y: auto;
@@ -689,4 +710,98 @@ button.secondary:hover {
     border-bottom: none;
     padding-bottom: 0;
     margin-bottom: 0;
+}
+
+/* --- Mobile menu --- */
+.mobile-only {
+    display: none;
+}
+
+.mobile-menu {
+    background: var(--bg-primary);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 12px;
+    z-index: 99;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.mobile-menu.hidden {
+    display: none;
+}
+.mobile-menu-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.mobile-menu-row label {
+    font-size: 11px;
+    color: var(--text-secondary);
+    min-width: 60px;
+}
+.mobile-menu-row input,
+.mobile-menu-row select {
+    flex: 1;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    padding: 6px 8px;
+    border-radius: 3px;
+    font-family: inherit;
+    font-size: 13px;
+}
+.mobile-menu-buttons {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+}
+.mobile-menu-buttons button {
+    flex: 1;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    padding: 8px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+}
+.mobile-menu-buttons button:hover {
+    color: var(--text-primary);
+    border-color: var(--accent);
+}
+
+/* --- Mobile breakpoint --- */
+@media (max-width: 600px) {
+    .mobile-only {
+        display: inline-block;
+    }
+    #filter-bar,
+    #btn-toggle-log,
+    #btn-settings {
+        display: none;
+    }
+    #status-text {
+        display: none;
+    }
+    .logo {
+        font-size: 13px;
+    }
+    .toolbar-left {
+        gap: 8px;
+    }
+    #btn-mobile-menu {
+        background: none;
+        border: 1px solid var(--border);
+        color: var(--text-secondary);
+        padding: 4px 10px;
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 18px;
+        line-height: 1;
+    }
+    #btn-mobile-menu:hover {
+        color: var(--text-primary);
+        border-color: var(--accent);
+    }
 }

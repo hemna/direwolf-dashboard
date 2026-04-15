@@ -326,6 +326,7 @@
         initSymbolPicker();
         initMapResize();
         initLogToggle();
+        initMobileMenu();
     });
 
     // --- Config ---
@@ -1305,6 +1306,64 @@
             document.removeEventListener('mousemove', onResize);
             document.removeEventListener('mouseup', stopResize);
         }
+    }
+
+    // --- Mobile Menu ---
+    function initMobileMenu() {
+        const btn = document.getElementById('btn-mobile-menu');
+        const menu = document.getElementById('mobile-menu');
+        if (!btn || !menu) return;
+
+        // Toggle menu
+        btn.addEventListener('click', () => {
+            menu.classList.toggle('hidden');
+        });
+
+        // Sync mobile controls -> desktop controls and trigger actions
+        const mobileTrail = document.getElementById('mobile-trail-duration');
+        const mobileCallsign = document.getElementById('mobile-filter-callsign');
+        const mobileType = document.getElementById('mobile-filter-type');
+        const mobileTxrx = document.getElementById('mobile-filter-txrx');
+        const desktopTrail = document.getElementById('trail-duration');
+        const desktopCallsign = document.getElementById('filter-callsign');
+        const desktopType = document.getElementById('filter-type');
+        const desktopTxrx = document.getElementById('filter-txrx');
+
+        mobileTrail.addEventListener('change', () => {
+            desktopTrail.value = mobileTrail.value;
+            desktopTrail.dispatchEvent(new Event('change'));
+        });
+        mobileCallsign.addEventListener('input', () => {
+            desktopCallsign.value = mobileCallsign.value;
+            desktopCallsign.dispatchEvent(new Event('input'));
+        });
+        mobileType.addEventListener('change', () => {
+            desktopType.value = mobileType.value;
+            desktopType.dispatchEvent(new Event('change'));
+        });
+        mobileTxrx.addEventListener('change', () => {
+            desktopTxrx.value = mobileTxrx.value;
+            desktopTxrx.dispatchEvent(new Event('change'));
+        });
+
+        // Mobile buttons -> delegate to desktop buttons
+        document.getElementById('mobile-btn-toggle-log').addEventListener('click', () => {
+            cycleLogViewState();
+            menu.classList.add('hidden');
+        });
+        document.getElementById('mobile-btn-settings').addEventListener('click', () => {
+            document.getElementById('btn-settings').click();
+            menu.classList.add('hidden');
+        });
+
+        // Close menu when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!menu.classList.contains('hidden') &&
+                !menu.contains(e.target) &&
+                !btn.contains(e.target)) {
+                menu.classList.add('hidden');
+            }
+        });
     }
 
 })();

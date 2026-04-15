@@ -43,6 +43,48 @@
             </div>
             <button id="btn-toggle-log" title="Toggle packet log">&#9776;</button>
             <button id="btn-settings" title="Settings">&#9881;</button>
+            <button id="btn-mobile-menu" title="Menu" class="mobile-only">&#8942;</button>
+        </div>
+    </div>
+
+    <!-- Mobile dropdown menu -->
+    <div id="mobile-menu" class="mobile-menu hidden">
+        <div class="mobile-menu-row">
+            <label>Trails</label>
+            <select id="mobile-trail-duration">
+                <option value="1" selected>1 hour</option>
+                <option value="2">2 hours</option>
+                <option value="6">6 hours</option>
+                <option value="24">24 hours</option>
+            </select>
+        </div>
+        <div class="mobile-menu-row">
+            <label>Callsign</label>
+            <input type="text" id="mobile-filter-callsign" placeholder="Filter..." />
+        </div>
+        <div class="mobile-menu-row">
+            <label>Type</label>
+            <select id="mobile-filter-type">
+                <option value="">All Types</option>
+                <option value="GPSPacket">GPS</option>
+                <option value="MessagePacket">Message</option>
+                <option value="WeatherPacket">Weather</option>
+                <option value="StatusPacket">Status</option>
+                <option value="ObjectPacket">Object</option>
+                <option value="TelemetryPacket">Telemetry</option>
+            </select>
+        </div>
+        <div class="mobile-menu-row">
+            <label>Direction</label>
+            <select id="mobile-filter-txrx">
+                <option value="">TX & RX</option>
+                <option value="rx">RX Only</option>
+                <option value="tx">TX Only</option>
+            </select>
+        </div>
+        <div class="mobile-menu-buttons">
+            <button id="mobile-btn-toggle-log">Toggle Log</button>
+            <button id="mobile-btn-settings">Settings</button>
         </div>
     </div>
 
