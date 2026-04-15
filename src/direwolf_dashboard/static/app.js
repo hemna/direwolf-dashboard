@@ -1,0 +1,577 @@
+/**
+ * Direwolf Dashboard — Client-side application
+ *
+ * Handles: WebSocket connection, Leaflet map, packet log, filters, settings
+ */
+
+(function () {
+    'use strict';
+
+    // --- State ---
+    let map = null;
+    let ws = null;
+    let wsReconnectDelay = 1000;
+    let config = {};
+    let stations = {};      // callsign -> { marker, track, data }
+    let autoScroll = true;
+    const MAX_LOG_ROWS = 500;
+
+    // --- Init ---
+    document.addEventListener('DOMContentLoaded', async () => {
+        await loadConfig();
+        initMap();
+        await loadStations();
+        connectWebSocket();
+        initFilters();
+        initSettings();
+        initMapResize();
+    });
+
+    // --- Config ---
+    async function loadConfig() {
+        try {
+            const resp = await fetch('/api/config');
+            config = await resp.json();
+        } catch (e) {
+            console.error('Failed to load config:', e);
+        }
+    }
+
+    // --- Map ---
+    function initMap() {
+        const lat = config.station?.latitude || 0;
+        const lon = config.station?.longitude || 0;
+        const zoom = 10;
+
+        map = L.map('map').setView([lat, lon], zoom);
+
+        L.tileLayer('/api/tiles/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors',
+            maxZoom: 18,
+        }).addTo(map);
+
+        // Add station marker if configured
+        if (lat !== 0 || lon !== 0) {
+            L.marker([lat, lon], {
+                icon: L.divIcon({
+                    className: 'station-label',
+                    html: `&#x1F4E1; ${config.station?.callsign || 'Home'}`,
+                    iconSize: null,
+                }),
+            }).addTo(map).bindPopup(`<b>${config.station?.callsign || 'Home Station'}</b>`);
+        }
+    }
+
+    async function loadStations() {
+        try {
+            const resp = await fetch('/api/stations');
+            const stationList = await resp.json();
+            for (const s of stationList) {
+                addOrUpdateStation(s);
+            }
+        } catch (e) {
+            console.error('Failed to load stations:', e);
+        }
+    }
+
+    function addOrUpdateStation(data) {
+        if (!data.latitude || !data.longitude) return;
+
+        const cs = data.callsign;
+
+        if (stations[cs]) {
+            // Update existing marker
+            stations[cs].marker.setLatLng([data.latitude, data.longitude]);
+            stations[cs].data = data;
+            updateStationPopup(cs);
+        } else {
+            // Create new marker
+            const marker = L.circleMarker([data.latitude, data.longitude], {
+                radius: 6,
+                fillColor: '#00b4d8',
+                color: '#0f3460',
+                weight: 1,
+                fillOpacity: 0.9,
+            }).addTo(map);
+
+            stations[cs] = {
+                marker: marker,
+                track: L.polyline([], { color: '#00b4d8', weight: 1.5, opacity: 0.6 }).addTo(map),
+                data: data,
+            };
+
+            // Callsign label
+            L.marker([data.latitude, data.longitude], {
+                icon: L.divIcon({
+                    className: 'station-label',
+                    html: cs,
+                    iconSize: null,
+                    iconAnchor: [-8, 12],
+                }),
+                interactive: false,
+            }).addTo(map);
+
+            updateStationPopup(cs);
+        }
+    }
+
+    function updateStationPopup(callsign) {
+        const s = stations[callsign];
+        if (!s) return;
+
+        const d = s.data;
+        let html = `<b>${callsign}</b><br>`;
+        if (d.last_comment) html += `${d.last_comment}<br>`;
+        if (d.packet_count) html += `Packets: ${d.packet_count}<br>`;
+        if (d.last_seen) {
+            const ago = Math.round((Date.now() / 1000 - d.last_seen) / 60);
+            html += `Last seen: ${ago}m ago`;
+        }
+        s.marker.bindPopup(html);
+    }
+
+    function updateStationTrack(callsign, lat, lon) {
+        const s = stations[callsign];
+        if (!s) return;
+        const latlngs = s.track.getLatLngs();
+        latlngs.push([lat, lon]);
+        // Keep last 50 points
+        if (latlngs.length > 50) latlngs.shift();
+        s.track.setLatLngs(latlngs);
+    }
+
+    // --- WebSocket ---
+    function connectWebSocket() {
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const url = `${proto}//${location.host}/ws`;
+
+        ws = new WebSocket(url);
+
+        ws.onopen = () => {
+            wsReconnectDelay = 1000;
+            setStatus(true);
+        };
+
+        ws.onmessage = (evt) => {
+            try {
+                const msg = JSON.parse(evt.data);
+                handleWSMessage(msg);
+            } catch (e) {
+                console.error('WS message parse error:', e);
+            }
+        };
+
+        ws.onclose = () => {
+            setStatus(false);
+            setTimeout(() => {
+                wsReconnectDelay = Math.min(wsReconnectDelay * 1.5, 30000);
+                connectWebSocket();
+            }, wsReconnectDelay);
+        };
+
+        ws.onerror = () => {
+            ws.close();
+        };
+    }
+
+    function handleWSMessage(msg) {
+        switch (msg.event) {
+            case 'packet':
+                onPacket(msg.data);
+                break;
+            case 'stats':
+                onStats(msg.data);
+                break;
+            case 'status':
+                setStatus(msg.data.agw_connected);
+                break;
+            case 'error':
+                console.warn('Server error:', msg.data.message);
+                break;
+            case 'preload_progress':
+                onPreloadProgress(msg.data);
+                break;
+            case 'ping':
+                // Respond with pong (keep-alive)
+                break;
+        }
+    }
+
+    function onPacket(packet) {
+        // Add to log
+        addLogRow(packet);
+
+        // Update map
+        if (packet.latitude && packet.longitude) {
+            addOrUpdateStation({
+                callsign: packet.from_call,
+                latitude: packet.latitude,
+                longitude: packet.longitude,
+                symbol: packet.symbol,
+                symbol_table: packet.symbol_table,
+                last_comment: packet.comment,
+                packet_count: (stations[packet.from_call]?.data?.packet_count || 0) + 1,
+                last_seen: packet.timestamp,
+            });
+            updateStationTrack(packet.from_call, packet.latitude, packet.longitude);
+        }
+    }
+
+    function onStats(stats) {
+        // Could update a stats display — for now just update status
+        if (stats.agw_connected !== undefined) {
+            setStatus(stats.agw_connected);
+        }
+    }
+
+    function setStatus(connected) {
+        const el = document.getElementById('status-indicator');
+        const text = document.getElementById('status-text');
+        if (connected) {
+            el.classList.remove('disconnected');
+            el.classList.add('connected');
+            text.textContent = 'Connected';
+        } else {
+            el.classList.remove('connected');
+            el.classList.add('disconnected');
+            text.textContent = 'Disconnected';
+        }
+    }
+
+    // --- Packet Log ---
+    function addLogRow(packet) {
+        const logList = document.getElementById('log-list');
+
+        // Create row
+        const row = document.createElement('div');
+        row.className = 'log-row';
+        row.dataset.callsign = packet.from_call || '';
+        row.dataset.type = packet.type || '';
+        row.dataset.tx = packet.tx ? 'tx' : 'rx';
+
+        // Expand toggle
+        const expand = document.createElement('span');
+        expand.className = 'log-expand';
+        expand.textContent = '\u25B6';  // ▶
+
+        // Compact log content
+        const content = document.createElement('span');
+        content.className = 'log-content';
+        content.innerHTML = packet.compact_log || `${packet.from_call} > ${packet.to_call}`;
+
+        row.appendChild(expand);
+        row.appendChild(content);
+
+        // Raw log lines (hidden by default)
+        const rawDiv = document.createElement('div');
+        rawDiv.className = 'log-raw';
+        if (packet.raw_log && packet.raw_log.length > 0) {
+            rawDiv.textContent = packet.raw_log.join('\n');
+        } else if (packet.raw_packet) {
+            rawDiv.textContent = packet.raw_packet;
+        }
+
+        // Toggle expand/collapse
+        row.addEventListener('click', () => {
+            expand.classList.toggle('expanded');
+            rawDiv.classList.toggle('visible');
+        });
+
+        // Apply current filters
+        applyFilterToRow(row);
+
+        // Prepend (newest first)
+        logList.insertBefore(rawDiv, logList.firstChild);
+        logList.insertBefore(row, logList.firstChild);
+
+        // Trim old rows
+        while (logList.children.length > MAX_LOG_ROWS * 2) {
+            logList.removeChild(logList.lastChild);
+        }
+
+        // Auto-scroll
+        if (autoScroll) {
+            logList.scrollTop = 0;
+        }
+    }
+
+    // --- Filters ---
+    function initFilters() {
+        const callsignInput = document.getElementById('filter-callsign');
+        const typeSelect = document.getElementById('filter-type');
+        const txrxSelect = document.getElementById('filter-txrx');
+
+        callsignInput.addEventListener('input', applyFilters);
+        typeSelect.addEventListener('change', applyFilters);
+        txrxSelect.addEventListener('change', applyFilters);
+
+        // Auto-scroll detection
+        const logList = document.getElementById('log-list');
+        const resumeBtn = document.getElementById('btn-resume');
+
+        logList.addEventListener('scroll', () => {
+            if (logList.scrollTop > 50) {
+                autoScroll = false;
+                resumeBtn.classList.remove('hidden');
+            }
+        });
+
+        resumeBtn.addEventListener('click', () => {
+            autoScroll = true;
+            logList.scrollTop = 0;
+            resumeBtn.classList.add('hidden');
+        });
+    }
+
+    function applyFilters() {
+        const callsign = document.getElementById('filter-callsign').value.toUpperCase();
+        const type = document.getElementById('filter-type').value;
+        const txrx = document.getElementById('filter-txrx').value;
+
+        const rows = document.querySelectorAll('.log-row');
+        rows.forEach(row => {
+            applyFilterToRow(row, callsign, type, txrx);
+        });
+    }
+
+    function applyFilterToRow(row, callsign, type, txrx) {
+        callsign = callsign || document.getElementById('filter-callsign').value.toUpperCase();
+        type = type || document.getElementById('filter-type').value;
+        txrx = txrx || document.getElementById('filter-txrx').value;
+
+        let visible = true;
+        if (callsign && !row.dataset.callsign.includes(callsign)) visible = false;
+        if (type && row.dataset.type !== type) visible = false;
+        if (txrx && row.dataset.tx !== txrx) visible = false;
+
+        if (visible) {
+            row.classList.remove('hidden-by-filter');
+        } else {
+            row.classList.add('hidden-by-filter');
+        }
+    }
+
+    // --- Settings ---
+    function initSettings() {
+        const modal = document.getElementById('settings-modal');
+        const btnOpen = document.getElementById('btn-settings');
+        const btnClose = document.getElementById('btn-close-settings');
+        const btnSave = document.getElementById('btn-save-settings');
+
+        btnOpen.addEventListener('click', () => {
+            populateSettings();
+            modal.classList.remove('hidden');
+        });
+
+        btnClose.addEventListener('click', () => {
+            modal.classList.add('hidden');
+        });
+
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) modal.classList.add('hidden');
+        });
+
+        btnSave.addEventListener('click', saveSettings);
+
+        // Tile mode toggle
+        document.getElementById('cfg-tile-mode').addEventListener('change', (e) => {
+            const preloadSection = document.getElementById('preload-section');
+            if (e.target.value === 'preload') {
+                preloadSection.classList.remove('hidden');
+            } else {
+                preloadSection.classList.add('hidden');
+            }
+        });
+
+        // Preload controls
+        document.getElementById('btn-use-map-view').addEventListener('click', () => {
+            if (map) {
+                const bounds = map.getBounds();
+                document.getElementById('preload-south').value = bounds.getSouth().toFixed(4);
+                document.getElementById('preload-west').value = bounds.getWest().toFixed(4);
+                document.getElementById('preload-north').value = bounds.getNorth().toFixed(4);
+                document.getElementById('preload-east').value = bounds.getEast().toFixed(4);
+            }
+        });
+
+        document.getElementById('btn-estimate').addEventListener('click', estimatePreload);
+        document.getElementById('btn-download').addEventListener('click', startPreload);
+        document.getElementById('btn-cancel-download').addEventListener('click', cancelPreload);
+    }
+
+    function populateSettings() {
+        document.getElementById('cfg-callsign').value = config.station?.callsign || '';
+        document.getElementById('cfg-latitude').value = config.station?.latitude || 0;
+        document.getElementById('cfg-longitude').value = config.station?.longitude || 0;
+        document.getElementById('cfg-agw-host').value = config.direwolf?.agw_host || 'localhost';
+        document.getElementById('cfg-agw-port').value = config.direwolf?.agw_port || 8000;
+        document.getElementById('cfg-log-file').value = config.direwolf?.log_file || '';
+        document.getElementById('cfg-server-port').value = config.server?.port || 8080;
+        document.getElementById('cfg-retention').value = config.storage?.retention_days || 7;
+        document.getElementById('cfg-tile-mode').value = config.tiles?.cache_mode || 'lazy';
+        document.getElementById('cfg-max-cache').value = config.tiles?.max_cache_mb || 500;
+
+        // Show/hide preload section
+        if (config.tiles?.cache_mode === 'preload') {
+            document.getElementById('preload-section').classList.remove('hidden');
+        }
+    }
+
+    async function saveSettings() {
+        const updates = {
+            station: {
+                callsign: document.getElementById('cfg-callsign').value,
+                latitude: parseFloat(document.getElementById('cfg-latitude').value),
+                longitude: parseFloat(document.getElementById('cfg-longitude').value),
+            },
+            direwolf: {
+                agw_host: document.getElementById('cfg-agw-host').value,
+                agw_port: parseInt(document.getElementById('cfg-agw-port').value),
+                log_file: document.getElementById('cfg-log-file').value,
+            },
+            server: {
+                port: parseInt(document.getElementById('cfg-server-port').value),
+            },
+            storage: {
+                retention_days: parseInt(document.getElementById('cfg-retention').value),
+            },
+            tiles: {
+                cache_mode: document.getElementById('cfg-tile-mode').value,
+                max_cache_mb: parseInt(document.getElementById('cfg-max-cache').value),
+            },
+        };
+
+        const feedback = document.getElementById('settings-feedback');
+        try {
+            const resp = await fetch('/api/config', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updates),
+            });
+            const result = await resp.json();
+
+            if (resp.ok) {
+                feedback.className = result.restart_required ? 'warning' : 'success';
+                feedback.textContent = result.restart_required
+                    ? `Saved. Restart required for: ${result.updated.join(', ')}`
+                    : `Saved: ${result.updated.join(', ') || 'no changes'}`;
+                feedback.classList.remove('hidden');
+                config = { ...config, ...updates };
+            } else {
+                feedback.className = 'error';
+                feedback.textContent = `Error: ${JSON.stringify(result.detail)}`;
+                feedback.classList.remove('hidden');
+            }
+        } catch (e) {
+            feedback.className = 'error';
+            feedback.textContent = `Error: ${e.message}`;
+            feedback.classList.remove('hidden');
+        }
+    }
+
+    // --- Tile Preload ---
+    async function estimatePreload() {
+        const bbox = getPreloadBbox();
+        if (!bbox) return;
+
+        try {
+            const resp = await fetch('/api/tiles/preload', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(bbox),
+            });
+            const est = await resp.json();
+
+            const el = document.getElementById('preload-estimate');
+            el.textContent = `${est.estimated_tiles} tiles (~${est.estimated_size_mb} MB)`;
+            el.classList.remove('hidden');
+            document.getElementById('btn-download').classList.remove('hidden');
+        } catch (e) {
+            console.error('Estimate failed:', e);
+        }
+    }
+
+    async function startPreload() {
+        const bbox = getPreloadBbox();
+        if (!bbox) return;
+        bbox.confirm = true;
+
+        try {
+            await fetch('/api/tiles/preload', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(bbox),
+            });
+
+            document.getElementById('btn-cancel-download').classList.remove('hidden');
+            document.getElementById('preload-progress').classList.remove('hidden');
+        } catch (e) {
+            console.error('Preload start failed:', e);
+        }
+    }
+
+    async function cancelPreload() {
+        try {
+            await fetch('/api/tiles/preload', { method: 'DELETE' });
+            document.getElementById('btn-cancel-download').classList.add('hidden');
+            document.getElementById('preload-progress').classList.add('hidden');
+        } catch (e) {
+            console.error('Cancel failed:', e);
+        }
+    }
+
+    function onPreloadProgress(data) {
+        const pct = Math.round((data.done / data.total) * 100);
+        document.querySelector('.progress-fill').style.width = pct + '%';
+        document.getElementById('preload-progress-text').textContent =
+            `${data.done} / ${data.total} tiles (${pct}%)`;
+
+        if (data.done >= data.total) {
+            document.getElementById('btn-cancel-download').classList.add('hidden');
+            document.getElementById('preload-progress-text').textContent = 'Complete!';
+        }
+    }
+
+    function getPreloadBbox() {
+        const south = parseFloat(document.getElementById('preload-south').value);
+        const west = parseFloat(document.getElementById('preload-west').value);
+        const north = parseFloat(document.getElementById('preload-north').value);
+        const east = parseFloat(document.getElementById('preload-east').value);
+        const minZoom = parseInt(document.getElementById('preload-min-zoom').value);
+        const maxZoom = parseInt(document.getElementById('preload-max-zoom').value);
+
+        if (isNaN(south) || isNaN(west) || isNaN(north) || isNaN(east)) {
+            alert('Please fill in all bounding box coordinates.');
+            return null;
+        }
+
+        return { bbox: [south, west, north, east], min_zoom: minZoom, max_zoom: maxZoom };
+    }
+
+    // --- Map Resize ---
+    function initMapResize() {
+        const handle = document.getElementById('map-resize-handle');
+        const mapContainer = document.getElementById('map-container');
+        let startY, startHeight;
+
+        handle.addEventListener('mousedown', (e) => {
+            startY = e.clientY;
+            startHeight = mapContainer.offsetHeight;
+            document.addEventListener('mousemove', onResize);
+            document.addEventListener('mouseup', stopResize);
+            e.preventDefault();
+        });
+
+        function onResize(e) {
+            const newHeight = startHeight + (e.clientY - startY);
+            mapContainer.style.height = Math.max(150, newHeight) + 'px';
+            map.invalidateSize();
+        }
+
+        function stopResize() {
+            document.removeEventListener('mousemove', onResize);
+            document.removeEventListener('mouseup', stopResize);
+        }
+    }
+
+})();

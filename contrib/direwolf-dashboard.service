@@ -1,0 +1,16 @@
+[Unit]
+Description=Direwolf Dashboard - Live display of Direwolf activity
+After=direwolf.service network.target
+Wants=direwolf.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/direwolf-dashboard serve
+Restart=always
+RestartSec=5
+User=pi
+Environment=PYTHONUNBUFFERED=1
+WorkingDirectory=/home/pi
+
+[Install]
+WantedBy=multi-user.target

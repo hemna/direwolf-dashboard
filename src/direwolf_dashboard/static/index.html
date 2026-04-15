@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Direwolf Dashboard</title>
+    <link rel="stylesheet" href="/static/leaflet/leaflet.css">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <!-- Toolbar -->
+    <div id="toolbar">
+        <div class="toolbar-left">
+            <span class="logo">Direwolf Dashboard</span>
+            <div id="status-indicator" class="status disconnected">
+                <span class="status-dot"></span>
+                <span id="status-text">Disconnected</span>
+            </div>
+        </div>
+        <div class="toolbar-right">
+            <div id="filter-bar">
+                <input type="text" id="filter-callsign" placeholder="Filter callsign..." />
+                <select id="filter-type">
+                    <option value="">All Types</option>
+                    <option value="GPSPacket">GPS</option>
+                    <option value="MessagePacket">Message</option>
+                    <option value="WeatherPacket">Weather</option>
+                    <option value="StatusPacket">Status</option>
+                    <option value="ObjectPacket">Object</option>
+                    <option value="TelemetryPacket">Telemetry</option>
+                </select>
+                <select id="filter-txrx">
+                    <option value="">TX & RX</option>
+                    <option value="rx">RX Only</option>
+                    <option value="tx">TX Only</option>
+                </select>
+            </div>
+            <button id="btn-settings" title="Settings">&#9881;</button>
+        </div>
+    </div>
+
+    <!-- Map -->
+    <div id="map-container">
+        <div id="map"></div>
+        <div id="map-resize-handle"></div>
+    </div>
+
+    <!-- Packet Log -->
+    <div id="log-container">
+        <div id="log-header">
+            <span>Live Packet Log</span>
+            <button id="btn-resume" class="hidden">&#x25B2; Resume Auto-scroll</button>
+        </div>
+        <div id="log-list"></div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Settings</h2>
+                <button id="btn-close-settings">&times;</button>
+            </div>
+            <div class="modal-body">
+                <fieldset>
+                    <legend>Station</legend>
+                    <label>Callsign <input type="text" id="cfg-callsign" /></label>
+                    <label>Latitude <input type="number" step="0.0001" id="cfg-latitude" /></label>
+                    <label>Longitude <input type="number" step="0.0001" id="cfg-longitude" /></label>
+                </fieldset>
+                <fieldset>
+                    <legend>Direwolf</legend>
+                    <label>AGW Host <input type="text" id="cfg-agw-host" /></label>
+                    <label>AGW Port <input type="number" id="cfg-agw-port" /></label>
+                    <label>Log File <input type="text" id="cfg-log-file" /></label>
+                </fieldset>
+                <fieldset>
+                    <legend>Server</legend>
+                    <label>Port <input type="number" id="cfg-server-port" /></label>
+                    <span class="hint">Requires restart</span>
+                </fieldset>
+                <fieldset>
+                    <legend>Storage</legend>
+                    <label>Retention (days) <input type="number" id="cfg-retention" /></label>
+                </fieldset>
+                <fieldset>
+                    <legend>Map Tiles</legend>
+                    <label>
+                        Cache Mode
+                        <select id="cfg-tile-mode">
+                            <option value="lazy">Lazy (on-demand)</option>
+                            <option value="preload">Pre-download</option>
+                        </select>
+                    </label>
+                    <label>Max Cache (MB) <input type="number" id="cfg-max-cache" /></label>
+                    <div id="preload-section" class="hidden">
+                        <h3>Pre-download Tiles</h3>
+                        <button id="btn-use-map-view">Use Current Map View</button>
+                        <label>South <input type="number" step="0.01" id="preload-south" /></label>
+                        <label>West <input type="number" step="0.01" id="preload-west" /></label>
+                        <label>North <input type="number" step="0.01" id="preload-north" /></label>
+                        <label>East <input type="number" step="0.01" id="preload-east" /></label>
+                        <label>Min Zoom <input type="number" id="preload-min-zoom" value="8" /></label>
+                        <label>Max Zoom <input type="number" id="preload-max-zoom" value="14" /></label>
+                        <button id="btn-estimate">Estimate</button>
+                        <div id="preload-estimate" class="hidden"></div>
+                        <button id="btn-download" class="hidden">Download</button>
+                        <button id="btn-cancel-download" class="hidden">Cancel</button>
+                        <div id="preload-progress" class="hidden">
+                            <div class="progress-bar"><div class="progress-fill"></div></div>
+                            <span id="preload-progress-text"></span>
+                        </div>
+                    </div>
+                </fieldset>
+                <div class="modal-actions">
+                    <button id="btn-save-settings" class="primary">Save</button>
+                    <div id="settings-feedback" class="hidden"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/leaflet/leaflet.js"></script>
+    <script src="/static/app.js"></script>
+</body>
+</html>
