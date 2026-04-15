@@ -680,10 +680,10 @@
     }
 
     function onPacket(packet) {
-        // Add to log
         addLogRow(packet);
-
-        // Update map
+        if (packet.latitude != null && packet.longitude != null) {
+            updatePositionCache(packet.from_call, packet.latitude, packet.longitude);
+        }
         if (packet.latitude && packet.longitude) {
             addOrUpdateStation({
                 callsign: packet.from_call,
@@ -695,9 +695,25 @@
                 packet_count: (stations[packet.from_call]?.data?.packet_count || 0) + 1,
                 last_seen: packet.timestamp,
             });
-            // Only update track if this is a real position report (not DB lookup)
             if (!packet.position_from_db) {
                 updateStationTrack(packet.from_call, packet.latitude, packet.longitude);
+            }
+        }
+        const homeLat = config.station?.latitude;
+        const homeLon = config.station?.longitude;
+        const homeCall = config.station?.callsign;
+        if (packet.tx) {
+            if (homeLat != null && homeLon != null) {
+                playTransmitAnimation(homeCall || 'Home', homeLat, homeLon, []);
+            }
+        } else {
+            if (packet.latitude && packet.longitude) {
+                playTransmitAnimation(packet.from_call, packet.latitude, packet.longitude, packet.path || []);
+            }
+            if (homeLat != null && homeLon != null && homeCall) {
+                setTimeout(() => {
+                    playReceiveAnimation(homeCall, homeLat, homeLon);
+                }, 300);
             }
         }
     }
