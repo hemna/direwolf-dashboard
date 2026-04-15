@@ -5,12 +5,12 @@ Wants=direwolf.service
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/direwolf-dashboard serve
+ExecStart=/home/pi/direwolf-dashboard/.venv/bin/direwolf-dashboard serve
 Restart=always
 RestartSec=5
 User=pi
 Environment=PYTHONUNBUFFERED=1
-WorkingDirectory=/home/pi
+WorkingDirectory=/home/pi/direwolf-dashboard
 
 [Install]
 WantedBy=multi-user.target
