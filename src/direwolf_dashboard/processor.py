@@ -140,7 +140,7 @@ def format_compact_log(packet: dict) -> str:
     return "".join(parts)
 
 
-def _strip_agw_header(raw: str) -> str:
+def _strip_agw_header(raw: str) -> tuple[str, str | None]:
     """Strip Direwolf AGW monitor header from raw frame data.
 
     AGW monitored frames look like:
@@ -148,19 +148,22 @@ def _strip_agw_header(raw: str) -> str:
     or the simpler form:
         1:Fm CALL1 To CALL2 Via PATH [HH:MM:SS] <payload>
 
-    Returns the APRS payload portion, or the original string if no header found.
+    Returns:
+        Tuple of (payload, via_path). via_path is the comma-separated path string
+        from the Via clause (e.g. "N3XYZ*,WIDE1-1,qAR,N3LLO-10"), or None if no
+        Via clause found. Payload is the APRS info portion.
     """
     import re
 
-    # Match: <channel>:Fm <from> To <to> [Via <path>] [<UI info>] [<time>] then
-    # optional \r and whitespace before the payload
     m = re.match(
-        r"^\d+:Fm\s+\S+\s+To\s+\S+(?:\s+Via\s+\S+(?:,\S+)*)?(?:\s+<[^>]*>)*\s*\[\d{2}:\d{2}:\d{2}\]\s*",
+        r"^\d+:Fm\s+\S+\s+To\s+\S+(?:\s+Via\s+(\S+(?:,\S+)*))?(?:\s+<[^>]*>)*\s*\[\d{2}:\d{2}:\d{2}\]\s*",
         raw,
     )
     if m:
-        return raw[m.end() :].lstrip("\r\n")
-    return raw
+        via_path = m.group(1)
+        payload = raw[m.end() :].lstrip("\r\n")
+        return payload, via_path
+    return raw, None
 
 
 def _extract_aprs_for_parsing(payload: str, call_from: str, call_to: str) -> str:
@@ -196,7 +199,7 @@ def packet_to_dict(
         Packet dict ready for storage and broadcasting, or None if parsing fails.
     """
     # Strip Direwolf AGW monitor header if present
-    payload = _strip_agw_header(raw_aprs_string)
+    payload, via_path = _strip_agw_header(raw_aprs_string)
     is_third_party = payload.startswith("}")
     aprs_string = _extract_aprs_for_parsing(payload, call_from, call_to)
 

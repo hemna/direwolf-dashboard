@@ -5,6 +5,7 @@ import math
 import pytest
 
 from direwolf_dashboard.processor import (
+    _strip_agw_header,
     calculate_initial_compass_bearing,
     degrees_to_cardinal,
     format_compact_log,
@@ -117,6 +118,53 @@ class TestFormatCompactLog:
         html = format_compact_log(packet)
         assert "N3LLO" in html
         assert "Online" in html
+
+
+class TestStripAgwHeader:
+    """Test AGW header stripping and Via path extraction."""
+
+    def test_extracts_via_path(self):
+        raw = (
+            "1:Fm N3ABC To APRS Via N3XYZ*,WIDE1-1,qAR,N3LLO-10 "
+            "<UI pid=F0 Len=128>[12:34:56]\r!4003.50N/07507.23W>"
+        )
+        payload, via_path = _strip_agw_header(raw)
+        assert via_path == "N3XYZ*,WIDE1-1,qAR,N3LLO-10"
+        assert payload == "!4003.50N/07507.23W>"
+
+    def test_no_via_clause(self):
+        raw = "1:Fm N3ABC To APRS <UI pid=F0 Len=64>[12:34:56]\r!4003.50N/07507.23W>"
+        payload, via_path = _strip_agw_header(raw)
+        assert via_path is None
+        assert payload == "!4003.50N/07507.23W>"
+
+    def test_simple_format_with_via(self):
+        raw = "1:Fm N3ABC To APRS Via WIDE1-1 [12:34:56] !4003.50N/07507.23W>"
+        payload, via_path = _strip_agw_header(raw)
+        assert via_path == "WIDE1-1"
+        assert payload == "!4003.50N/07507.23W>"
+
+    def test_multiple_via_hops(self):
+        raw = (
+            "1:Fm N3ABC To APRS Via RELAY*,WIDE2-2 "
+            "<UI pid=F0 Len=64>[08:00:00]\r@0800z3745.00N/07730.00W_"
+        )
+        payload, via_path = _strip_agw_header(raw)
+        assert via_path == "RELAY*,WIDE2-2"
+
+    def test_no_agw_header_returns_none_path(self):
+        raw = "WB4BOR>APRS:!3745.00N/07730.00W>"
+        payload, via_path = _strip_agw_header(raw)
+        assert via_path is None
+        assert payload == raw  # returned unchanged
+
+    def test_via_with_ssid(self):
+        raw = (
+            "1:Fm N3ABC-9 To APRS Via N3LLO-10,WIDE1-1 "
+            "<UI pid=F0 Len=128>[23:59:59]\r!4003.50N/07507.23W>"
+        )
+        payload, via_path = _strip_agw_header(raw)
+        assert via_path == "N3LLO-10,WIDE1-1"
 
 
 class TestPacketToDict:
