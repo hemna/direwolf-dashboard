@@ -16,6 +16,12 @@
     let autoScroll = true;
     const MAX_LOG_ROWS = 500;
 
+    // --- Log View State ---
+    const LOG_STATES = ['expanded', 'peek', 'hidden'];
+    const LOG_STATE_KEY = 'logViewState';
+    let logViewState = 'expanded';
+    let resizeEnabled = true;
+
     // --- Animation state ---
     const stationPositionCache = {};
     const POSITION_CACHE_MAX = 1000;
@@ -317,6 +323,7 @@
         initSettings();
         initSymbolPicker();
         initMapResize();
+        initLogToggle();
     });
 
     // --- Config ---
@@ -1160,6 +1167,84 @@
         return { bbox: [south, west, north, east], min_zoom: minZoom, max_zoom: maxZoom };
     }
 
+    // --- Log View Toggle ---
+    function initLogToggle() {
+        const btn = document.getElementById('btn-toggle-log');
+        const mapContainer = document.getElementById('map-container');
+
+        // Determine initial state
+        const saved = localStorage.getItem(LOG_STATE_KEY);
+        if (saved && LOG_STATES.includes(saved)) {
+            logViewState = saved;
+        } else if (window.innerWidth < 768) {
+            logViewState = 'hidden';
+        } else {
+            logViewState = 'expanded';
+        }
+
+        applyLogViewState();
+
+        // Click to cycle states
+        btn.addEventListener('click', cycleLogViewState);
+
+        // Keyboard shortcut: L to cycle (when not focused on an input)
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'l' || e.key === 'L') {
+                const tag = document.activeElement?.tagName;
+                if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+                e.preventDefault();
+                cycleLogViewState();
+            }
+        });
+
+        // After CSS transition ends on map container, tell Leaflet to resize
+        mapContainer.addEventListener('transitionend', (e) => {
+            if (e.propertyName === 'height' || e.propertyName === 'flex') {
+                if (map) map.invalidateSize();
+            }
+        });
+    }
+
+    function cycleLogViewState() {
+        const idx = LOG_STATES.indexOf(logViewState);
+        logViewState = LOG_STATES[(idx + 1) % LOG_STATES.length];
+        localStorage.setItem(LOG_STATE_KEY, logViewState);
+        applyLogViewState();
+    }
+
+    function applyLogViewState() {
+        const body = document.body;
+        const btn = document.getElementById('btn-toggle-log');
+        const mapContainer = document.getElementById('map-container');
+
+        // Remove all state classes, apply current
+        for (const s of LOG_STATES) {
+            body.classList.remove('log-' + s);
+        }
+        body.classList.add('log-' + logViewState);
+
+        // Clear any inline height from manual resize so CSS classes take effect
+        mapContainer.style.height = '';
+
+        // Update button icon and title
+        const icons = { expanded: '\u25BC', peek: '\u2500', hidden: '\u25B2' };  // ▼ ─ ▲
+        const titles = {
+            expanded: 'Collapse log to peek (L)',
+            peek: 'Hide log (L)',
+            hidden: 'Show log (L)',
+        };
+        btn.innerHTML = '<span class="toggle-icon">' + icons[logViewState] + '</span>';
+        btn.title = titles[logViewState];
+
+        // Enable/disable resize
+        resizeEnabled = (logViewState === 'expanded');
+
+        // Invalidate map size after a brief delay for transition
+        if (map) {
+            setTimeout(() => map.invalidateSize(), 350);
+        }
+    }
+
     // --- Map Resize ---
     function initMapResize() {
         const handle = document.getElementById('map-resize-handle');
@@ -1167,6 +1252,7 @@
         let startY, startHeight;
 
         handle.addEventListener('mousedown', (e) => {
+            if (!resizeEnabled) return;
             startY = e.clientY;
             startHeight = mapContainer.offsetHeight;
             document.addEventListener('mousemove', onResize);

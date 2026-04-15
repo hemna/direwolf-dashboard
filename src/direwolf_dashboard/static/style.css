@@ -99,7 +99,7 @@ html, body {
     width: 120px;
 }
 
-#btn-settings {
+#btn-toggle-log, #btn-settings {
     background: none;
     border: 1px solid var(--border);
     color: var(--text-secondary);
@@ -107,11 +107,17 @@ html, body {
     border-radius: 3px;
     cursor: pointer;
     font-size: 16px;
+    line-height: 1;
 }
 
-#btn-settings:hover {
+#btn-toggle-log:hover, #btn-settings:hover {
     color: var(--text-primary);
     border-color: var(--accent);
+}
+
+#btn-toggle-log .toggle-icon {
+    display: inline-block;
+    font-size: 14px;
 }
 
 /* Map */
@@ -238,6 +244,68 @@ html, body {
 body {
     display: flex;
     flex-direction: column;
+}
+
+/* --- Log View States (applied on <body>) --- */
+
+/* Transitions for smooth state changes */
+#map-container,
+#log-container {
+    transition: height 0.3s ease, flex 0.3s ease, min-height 0.3s ease, opacity 0.3s ease;
+}
+
+/* Expanded (default) — 50/50 split, current behavior */
+body.log-expanded #map-container {
+    height: 50%;
+    flex: none;
+}
+
+body.log-expanded #log-container {
+    flex: 1;
+    min-height: 100px;
+    opacity: 1;
+}
+
+/* Peek — map takes most space, log shows ~120px (3-4 rows) */
+body.log-peek #map-container {
+    height: auto;
+    flex: 1;
+    min-height: 150px;
+}
+
+body.log-peek #log-container {
+    flex: none;
+    height: 120px;
+    min-height: 0;
+    opacity: 1;
+}
+
+body.log-peek #log-list {
+    overflow: hidden;
+}
+
+body.log-peek #map-resize-handle {
+    display: none;
+}
+
+/* Hidden — map takes full space, log invisible */
+body.log-hidden #map-container {
+    height: auto;
+    flex: 1;
+    min-height: 150px;
+}
+
+body.log-hidden #log-container {
+    flex: none;
+    height: 0;
+    min-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    border: none;
+}
+
+body.log-hidden #map-resize-handle {
+    display: none;
 }
 
 /* Modal */
