@@ -24,23 +24,34 @@ The haminfo dashboard at `aprsdashboard.hemna.com` has a map feature that visual
 ### 1. Data Flow
 
 ```
-AGW Packet (with raw APRS string)
-  -> processor.py (extract raw_path preserving * markers)
-  -> WebSocket broadcast (packet event with raw_path field)
-  -> app.js handlePacketEvent()
-  -> parsePath(raw_path) extracts digipeaters, igate, isTcpip
+AGW Packet (raw_data bytes containing AGW monitor text)
+  -> processor.py _strip_agw_header() extracts path from "Via" portion BEFORE stripping
+  -> processor.py _extract_aprs_for_parsing() builds FROM>TO,PATH:payload for aprslib
+  -> aprslib.parse() now receives full path, returns path[] with * markers preserved
+  -> WebSocket broadcast (packet event with path array including * markers)
+  -> app.js onPacket()
+  -> parsePath(packet.path) extracts digipeaters, igate, isTcpip
   -> Animation orchestration based on tx flag
 ```
 
-Packets arrive via the existing WebSocket `packet` event. Each packet already includes `from_call`, `to_call`, `latitude`, `longitude`, `tx`, `raw_packet`, and `path`. The new `raw_path` field provides the unmodified APRS path string with `*` markers preserved on used digipeaters.
+**Critical detail about AGW data format**: The AGW socket's monitored frames arrive as text in this format:
+```
+1:Fm N3ABC To APRS Via N3XYZ*,WIDE1-1,qAR,N3LLO-10 <UI pid=F0 Len=128>[HH:MM:SS]\r!4003.50N/07507.23W>
+```
 
-### 2. APRS Path Parsing
+Currently, `_strip_agw_header()` in `processor.py` discards the entire header (including the `Via PATH` portion), and `_extract_aprs_for_parsing()` builds `FROM>TO:payload` **without the path**. This means `aprslib.parse()` returns `path: []` for all AGW packets.
 
-A new `parsePath(rawPathString)` function parses the raw APRS digipeater path and returns:
+**The fix**: Modify `_strip_agw_header()` to also extract the path from the `Via` portion and return it. Then modify `_extract_aprs_for_parsing()` to include the path in the APRS string passed to `aprslib.parse()`: `FROM>TO,PATH:payload`. The `aprslib` library preserves `*` markers on used digipeaters, so the parsed `path` array will contain entries like `['N3XYZ*', 'WIDE1-1', 'qAR', 'N3LLO-10']`.
+
+This eliminates the need for a separate `raw_path` field. The existing `path` array will now be correctly populated and contain all the information needed for route drawing.
+
+### 2. APRS Path Parsing (Frontend)
+
+A new `parsePath(pathArray)` function on the frontend takes the `path` array from the packet and returns:
 
 ```javascript
 {
-  digipeaters: ['N3ABC'],    // Used digipeaters (had * marker), excluding generic aliases
+  digipeaters: ['N3ABC'],    // Entries with * marker (used digis), excluding generic aliases
   igate: 'N3LLO-10',        // Callsign after qA* construct, or null
   isTcpip: false             // true if TCPIP, qAC, or qAU in path
 }
@@ -52,33 +63,29 @@ WIDE, WIDE1, WIDE2, WIDE3, WIDE1-1, WIDE2-1, WIDE2-2, WIDE3-3,
 RELAY, TRACE, TCPIP, CQ, QST, APRS, RFONLY, NOGATE
 ```
 
-The path string comes from the raw APRS packet. Example raw packet:
-```
-N3ABC>APRS,N3XYZ*,WIDE1-1,qAR,N3LLO-10:!4003.50N/07507.23W>
-```
-Path portion: `N3XYZ*,WIDE1-1,qAR,N3LLO-10`
-- `N3XYZ*` -> used digipeater (has `*`)
+Example: For path array `['N3XYZ*', 'WIDE1-1', 'qAR', 'N3LLO-10']`:
+- `N3XYZ*` -> used digipeater (has `*`), include as `N3XYZ` (strip `*` for callsign lookup)
 - `WIDE1-1` -> generic alias, skip
 - `qAR` -> q-construct, next callsign is igate
 - `N3LLO-10` -> igate
 
 ### 3. Station Position Cache
 
-A JavaScript object `stationPositionCache` maps callsigns to `{lat, lng}` coordinates. Limited to 1000 entries with oldest-eviction.
+A JavaScript object `stationPositionCache` maps callsigns to `{lat, lng}` coordinates. Limited to 1000 entries with least-recently-updated eviction (each entry gets an `updatedAt` timestamp; when cache exceeds 1000 entries, the entry with the oldest `updatedAt` is evicted).
 
 **Bootstrap**: On page load, `GET /api/stations/positions` returns all known station positions:
 ```json
 {
   "N3ABC": {"lat": 40.058, "lng": -75.121},
-  "N3LLO-10": {"lat": 39.952, "lng": -75.164},
-  ...
+  "N3LLO-10": {"lat": 39.952, "lng": -75.164}
 }
 ```
 
-**Ongoing updates**: Every incoming WebSocket packet with position data updates the cache. The existing `stations` object (visible markers) is also consulted.
+**Ongoing updates**: Every incoming WebSocket packet with position data updates the cache.
 
 **Position resolution order** for route drawing:
-1. `stations[callsign]` (visible marker on map)
+0. For the home station callsign, use the configured station coordinates from `config.station.latitude/longitude` (already loaded in app.js via `/api/config`)
+1. `stations[callsign].data.latitude/longitude` (visible marker on map — the `stations` object stores `{marker, track, data}`)
 2. `stationPositionCache[callsign]` (any previously seen station)
 3. Skip segment if position unknown
 
@@ -150,9 +157,9 @@ No route polylines for TX packets (we don't yet know the path until we hear the 
 
 - **Style**: `L.polyline` with `color: '#0000ff', weight: 3, opacity: 0.6, dashArray: '4,8'`
 - **Segments**: TX station -> digi1 -> digi2 -> ... -> igate -> home station
-- **Position resolution**: Each callsign looked up in station cache. Unknown positions cause that segment to be skipped (line drawn between known stations only).
+- **Position resolution**: Each callsign looked up via the position resolution order (section 3). Unknown positions cause that segment to be skipped (line drawn between known stations only).
 - **Lifetime**: Appears at t=300ms, removed at t=5000ms
-- **Visual distinction**: Blue dashed (route) vs cyan solid (existing movement trails)
+- **Visual distinction**: Blue dashed (route) vs `#00b4d8` solid (existing movement trails in app.js)
 
 ### 7. Map Legend
 
@@ -160,11 +167,12 @@ A custom `L.Control` positioned at bottom-right:
 
 - Collapsible (expanded by default, click header to collapse)
 - Dark theme matching existing CSS (`background: #1e1e1e`, white text)
+- Requires `pointer-events: auto` inside the Leaflet control container
 - Contents:
   - Small red arc SVG + "RF Transmit"
   - Small gray arc SVG + "Internet (TCPIP)"
   - Small green arc SVG + "Receiving"
-  - Cyan solid line + "Movement trail"
+  - `#00b4d8` solid line + "Movement trail"
   - Blue dashed line + "Packet route"
 
 ### 8. Backend Changes
@@ -187,33 +195,44 @@ SELECT callsign, latitude, longitude FROM stations
 WHERE latitude IS NOT NULL AND longitude IS NOT NULL
 ```
 
-#### Modified Packet Processing: `raw_path` Field
+#### Modified Packet Processing: Extract Path from AGW Monitor Header
 
-In `processor.py`, when processing an AGW packet, extract the raw path string from the APRS packet (the portion between `>` destination and `:` data start) and include it as `raw_path` in the broadcast data. The existing `path` field (cleaned array) remains unchanged.
+The key backend change is in `processor.py`. Currently:
 
-Example: For raw packet `N3ABC>APRS,N3XYZ*,WIDE1-1,qAR,N3LLO-10:!4003.50N/...`
-- Existing `path`: `["N3XYZ", "WIDE1-1", "qAR", "N3LLO-10"]` (cleaned)
-- New `raw_path`: `"N3XYZ*,WIDE1-1,qAR,N3LLO-10"` (preserves `*` markers)
+1. `_strip_agw_header(raw)` strips the entire AGW monitor header, discarding the `Via PATH` portion
+2. `_extract_aprs_for_parsing(payload, call_from, call_to)` builds `FROM>TO:payload` without path
+3. `aprslib.parse()` receives no path, returns `path: []`
 
-The `raw_path` is also stored in the `packets` table (new TEXT column) and included when serving historical packets via `GET /api/packets`.
+**New behavior**:
+
+1. `_strip_agw_header(raw)` is modified to return a tuple `(payload, via_path)` where `via_path` is the extracted path string (e.g., `"N3XYZ*,WIDE1-1,qAR,N3LLO-10"`) or `None` if no `Via` clause found
+2. `_extract_aprs_for_parsing(payload, call_from, call_to, via_path)` builds `FROM>TO,PATH:payload` when `via_path` is available, falling back to `FROM>TO:payload` when not
+3. `aprslib.parse()` now receives the full APRS string and returns the `path` array with `*` markers preserved (e.g., `['N3XYZ*', 'WIDE1-1', 'qAR', 'N3LLO-10']`)
+
+The regex in `_strip_agw_header()` already matches the `Via` portion: `(?:\s+Via\s+\S+(?:,\S+)*)`. The modification captures this group and extracts the path string after `Via `.
+
+**No new `raw_path` field or database column is needed.** The existing `path` field (which was always `[]` for AGW packets) will now be correctly populated.
+
+#### Database Migration
+
+The `packets` table schema does not change. However, the `path` column for historical packets will still contain `[]`. Only packets received after the upgrade will have populated paths. No migration needed.
 
 ### 9. Files Changed
 
 | File | Change |
 |------|--------|
-| `src/direwolf_dashboard/static/app.js` | Add ~300 lines: path parsing, arc icons, animations, route polylines, station position cache, legend control |
-| `src/direwolf_dashboard/static/index.html` | Minor: legend CSS styles in `<style>` block |
-| `src/direwolf_dashboard/static/style.css` | Legend styling (collapsible panel, dark theme) |
+| `src/direwolf_dashboard/static/app.js` | Add ~300 lines: path parsing, arc icons, animations, route polylines, station position cache, legend control. Hook into existing `onPacket()` function. |
+| `src/direwolf_dashboard/static/style.css` | Legend styling (collapsible panel, dark theme, pointer-events) |
 | `src/direwolf_dashboard/server.py` | New `/api/stations/positions` endpoint |
-| `src/direwolf_dashboard/storage.py` | New `get_all_station_positions()` method; add `raw_path` column to packets table |
-| `src/direwolf_dashboard/processor.py` | Extract `raw_path` from raw APRS packet, include in broadcast |
-| `tests/test_processor.py` | Tests for raw_path extraction |
-| `tests/test_storage.py` | Tests for positions endpoint and raw_path storage |
-| `tests/test_server.py` | Tests for /api/stations/positions endpoint |
+| `src/direwolf_dashboard/storage.py` | New `get_all_station_positions()` method |
+| `src/direwolf_dashboard/processor.py` | Modify `_strip_agw_header()` to extract and return `via_path`; modify `_extract_aprs_for_parsing()` to include path; update `packet_to_dict()` to thread the path through |
+| `tests/test_processor.py` | Tests for path extraction from AGW monitor headers, various path formats |
+| `tests/test_storage.py` | Tests for `get_all_station_positions()` |
+| `tests/test_server.py` | Tests for `/api/stations/positions` endpoint |
 
 ### 10. Testing Strategy
 
-- **Unit tests**: Path parsing logic (various APRS path formats), raw_path extraction
-- **Integration tests**: `/api/stations/positions` endpoint returns correct data
+- **Unit tests**: AGW path extraction (various `Via` formats, missing `Via`, third-party packets), frontend `parsePath()` logic (various APRS path formats)
+- **Integration tests**: `/api/stations/positions` endpoint returns correct data; packets broadcast with populated `path` arrays
 - **Manual testing**: Visual verification of arc animations, route lines, legend display
-- **Edge cases**: Packets without position, unknown digipeater positions, rapid packet bursts, TCPIP detection
+- **Edge cases**: Packets without position, packets without `Via` in AGW header, unknown digipeater positions, rapid packet bursts, TCPIP detection, third-party packets, empty path arrays for historical data
