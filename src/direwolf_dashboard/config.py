@@ -25,6 +25,7 @@ class StationConfig:
     longitude: float = 0.0
     symbol: str = "-"
     symbol_table: str = "/"
+    zoom: int = 12
 
 
 @dataclass

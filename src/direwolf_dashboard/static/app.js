@@ -343,7 +343,7 @@
     function initMap() {
         const lat = config.station?.latitude || 0;
         const lon = config.station?.longitude || 0;
-        const zoom = 10;
+        const zoom = config.station?.zoom || 12;
 
         map = L.map('map').setView([lat, lon], zoom);
 
@@ -1004,6 +1004,7 @@
         document.getElementById('cfg-callsign').value = config.station?.callsign || '';
         document.getElementById('cfg-latitude').value = config.station?.latitude || 0;
         document.getElementById('cfg-longitude').value = config.station?.longitude || 0;
+        document.getElementById('cfg-zoom').value = config.station?.zoom || 12;
         document.getElementById('cfg-symbol').value = config.station?.symbol || '-';
         document.getElementById('cfg-symbol-table').value = config.station?.symbol_table || '/';
         document.getElementById('cfg-agw-host').value = config.direwolf?.agw_host || 'localhost';
@@ -1029,6 +1030,7 @@
                 callsign: document.getElementById('cfg-callsign').value,
                 latitude: parseFloat(document.getElementById('cfg-latitude').value),
                 longitude: parseFloat(document.getElementById('cfg-longitude').value),
+                zoom: parseInt(document.getElementById('cfg-zoom').value) || 12,
                 symbol: document.getElementById('cfg-symbol').value || '-',
                 symbol_table: document.getElementById('cfg-symbol-table').value || '/',
             },
