@@ -16,6 +16,17 @@
     let autoScroll = true;
     const MAX_LOG_ROWS = 500;
 
+    // --- Animation state ---
+    const stationPositionCache = {};
+    const POSITION_CACHE_MAX = 1000;
+    const animationThrottle = {};
+    const ANIMATION_COOLDOWN_MS = 3000;
+    const activeAnimationElements = [];
+    const GENERIC_PATH_ALIASES = new Set([
+        'WIDE', 'WIDE1', 'WIDE2', 'WIDE3', 'WIDE1-1', 'WIDE2-1', 'WIDE2-2', 'WIDE3-3',
+        'RELAY', 'TRACE', 'TCPIP', 'CQ', 'QST', 'APRS', 'RFONLY', 'NOGATE',
+    ]);
+
     // --- APRS Symbol Sprites ---
     const SYMBOL_SIZE = 24;
     const SPRITE_COLS = 16;
@@ -246,6 +257,7 @@
         await loadConfig();
         initMap();
         await loadStations();
+        loadStationPositions();
         connectWebSocket();
         initFilters();
         initSettings();
@@ -297,6 +309,19 @@
             }
         } catch (e) {
             console.error('Failed to load stations:', e);
+        }
+    }
+
+    async function loadStationPositions() {
+        try {
+            const resp = await fetch('/api/stations/positions');
+            const data = await resp.json();
+            const now = Date.now();
+            for (const [callsign, pos] of Object.entries(data)) {
+                stationPositionCache[callsign] = { lat: pos.lat, lng: pos.lng, updatedAt: now };
+            }
+        } catch (e) {
+            console.error('Failed to load station positions:', e);
         }
     }
 
@@ -356,6 +381,61 @@
         // Keep last 50 points
         if (latlngs.length > 50) latlngs.shift();
         s.track.setLatLngs(latlngs);
+    }
+
+    // --- APRS Path Parsing ---
+    function parsePath(pathArray) {
+        const result = { digipeaters: [], igate: null, isTcpip: false };
+        if (!pathArray || !Array.isArray(pathArray) || pathArray.length === 0) return result;
+        if (pathArray.some(p => p === 'TCPIP' || p === 'TCPIP*')) result.isTcpip = true;
+        if (pathArray.some(p => p === 'qAC' || p === 'qAU')) result.isTcpip = true;
+        for (let i = 0; i < pathArray.length; i++) {
+            const part = pathArray[i];
+            if (part.startsWith('qA') && i + 1 < pathArray.length) {
+                result.igate = pathArray[i + 1];
+                break;
+            }
+            if (part.endsWith('*')) {
+                const callsign = part.slice(0, -1);
+                if (!GENERIC_PATH_ALIASES.has(callsign) && !GENERIC_PATH_ALIASES.has(callsign.replace(/-\d+$/, ''))) {
+                    result.digipeaters.push(callsign);
+                }
+            }
+        }
+        return result;
+    }
+
+    // --- Station Position Helpers ---
+    function getStationPosition(callsign) {
+        const homeCall = config.station?.callsign;
+        if (homeCall && callsign.toUpperCase() === homeCall.toUpperCase()) {
+            const lat = config.station?.latitude;
+            const lng = config.station?.longitude;
+            if (lat != null && lng != null) return { lat, lng };
+        }
+        const s = stations[callsign];
+        if (s && s.data && s.data.latitude != null && s.data.longitude != null) {
+            return { lat: s.data.latitude, lng: s.data.longitude };
+        }
+        const cached = stationPositionCache[callsign];
+        if (cached) return { lat: cached.lat, lng: cached.lng };
+        return null;
+    }
+
+    function updatePositionCache(callsign, lat, lng) {
+        stationPositionCache[callsign] = { lat, lng, updatedAt: Date.now() };
+        const keys = Object.keys(stationPositionCache);
+        if (keys.length > POSITION_CACHE_MAX) {
+            let oldestKey = keys[0];
+            let oldestTime = stationPositionCache[oldestKey].updatedAt;
+            for (const key of keys) {
+                if (stationPositionCache[key].updatedAt < oldestTime) {
+                    oldestKey = key;
+                    oldestTime = stationPositionCache[key].updatedAt;
+                }
+            }
+            delete stationPositionCache[oldestKey];
+        }
     }
 
     // --- WebSocket ---
