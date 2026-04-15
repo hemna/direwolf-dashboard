@@ -573,3 +573,52 @@ button.secondary:hover {
 ::-webkit-scrollbar-thumb:hover {
     background: var(--text-secondary);
 }
+
+/* Map legend */
+.map-legend {
+    background: rgba(30, 30, 30, 0.92);
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-size: 11px;
+    color: #ccc;
+    border: 1px solid #444;
+    pointer-events: auto;
+    max-width: 170px;
+}
+.map-legend-header {
+    cursor: pointer;
+    font-size: 10px;
+    color: #888;
+    border-bottom: 1px solid #444;
+    padding-bottom: 6px;
+    margin-bottom: 6px;
+    user-select: none;
+}
+.map-legend-header:hover {
+    color: #bbb;
+}
+.legend-section-title {
+    font-size: 10px;
+    color: #666;
+    margin-top: 8px;
+    margin-bottom: 4px;
+    border-top: 1px solid #333;
+    padding-top: 6px;
+}
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+.legend-item:last-child {
+    margin-bottom: 0;
+}
+.map-legend.collapsed .legend-body {
+    display: none;
+}
+.map-legend.collapsed .map-legend-header {
+    border-bottom: none;
+    padding-bottom: 0;
+    margin-bottom: 0;
+}

@@ -252,10 +252,64 @@
         });
     }
 
+    function initLegend() {
+        const LegendControl = L.Control.extend({
+            options: { position: 'bottomright' },
+            onAdd: function () {
+                const container = L.DomUtil.create('div', 'map-legend');
+                container.innerHTML = `
+                    <div class="map-legend-header">
+                        Legend &#9660;
+                    </div>
+                    <div class="legend-body">
+                        <div class="legend-section-title">Animations</div>
+                        <div class="legend-item">
+                            <svg width="16" height="16" viewBox="0 0 16 16">
+                                <path d="M 3 6 A 6 6 0 0 1 3 10" fill="none" stroke="#ff0000" stroke-width="1.5" stroke-linecap="round" stroke-opacity="0.8"/>
+                                <path d="M 13 6 A 6 6 0 0 0 13 10" fill="none" stroke="#ff0000" stroke-width="1.5" stroke-linecap="round" stroke-opacity="0.8"/>
+                            </svg>
+                            <span>RF Transmit</span>
+                        </div>
+                        <div class="legend-item">
+                            <svg width="16" height="16" viewBox="0 0 16 16">
+                                <path d="M 3 6 A 6 6 0 0 1 3 10" fill="none" stroke="#555555" stroke-width="1.5" stroke-linecap="round" stroke-opacity="0.8"/>
+                                <path d="M 13 6 A 6 6 0 0 0 13 10" fill="none" stroke="#555555" stroke-width="1.5" stroke-linecap="round" stroke-opacity="0.8"/>
+                            </svg>
+                            <span>Internet (TCPIP)</span>
+                        </div>
+                        <div class="legend-item">
+                            <svg width="16" height="16" viewBox="0 0 16 16">
+                                <path d="M 6 3 A 6 6 0 0 1 10 3" fill="none" stroke="#00cc00" stroke-width="1.5" stroke-linecap="round" stroke-opacity="0.8"/>
+                                <path d="M 6 13 A 6 6 0 0 0 10 13" fill="none" stroke="#00cc00" stroke-width="1.5" stroke-linecap="round" stroke-opacity="0.8"/>
+                            </svg>
+                            <span>Receiving</span>
+                        </div>
+                        <div class="legend-section-title">Trails</div>
+                        <div class="legend-item">
+                            <div style="width:20px;height:3px;background:#00b4d8;opacity:0.7;border-radius:2px;"></div>
+                            <span>Movement trail</span>
+                        </div>
+                        <div class="legend-item">
+                            <div style="width:20px;height:0;border-top:3px dashed #0000ff;opacity:0.6;"></div>
+                            <span>Packet route</span>
+                        </div>
+                    </div>
+                `;
+                const header = container.querySelector('.map-legend-header');
+                header.addEventListener('click', () => container.classList.toggle('collapsed'));
+                L.DomEvent.disableClickPropagation(container);
+                L.DomEvent.disableScrollPropagation(container);
+                return container;
+            },
+        });
+        new LegendControl().addTo(map);
+    }
+
     // --- Init ---
     document.addEventListener('DOMContentLoaded', async () => {
         await loadConfig();
         initMap();
+        initLegend();
         await loadStations();
         loadStationPositions();
         connectWebSocket();
