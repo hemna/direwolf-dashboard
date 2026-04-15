@@ -201,6 +201,15 @@ class Storage:
         row = await cursor.fetchone()
         return dict(row) if row else None
 
+    async def get_all_station_positions(self) -> list[dict]:
+        """Return callsign + lat/lon for all stations with known positions."""
+        cursor = await self._db.execute(
+            "SELECT callsign, latitude, longitude FROM stations "
+            "WHERE latitude IS NOT NULL AND longitude IS NOT NULL"
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
     async def get_station_track(self, callsign: str, limit: int = 100) -> list[dict]:
         """Return position history for a station."""
         cursor = await self._db.execute(

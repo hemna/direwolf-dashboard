@@ -36,7 +36,10 @@ async def test_app(tmp_path):
     state.log_tailer = MagicMock()
     state.log_tailer.active = False
     state.tile_proxy = MagicMock()
-    state.tile_proxy.get_cache_stats.return_value = {"tile_count": 0, "cache_size_mb": 0}
+    state.tile_proxy.get_cache_stats.return_value = {
+        "tile_count": 0,
+        "cache_size_mb": 0,
+    }
 
     yield app, storage
 
@@ -132,7 +135,9 @@ class TestStationDetailEndpoint:
         await storage.upsert_station("WB4BOR", t, 37.75, -77.45)
         for i in range(3):
             await storage.insert_packet(
-                _make_packet(from_call="WB4BOR", timestamp=t + i, latitude=37.75 + i * 0.01)
+                _make_packet(
+                    from_call="WB4BOR", timestamp=t + i, latitude=37.75 + i * 0.01
+                )
             )
 
         with TestClient(app, raise_server_exceptions=False) as client:
@@ -153,6 +158,28 @@ class TestStatsEndpoint:
             assert "packets_total" in data
             assert "uptime_seconds" in data
             assert "agw_connected" in data
+
+
+class TestStationPositionsEndpoint:
+    async def test_get_positions_empty(self, test_app):
+        app, storage = test_app
+        with TestClient(app, raise_server_exceptions=False) as client:
+            resp = client.get("/api/stations/positions")
+            assert resp.status_code == 200
+            assert resp.json() == {}
+
+    async def test_get_positions_with_data(self, test_app):
+        app, storage = test_app
+        await storage.upsert_station("N3ABC", 100.0, latitude=40.0, longitude=-75.0)
+        await storage.upsert_station("N3DEF", 100.0, latitude=39.0, longitude=-76.0)
+        with TestClient(app, raise_server_exceptions=False) as client:
+            resp = client.get("/api/stations/positions")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert "N3ABC" in data
+            assert data["N3ABC"]["lat"] == 40.0
+            assert data["N3ABC"]["lng"] == -75.0
+            assert "N3DEF" in data
 
 
 class TestConfigEndpoint:

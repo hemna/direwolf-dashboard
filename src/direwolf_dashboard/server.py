@@ -163,6 +163,15 @@ def create_app(config: Config, config_path: str) -> FastAPI:
         track = await state.storage.get_station_track(callsign, limit=track_limit)
         return {"station": station, "track": track}
 
+    @app.get("/api/stations/positions")
+    async def get_station_positions():
+        """Return lightweight position map for all known stations."""
+        rows = await state.storage.get_all_station_positions()
+        return {
+            row["callsign"]: {"lat": row["latitude"], "lng": row["longitude"]}
+            for row in rows
+        }
+
     @app.get("/api/stats")
     async def get_stats():
         """Get dashboard statistics."""

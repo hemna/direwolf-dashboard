@@ -212,6 +212,18 @@ class TestStations:
         # Should be newest first
         assert track[0]["latitude"] > track[-1]["latitude"]
 
+    async def test_get_all_station_positions(self, storage):
+        await storage.upsert_station("N3ABC", 100.0, latitude=40.0, longitude=-75.0)
+        await storage.upsert_station("N3DEF", 100.0, latitude=39.0, longitude=-76.0)
+        await storage.upsert_station("N3GHI", 100.0)  # no position
+        positions = await storage.get_all_station_positions()
+        assert len(positions) == 2
+        callsigns = {p["callsign"] for p in positions}
+        assert callsigns == {"N3ABC", "N3DEF"}
+        for p in positions:
+            assert "latitude" in p
+            assert "longitude" in p
+
 
 class TestHousekeeping:
     """Test data retention and cleanup."""
