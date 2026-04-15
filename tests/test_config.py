@@ -1,6 +1,8 @@
 """Tests for configuration loading and management."""
 
 import os
+from unittest import mock
+
 import pytest
 import yaml
 
@@ -14,6 +16,7 @@ from direwolf_dashboard.config import (
     load_config,
     save_config,
     update_config,
+    parse_direwolf_conf,
     RESTART_REQUIRED_FIELDS,
 )
 
@@ -167,9 +170,7 @@ class TestUpdateConfig:
         config = Config()
         save_config(config, config_path)
 
-        update_config(
-            config, {"station": {"callsign": "WB4BOR"}}, config_path
-        )
+        update_config(config, {"station": {"callsign": "WB4BOR"}}, config_path)
 
         reloaded = load_config(config_path)
         assert reloaded.station.callsign == "WB4BOR"
@@ -205,3 +206,81 @@ class TestUpdateConfig:
         assert new_config.storage.retention_days == 30
         assert len(updated) == 3
         assert restart is False
+
+
+class TestFirstLaunchDirewolfImport:
+    """Test auto-import from DigiPi Direwolf conf on first launch."""
+
+    SAMPLE_DIREWOLF_CONF = """\
+# Direwolf config for DigiPi
+MYCALL WB4BOR-1
+
+PBEACON delay=1 every=30 overlay=S symbol="digi" lat=37.7500 long=-77.4500 comment="DigiPi"
+"""
+
+    def test_first_launch_imports_direwolf_conf(self, tmp_path):
+        """When config.yaml doesn't exist and direwolf conf is present,
+        station settings should be auto-imported."""
+        config_path = str(tmp_path / "subdir" / "config.yaml")
+        dw_conf_path = str(tmp_path / "direwolf.digipeater.conf")
+
+        with open(dw_conf_path, "w") as f:
+            f.write(self.SAMPLE_DIREWOLF_CONF)
+
+        with mock.patch("direwolf_dashboard.config.DIGIPI_DIREWOLF_CONF", dw_conf_path):
+            config = load_config(config_path)
+
+        assert config.station.callsign == "WB4BOR-1"
+        assert config.station.latitude == 37.75
+        assert config.station.longitude == -77.45
+        assert config.station.symbol == "#"  # "digi" maps to "#"
+        assert config.station.symbol_table == "S"  # overlay=S
+
+    def test_first_launch_persists_imported_values(self, tmp_path):
+        """Imported values should be persisted to the new config.yaml."""
+        config_path = str(tmp_path / "config.yaml")
+        dw_conf_path = str(tmp_path / "direwolf.digipeater.conf")
+
+        with open(dw_conf_path, "w") as f:
+            f.write(self.SAMPLE_DIREWOLF_CONF)
+
+        with mock.patch("direwolf_dashboard.config.DIGIPI_DIREWOLF_CONF", dw_conf_path):
+            load_config(config_path)
+
+        # Reload from the persisted file (no mock needed — file exists now)
+        reloaded = load_config(config_path)
+        assert reloaded.station.callsign == "WB4BOR-1"
+        assert reloaded.station.latitude == 37.75
+
+    def test_first_launch_no_direwolf_conf(self, tmp_path):
+        """When direwolf conf doesn't exist, defaults should be used."""
+        config_path = str(tmp_path / "config.yaml")
+        missing_dw_conf = str(tmp_path / "nonexistent.conf")
+
+        with mock.patch(
+            "direwolf_dashboard.config.DIGIPI_DIREWOLF_CONF", missing_dw_conf
+        ):
+            config = load_config(config_path)
+
+        assert config.station.callsign == "N0CALL"
+        assert config.station.latitude == 0.0
+
+    def test_existing_config_not_overwritten_by_import(self, tmp_path):
+        """If config.yaml already exists, direwolf conf should NOT be imported."""
+        config_path = str(tmp_path / "config.yaml")
+        dw_conf_path = str(tmp_path / "direwolf.digipeater.conf")
+
+        # Create an existing config with custom callsign
+        existing = {"station": {"callsign": "EXISTING"}}
+        with open(config_path, "w") as f:
+            yaml.dump(existing, f)
+
+        # Write a direwolf conf with different callsign
+        with open(dw_conf_path, "w") as f:
+            f.write("MYCALL DIFFERENT-1\n")
+
+        with mock.patch("direwolf_dashboard.config.DIGIPI_DIREWOLF_CONF", dw_conf_path):
+            config = load_config(config_path)
+
+        # Existing config should be preserved, NOT overwritten
+        assert config.station.callsign == "EXISTING"

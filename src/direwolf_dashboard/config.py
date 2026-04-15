@@ -1,5 +1,6 @@
 """Configuration loading and management for Direwolf Dashboard."""
 
+import logging
 import os
 import re
 import shlex
@@ -8,6 +9,8 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
+
+LOG = logging.getLogger(__name__)
 
 
 DEFAULT_CONFIG_DIR = os.path.expanduser("~/.config/direwolf-dashboard")
@@ -118,10 +121,15 @@ def _dict_to_config(d: dict) -> Config:
     )
 
 
+DIGIPI_DIREWOLF_CONF = os.path.expanduser("~/direwolf.digipeater.conf")
+
+
 def load_config(path: Optional[str] = None) -> Config:
     """Load configuration from YAML file, merging with defaults.
 
     If the file doesn't exist, creates it with defaults.
+    On first launch, auto-imports station settings from the DigiPi
+    Direwolf config (~/direwolf.digipeater.conf) if present.
     """
     if path is None:
         path = DEFAULT_CONFIG_PATH
@@ -139,8 +147,20 @@ def load_config(path: Optional[str] = None) -> Config:
         merged = _deep_merge(default_dict, user_dict)
     else:
         merged = default_dict
-        # Create config file with defaults
-        save_config(default_config, path)
+
+        # First launch: auto-import from DigiPi Direwolf conf if present
+        imported = parse_direwolf_conf(DIGIPI_DIREWOLF_CONF)
+        if imported:
+            merged = _deep_merge(merged, {"station": imported})
+            LOG.info(
+                "First launch: imported station settings from %s: %s",
+                DIGIPI_DIREWOLF_CONF,
+                ", ".join(imported.keys()),
+            )
+
+        # Create config file with (possibly enriched) defaults
+        first_config = _dict_to_config(merged)
+        save_config(first_config, path)
 
     return _dict_to_config(merged)
 
