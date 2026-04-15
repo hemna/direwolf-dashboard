@@ -193,9 +193,15 @@ class Storage:
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
 
-    async def get_station_track(
-        self, callsign: str, limit: int = 100
-    ) -> list[dict]:
+    async def get_station(self, callsign: str) -> Optional[dict]:
+        """Return a single station record by callsign, or None."""
+        cursor = await self._db.execute(
+            "SELECT * FROM stations WHERE callsign = ?", (callsign,)
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+    async def get_station_track(self, callsign: str, limit: int = 100) -> list[dict]:
         """Return position history for a station."""
         cursor = await self._db.execute(
             """SELECT timestamp, latitude, longitude
@@ -250,7 +256,9 @@ class Storage:
         await self._db.commit()
         deleted = cursor.rowcount
         if deleted:
-            LOG.info(f"Housekeeping: deleted {deleted} packets older than {retention_days} days")
+            LOG.info(
+                f"Housekeeping: deleted {deleted} packets older than {retention_days} days"
+            )
         return deleted
 
     def _row_to_packet_dict(self, row) -> dict:

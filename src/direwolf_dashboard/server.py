@@ -7,7 +7,14 @@ import time
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, Response, HTTPException
+from fastapi import (
+    FastAPI,
+    WebSocket,
+    WebSocketDisconnect,
+    Query,
+    Response,
+    HTTPException,
+)
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -161,9 +168,15 @@ def create_app(config: Config, config_path: str) -> FastAPI:
         """Get dashboard statistics."""
         db_stats = await state.storage.get_stats()
         db_stats["uptime_seconds"] = int(time.time() - state.start_time)
-        db_stats["agw_connected"] = state.agw_reader.connected if state.agw_reader else False
-        db_stats["log_tailer_active"] = state.log_tailer.active if state.log_tailer else False
-        db_stats["tile_cache"] = state.tile_proxy.get_cache_stats() if state.tile_proxy else {}
+        db_stats["agw_connected"] = (
+            state.agw_reader.connected if state.agw_reader else False
+        )
+        db_stats["log_tailer_active"] = (
+            state.log_tailer.active if state.log_tailer else False
+        )
+        db_stats["tile_cache"] = (
+            state.tile_proxy.get_cache_stats() if state.tile_proxy else {}
+        )
         return db_stats
 
     @app.get("/api/config")
@@ -209,13 +222,17 @@ def create_app(config: Config, config_path: str) -> FastAPI:
         """
         bbox = request.get("bbox", [])
         if len(bbox) != 4:
-            raise HTTPException(status_code=400, detail="bbox must be [south, west, north, east]")
+            raise HTTPException(
+                status_code=400, detail="bbox must be [south, west, north, east]"
+            )
 
         south, west, north, east = bbox
         min_zoom = request.get("min_zoom", 1)
         max_zoom = min(request.get("max_zoom", 14), 16)
 
-        estimate = state.tile_proxy.estimate_preload(south, west, north, east, min_zoom, max_zoom)
+        estimate = state.tile_proxy.estimate_preload(
+            south, west, north, east, min_zoom, max_zoom
+        )
 
         if not request.get("confirm"):
             return estimate
@@ -225,7 +242,9 @@ def create_app(config: Config, config_path: str) -> FastAPI:
             await _broadcast_event("preload_progress", {"done": done, "total": total})
 
         asyncio.create_task(
-            state.tile_proxy.preload(south, west, north, east, min_zoom, max_zoom, progress_cb)
+            state.tile_proxy.preload(
+                south, west, north, east, min_zoom, max_zoom, progress_cb
+            )
         )
         return {"status": "started", **estimate}
 
@@ -252,13 +271,19 @@ def create_app(config: Config, config_path: str) -> FastAPI:
                 await ws.send_json({"event": "packet", "data": p})
 
             # Send current status
-            await ws.send_json({
-                "event": "status",
-                "data": {
-                    "agw_connected": state.agw_reader.connected if state.agw_reader else False,
-                    "log_tailer_active": state.log_tailer.active if state.log_tailer else False,
-                },
-            })
+            await ws.send_json(
+                {
+                    "event": "status",
+                    "data": {
+                        "agw_connected": state.agw_reader.connected
+                        if state.agw_reader
+                        else False,
+                        "log_tailer_active": state.log_tailer.active
+                        if state.log_tailer
+                        else False,
+                    },
+                }
+            )
 
             # Keep connection alive — read messages (for future client-to-server communication)
             while True:
@@ -277,6 +302,7 @@ def create_app(config: Config, config_path: str) -> FastAPI:
 
     # --- Static files ---
     import os
+
     static_dir = os.path.join(os.path.dirname(__file__), "static")
     if os.path.exists(static_dir):
         app.mount("/static", StaticFiles(directory=static_dir), name="static")
@@ -288,14 +314,19 @@ def create_app(config: Config, config_path: str) -> FastAPI:
         if os.path.exists(index_path):
             with open(index_path) as f:
                 return HTMLResponse(content=f.read())
-        return HTMLResponse(content="<h1>Direwolf Dashboard</h1><p>Static files not found.</p>")
+        return HTMLResponse(
+            content="<h1>Direwolf Dashboard</h1><p>Static files not found.</p>"
+        )
 
     return app
 
 
 def _enrich_with_bearing(packet: dict) -> None:
     """Add bearing and distance to a packet dict if position data is available."""
-    from direwolf_dashboard.processor import calculate_initial_compass_bearing, degrees_to_cardinal
+    from direwolf_dashboard.processor import (
+        calculate_initial_compass_bearing,
+        degrees_to_cardinal,
+    )
     from haversine import haversine, Unit
 
     if (
@@ -338,6 +369,25 @@ async def _broadcast_consumer() -> None:
                         symbol=packet.get("symbol"),
                         symbol_table=packet.get("symbol_table"),
                         comment=packet.get("comment"),
+                    )
+                else:
+                    # Packet has no position — look up last known position
+                    # so the frontend can still show the station on the map.
+                    stn = await state.storage.get_station(packet["from_call"])
+                    if stn and stn.get("latitude") and stn.get("longitude"):
+                        packet["latitude"] = stn["latitude"]
+                        packet["longitude"] = stn["longitude"]
+                        packet["symbol"] = packet.get("symbol") or stn.get("symbol")
+                        packet["symbol_table"] = packet.get("symbol_table") or stn.get(
+                            "symbol_table"
+                        )
+                        packet["position_from_db"] = True
+                        # Also enrich with bearing/distance
+                        _enrich_with_bearing(packet)
+                    # Update last_seen / packet_count even without position
+                    await state.storage.upsert_station(
+                        callsign=packet["from_call"],
+                        last_seen=packet["timestamp"],
                     )
 
             # Broadcast to WebSocket clients

@@ -43,10 +43,22 @@ def degrees_to_cardinal(degrees: float, full_string: bool = True) -> str:
     Same logic as APRSD's utils.degrees_to_cardinal.
     """
     dirs = [
-        "N", "NNE", "NE", "ENE",
-        "E", "ESE", "SE", "SSE",
-        "S", "SSW", "SW", "WSW",
-        "W", "WNW", "NW", "NNW",
+        "N",
+        "NNE",
+        "NE",
+        "ENE",
+        "E",
+        "ESE",
+        "SE",
+        "SSE",
+        "S",
+        "SSW",
+        "SW",
+        "WSW",
+        "W",
+        "WNW",
+        "NW",
+        "NNW",
     ]
     ix = round(degrees / (360.0 / len(dirs))) % len(dirs)
     return dirs[ix]
@@ -106,6 +118,11 @@ def format_compact_log(packet: dict) -> str:
 
     parts = [indicator, " ", type_str, " ", from_str, arrow, path_str, to_str]
 
+    # Show via station for third-party packets
+    via = packet.get("via")
+    if via:
+        parts.append(f' <span style="color:#888">via {via}</span>')
+
     # Human info (message content, speed, etc.)
     human_info = packet.get("human_info")
     if human_info:
@@ -121,6 +138,44 @@ def format_compact_log(packet: dict) -> str:
         )
 
     return "".join(parts)
+
+
+def _strip_agw_header(raw: str) -> str:
+    """Strip Direwolf AGW monitor header from raw frame data.
+
+    AGW monitored frames look like:
+        1:Fm CALL1 To CALL2 Via PATH <UI pid=F0 Len=128 PF=0 >[HH:MM:SS]\\r<payload>
+    or the simpler form:
+        1:Fm CALL1 To CALL2 Via PATH [HH:MM:SS] <payload>
+
+    Returns the APRS payload portion, or the original string if no header found.
+    """
+    import re
+
+    # Match: <channel>:Fm <from> To <to> [Via <path>] [<UI info>] [<time>] then
+    # optional \r and whitespace before the payload
+    m = re.match(
+        r"^\d+:Fm\s+\S+\s+To\s+\S+(?:\s+Via\s+\S+(?:,\S+)*)?(?:\s+<[^>]*>)*\s*\[\d{2}:\d{2}:\d{2}\]\s*",
+        raw,
+    )
+    if m:
+        return raw[m.end() :].lstrip("\r\n")
+    return raw
+
+
+def _extract_aprs_for_parsing(payload: str, call_from: str, call_to: str) -> str:
+    """Build a parseable APRS string from the payload.
+
+    Third-party packets start with '}' and contain a full embedded APRS packet.
+    Normal packets are just the info field and need from>to: prepended.
+
+    Returns a string suitable for aprslib.parse().
+    """
+    if payload.startswith("}"):
+        # Third-party packet — the part after '}' is a full APRS packet
+        return payload[1:]
+    # Build standard APRS format: FROM>TO:payload
+    return f"{call_from}>{call_to}:{payload}"
 
 
 def packet_to_dict(
@@ -140,22 +195,39 @@ def packet_to_dict(
     Returns:
         Packet dict ready for storage and broadcasting, or None if parsing fails.
     """
+    # Strip Direwolf AGW monitor header if present
+    payload = _strip_agw_header(raw_aprs_string)
+    is_third_party = payload.startswith("}")
+    aprs_string = _extract_aprs_for_parsing(payload, call_from, call_to)
+
     try:
         import aprslib
-        parsed = aprslib.parse(raw_aprs_string)
+
+        parsed = aprslib.parse(aprs_string)
     except Exception:
         # If aprslib can't parse it, build a minimal dict from what we have
         parsed = None
 
+    # For third-party packets, use the inner packet's from/to if parsed
+    if is_third_party and parsed:
+        effective_from = parsed.get("from", call_from)
+        effective_to = parsed.get("to", call_to)
+    else:
+        effective_from = call_from
+        effective_to = call_to
+
     packet = {
         "timestamp": time.time(),
         "tx": tx,
-        "from_call": call_from or (parsed.get("from") if parsed else ""),
-        "to_call": call_to or (parsed.get("to") if parsed else ""),
+        "from_call": effective_from or (parsed.get("from") if parsed else ""),
+        "to_call": effective_to or (parsed.get("to") if parsed else ""),
         "audio_level": audio_level,
         "raw_log": raw_log_lines or [],
         "raw_packet": raw_aprs_string,
     }
+
+    if is_third_party:
+        packet["via"] = call_from  # The station that relayed the third-party packet
 
     if parsed:
         packet["type"] = _classify_packet_type(parsed)
@@ -171,7 +243,7 @@ def packet_to_dict(
         packet["type"] = "RawPacket"
         packet["path"] = []
         packet["msg_no"] = ""
-        packet["human_info"] = raw_aprs_string
+        packet["human_info"] = payload
         packet["comment"] = ""
 
     # Compute bearing and distance if we have positions
@@ -271,7 +343,9 @@ class PacketProcessor:
         self.station_lon = station_lon
         self.broadcast_queue = broadcast_queue
         # Buffer for correlating AGW packets with log data
-        self._pending_log_data: dict[str, dict] = {}  # callsign -> {audio_level, raw_lines, timestamp}
+        self._pending_log_data: dict[
+            str, dict
+        ] = {}  # callsign -> {audio_level, raw_lines, timestamp}
         self._correlation_window = 2.0  # seconds
 
     async def on_agw_packet(
@@ -291,7 +365,10 @@ class PacketProcessor:
         audio_level = None
         raw_log_lines = []
         log_data = self._pending_log_data.pop(call_from, None)
-        if log_data and (time.time() - log_data["timestamp"]) < self._correlation_window:
+        if (
+            log_data
+            and (time.time() - log_data["timestamp"]) < self._correlation_window
+        ):
             audio_level = log_data.get("audio_level")
             raw_log_lines = log_data.get("raw_lines", [])
 
@@ -335,7 +412,8 @@ class PacketProcessor:
         # Clean old pending data
         now = time.time()
         stale = [
-            k for k, v in self._pending_log_data.items()
+            k
+            for k, v in self._pending_log_data.items()
             if now - v["timestamp"] > self._correlation_window * 2
         ]
         for k in stale:

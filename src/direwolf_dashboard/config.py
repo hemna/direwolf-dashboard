@@ -18,6 +18,8 @@ class StationConfig:
     callsign: str = "N0CALL"
     latitude: float = 0.0
     longitude: float = 0.0
+    symbol: str = "-"
+    symbol_table: str = "/"
 
 
 @dataclass

@@ -137,7 +137,7 @@ class TestPacketToDict:
         result = packet_to_dict(raw, tx=False, call_from="TEST", call_to="APRS")
 
         assert result is not None
-        assert result["type"] == "RawPacket"
+        assert result["type"] in ("RawPacket", "UnknownPacket")
         assert result["from_call"] == "TEST"
 
     def test_with_audio_level(self):

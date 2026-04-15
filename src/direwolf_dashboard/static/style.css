@@ -248,7 +248,7 @@ body {
     right: 0;
     bottom: 0;
     background: rgba(0,0,0,0.7);
-    z-index: 200;
+    z-index: 10000;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -396,13 +396,21 @@ button.primary:hover {
 }
 
 .station-label {
-    background: rgba(13, 17, 23, 0.8);
-    border: 1px solid var(--border);
-    border-radius: 3px;
-    padding: 1px 4px;
-    font-size: 10px;
-    color: var(--accent);
+    font-size: 11px;
+    font-weight: bold;
+    color: var(--text-primary);
+    text-shadow: -1px -1px 0 #000, 1px -1px 0 #000,
+                 -1px  1px 0 #000, 1px  1px 0 #000;
     white-space: nowrap;
+    background: none;
+    border: none;
+    padding: 0;
+}
+
+.aprs-symbol-icon {
+    background: transparent !important;
+    border: none !important;
+    overflow: visible !important;
 }
 
 /* Scrollbar */

@@ -16,6 +16,61 @@
     let autoScroll = true;
     const MAX_LOG_ROWS = 500;
 
+    // --- APRS Symbol Sprites ---
+    const SYMBOL_SIZE = 24;
+    const SPRITE_COLS = 16;
+    const PRIMARY_SPRITE = 'https://raw.githubusercontent.com/hessu/aprs-symbols/master/png/aprs-symbols-24-0.png';
+    const SECONDARY_SPRITE = 'https://raw.githubusercontent.com/hessu/aprs-symbols/master/png/aprs-symbols-24-1.png';
+
+    function getSymbolSpritePosition(symbolChar) {
+        let charCode = 45; // default '-' = house
+        if (symbolChar && symbolChar.length > 0) {
+            const code = symbolChar.charCodeAt(0);
+            if (code >= 33 && code <= 126) {
+                charCode = code;
+            }
+        }
+        const index = Math.max(0, Math.min(95, charCode - 33));
+        const col = index % SPRITE_COLS;
+        const row = Math.floor(index / SPRITE_COLS);
+        return { x: -(col * SYMBOL_SIZE), y: -(row * SYMBOL_SIZE) };
+    }
+
+    function parseSymbolTable(symbolTable) {
+        if (!symbolTable || symbolTable === '/') {
+            return { spriteUrl: PRIMARY_SPRITE, overlay: null };
+        } else if (symbolTable === '\\') {
+            return { spriteUrl: SECONDARY_SPRITE, overlay: null };
+        } else {
+            return { spriteUrl: SECONDARY_SPRITE, overlay: symbolTable };
+        }
+    }
+
+    function createSymbolIcon(symbolTable, symbolChar, callsign) {
+        const pos = getSymbolSpritePosition(symbolChar);
+        const { spriteUrl, overlay } = parseSymbolTable(symbolTable);
+
+        let html = '<div style="position:relative;width:24px;height:24px;">';
+        html += `<div style="width:24px;height:24px;background-image:url('${spriteUrl}');background-position:${pos.x}px ${pos.y}px;background-repeat:no-repeat;image-rendering:pixelated;"></div>`;
+
+        if (overlay) {
+            html += `<div style="position:absolute;top:0;left:0;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:bold;color:#000;text-shadow:0 0 2px #fff, 0 0 2px #fff;">${overlay}</div>`;
+        }
+
+        if (callsign) {
+            html += `<span class="station-label" style="position:absolute;left:26px;top:50%;transform:translateY(-50%);white-space:nowrap;">${callsign}</span>`;
+        }
+        html += '</div>';
+
+        return L.divIcon({
+            html: html,
+            className: 'aprs-symbol-icon',
+            iconSize: [24, 24],
+            iconAnchor: [12, 12],
+            popupAnchor: [0, -12],
+        });
+    }
+
     // --- Init ---
     document.addEventListener('DOMContentLoaded', async () => {
         await loadConfig();
@@ -52,13 +107,13 @@
 
         // Add station marker if configured
         if (lat !== 0 || lon !== 0) {
-            L.marker([lat, lon], {
-                icon: L.divIcon({
-                    className: 'station-label',
-                    html: `&#x1F4E1; ${config.station?.callsign || 'Home'}`,
-                    iconSize: null,
-                }),
-            }).addTo(map).bindPopup(`<b>${config.station?.callsign || 'Home Station'}</b>`);
+            const callsign = config.station?.callsign || 'Home';
+            const sym = config.station?.symbol || '-';
+            const symTable = config.station?.symbol_table || '/';
+            const icon = createSymbolIcon(symTable, sym, callsign);
+            L.marker([lat, lon], { icon: icon })
+                .addTo(map)
+                .bindPopup(`<b>${callsign}</b><br>Home Station`);
         }
     }
 
@@ -78,38 +133,30 @@
         if (!data.latitude || !data.longitude) return;
 
         const cs = data.callsign;
+        const symbolChar = data.symbol || '-';
+        const symbolTable = data.symbol_table || '/';
 
         if (stations[cs]) {
             // Update existing marker
             stations[cs].marker.setLatLng([data.latitude, data.longitude]);
+            // Update icon if symbol changed
+            const oldKey = (stations[cs].data.symbol_table || '/') + (stations[cs].data.symbol || '-');
+            const newKey = symbolTable + symbolChar;
+            if (oldKey !== newKey) {
+                stations[cs].marker.setIcon(createSymbolIcon(symbolTable, symbolChar, cs));
+            }
             stations[cs].data = data;
             updateStationPopup(cs);
         } else {
-            // Create new marker
-            const marker = L.circleMarker([data.latitude, data.longitude], {
-                radius: 6,
-                fillColor: '#00b4d8',
-                color: '#0f3460',
-                weight: 1,
-                fillOpacity: 0.9,
-            }).addTo(map);
+            // Create new marker with APRS symbol icon
+            const icon = createSymbolIcon(symbolTable, symbolChar, cs);
+            const marker = L.marker([data.latitude, data.longitude], { icon: icon }).addTo(map);
 
             stations[cs] = {
                 marker: marker,
                 track: L.polyline([], { color: '#00b4d8', weight: 1.5, opacity: 0.6 }).addTo(map),
                 data: data,
             };
-
-            // Callsign label
-            L.marker([data.latitude, data.longitude], {
-                icon: L.divIcon({
-                    className: 'station-label',
-                    html: cs,
-                    iconSize: null,
-                    iconAnchor: [-8, 12],
-                }),
-                interactive: false,
-            }).addTo(map);
 
             updateStationPopup(cs);
         }
@@ -213,7 +260,10 @@
                 packet_count: (stations[packet.from_call]?.data?.packet_count || 0) + 1,
                 last_seen: packet.timestamp,
             });
-            updateStationTrack(packet.from_call, packet.latitude, packet.longitude);
+            // Only update track if this is a real position report (not DB lookup)
+            if (!packet.position_from_db) {
+                updateStationTrack(packet.from_call, packet.latitude, packet.longitude);
+            }
         }
     }
 
@@ -403,6 +453,8 @@
         document.getElementById('cfg-callsign').value = config.station?.callsign || '';
         document.getElementById('cfg-latitude').value = config.station?.latitude || 0;
         document.getElementById('cfg-longitude').value = config.station?.longitude || 0;
+        document.getElementById('cfg-symbol').value = config.station?.symbol || '-';
+        document.getElementById('cfg-symbol-table').value = config.station?.symbol_table || '/';
         document.getElementById('cfg-agw-host').value = config.direwolf?.agw_host || 'localhost';
         document.getElementById('cfg-agw-port').value = config.direwolf?.agw_port || 8000;
         document.getElementById('cfg-log-file').value = config.direwolf?.log_file || '';
@@ -423,6 +475,8 @@
                 callsign: document.getElementById('cfg-callsign').value,
                 latitude: parseFloat(document.getElementById('cfg-latitude').value),
                 longitude: parseFloat(document.getElementById('cfg-longitude').value),
+                symbol: document.getElementById('cfg-symbol').value || '-',
+                symbol_table: document.getElementById('cfg-symbol-table').value || '/',
             },
             direwolf: {
                 agw_host: document.getElementById('cfg-agw-host').value,
