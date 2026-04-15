@@ -15,6 +15,7 @@
     let stations = {};      // callsign -> { marker, track, data }
     let autoScroll = true;
     const MAX_LOG_ROWS = 500;
+    let trailHours = 1;  // Current trail duration in hours
 
     // --- Log View State ---
     const LOG_STATES = ['expanded', 'peek', 'hidden'];
@@ -318,6 +319,7 @@
         initLegend();
         await loadStations();
         loadStationPositions();
+        loadTracks();
         connectWebSocket();
         initFilters();
         initSettings();
@@ -388,6 +390,27 @@
         }
     }
 
+    async function loadTracks() {
+        try {
+            const resp = await fetch(`/api/stations/tracks?hours=${trailHours}`);
+            const tracks = await resp.json();
+            // Clear all existing tracks
+            for (const cs of Object.keys(stations)) {
+                if (stations[cs].track) {
+                    stations[cs].track.setLatLngs([]);
+                }
+            }
+            // Draw tracks from historical data
+            for (const [cs, points] of Object.entries(tracks)) {
+                if (!stations[cs]) continue;
+                const latlngs = points.map(p => [p[0], p[1]]);  // [lat, lon]
+                stations[cs].track.setLatLngs(latlngs);
+            }
+        } catch (e) {
+            console.error('Failed to load tracks:', e);
+        }
+    }
+
     function addOrUpdateStation(data) {
         if (!data.latitude || !data.longitude) return;
 
@@ -441,8 +464,6 @@
         if (!s) return;
         const latlngs = s.track.getLatLngs();
         latlngs.push([lat, lon]);
-        // Keep last 50 points
-        if (latlngs.length > 50) latlngs.shift();
         s.track.setLatLngs(latlngs);
     }
 
@@ -862,10 +883,17 @@
         const callsignInput = document.getElementById('filter-callsign');
         const typeSelect = document.getElementById('filter-type');
         const txrxSelect = document.getElementById('filter-txrx');
+        const trailSelect = document.getElementById('trail-duration');
 
         callsignInput.addEventListener('input', applyFilters);
         typeSelect.addEventListener('change', applyFilters);
         txrxSelect.addEventListener('change', applyFilters);
+
+        // Trail duration dropdown
+        trailSelect.addEventListener('change', (e) => {
+            trailHours = parseInt(e.target.value, 10);
+            loadTracks();
+        });
 
         // Auto-scroll detection
         const logList = document.getElementById('log-list');
@@ -881,6 +909,13 @@
         resumeBtn.addEventListener('click', () => {
             autoScroll = true;
             logList.scrollTop = 0;
+            resumeBtn.classList.add('hidden');
+        });
+
+        // Clear log
+        document.getElementById('btn-clear-log').addEventListener('click', () => {
+            logList.innerHTML = '';
+            autoScroll = true;
             resumeBtn.classList.add('hidden');
         });
     }

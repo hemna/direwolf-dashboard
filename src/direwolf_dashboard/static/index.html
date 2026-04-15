@@ -19,6 +19,12 @@
         </div>
         <div class="toolbar-right">
             <div id="filter-bar">
+                <select id="trail-duration" title="Trail duration">
+                    <option value="1" selected>Trails: 1h</option>
+                    <option value="2">Trails: 2h</option>
+                    <option value="6">Trails: 6h</option>
+                    <option value="24">Trails: 24h</option>
+                </select>
                 <input type="text" id="filter-callsign" placeholder="Filter callsign..." />
                 <select id="filter-type">
                     <option value="">All Types</option>
@@ -50,7 +56,10 @@
     <div id="log-container">
         <div id="log-header">
             <span>Live Packet Log</span>
-            <button id="btn-resume" class="hidden">&#x25B2; Resume Auto-scroll</button>
+            <div class="log-header-actions">
+                <button id="btn-resume" class="hidden">&#x25B2; Resume Auto-scroll</button>
+                <button id="btn-clear-log" title="Clear log">&#x2715; Clear</button>
+            </div>
         </div>
         <div id="log-list"></div>
     </div>

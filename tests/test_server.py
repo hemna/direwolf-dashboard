@@ -182,6 +182,36 @@ class TestStationPositionsEndpoint:
             assert "N3DEF" in data
 
 
+class TestStationTracksEndpoint:
+    async def test_get_tracks_empty(self, test_app):
+        app, storage = test_app
+        with TestClient(app, raise_server_exceptions=False) as client:
+            resp = client.get("/api/stations/tracks?hours=1")
+            assert resp.status_code == 200
+            assert resp.json() == {}
+
+    async def test_get_tracks_with_data(self, test_app):
+        app, storage = test_app
+        t = time.time()
+        for i in range(3):
+            await storage.insert_packet(
+                _make_packet(
+                    from_call="WB4BOR",
+                    timestamp=t - 1800 + i * 100,
+                    latitude=37.75 + i * 0.01,
+                    longitude=-77.45,
+                )
+            )
+        with TestClient(app, raise_server_exceptions=False) as client:
+            resp = client.get("/api/stations/tracks?hours=1")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert "WB4BOR" in data
+            assert len(data["WB4BOR"]) == 3
+            # Each point is [lat, lon, timestamp]
+            assert len(data["WB4BOR"][0]) == 3
+
+
 class TestConfigEndpoint:
     async def test_get_config(self, test_app):
         app, storage = test_app

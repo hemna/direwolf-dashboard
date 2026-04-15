@@ -210,18 +210,69 @@ class Storage:
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
 
-    async def get_station_track(self, callsign: str, limit: int = 100) -> list[dict]:
-        """Return position history for a station."""
-        cursor = await self._db.execute(
-            """SELECT timestamp, latitude, longitude
-            FROM packets
-            WHERE from_call = ? AND latitude IS NOT NULL AND longitude IS NOT NULL
-            ORDER BY timestamp DESC
-            LIMIT ?""",
-            (callsign, limit),
-        )
+    async def get_station_track(
+        self,
+        callsign: str,
+        limit: int = 100,
+        since: Optional[float] = None,
+    ) -> list[dict]:
+        """Return position history for a station.
+
+        Args:
+            callsign: Station callsign to query.
+            limit: Maximum number of points to return.
+            since: If provided, only return points with timestamp >= since.
+        """
+        if since is not None:
+            cursor = await self._db.execute(
+                """SELECT timestamp, latitude, longitude
+                FROM packets
+                WHERE from_call = ? AND latitude IS NOT NULL
+                    AND longitude IS NOT NULL AND timestamp >= ?
+                ORDER BY timestamp DESC
+                LIMIT ?""",
+                (callsign, since, limit),
+            )
+        else:
+            cursor = await self._db.execute(
+                """SELECT timestamp, latitude, longitude
+                FROM packets
+                WHERE from_call = ? AND latitude IS NOT NULL
+                    AND longitude IS NOT NULL
+                ORDER BY timestamp DESC
+                LIMIT ?""",
+                (callsign, limit),
+            )
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
+
+    async def get_all_station_tracks(
+        self, since: float, limit_per_station: int = 500
+    ) -> dict[str, list[dict]]:
+        """Return position tracks for all stations since a given time.
+
+        Returns:
+            Dict of callsign -> list of {timestamp, latitude, longitude} dicts,
+            ordered oldest-first per station.
+        """
+        cursor = await self._db.execute(
+            """SELECT from_call, timestamp, latitude, longitude
+            FROM packets
+            WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+                AND timestamp >= ?
+            ORDER BY from_call, timestamp ASC""",
+            (since,),
+        )
+        rows = await cursor.fetchall()
+        tracks: dict[str, list[dict]] = {}
+        for row in rows:
+            r = dict(row)
+            cs = r.pop("from_call")
+            if cs not in tracks:
+                tracks[cs] = []
+            if len(tracks[cs]) < limit_per_station:
+                tracks[cs].append(r)
+        return tracks
 
     async def get_stats(self) -> dict:
         """Return storage statistics."""

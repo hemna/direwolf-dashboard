@@ -172,6 +172,22 @@ def create_app(config: Config, config_path: str) -> FastAPI:
             for row in rows
         }
 
+    @app.get("/api/stations/tracks")
+    async def get_station_tracks(hours: int = Query(1, ge=1, le=24)):
+        """Return position tracks for all stations within a time window.
+
+        Returns a dict of callsign -> [[lat, lon, timestamp], ...] for map display.
+        """
+        import time
+
+        since = time.time() - (hours * 3600)
+        tracks = await state.storage.get_all_station_tracks(since)
+        # Convert to lightweight format: {callsign: [[lat, lon, ts], ...]}
+        return {
+            cs: [[p["latitude"], p["longitude"], p["timestamp"]] for p in points]
+            for cs, points in tracks.items()
+        }
+
     @app.get("/api/stats")
     async def get_stats():
         """Get dashboard statistics."""

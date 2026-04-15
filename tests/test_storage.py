@@ -212,6 +212,48 @@ class TestStations:
         # Should be newest first
         assert track[0]["latitude"] > track[-1]["latitude"]
 
+    async def test_get_station_track_with_since(self, storage):
+        t = time.time()
+        for i in range(5):
+            await storage.insert_packet(
+                _make_packet(
+                    from_call="WB4BOR",
+                    timestamp=t - 3600 + i * 100,  # spread over last hour
+                    latitude=37.75 + i * 0.01,
+                    longitude=-77.45 + i * 0.01,
+                )
+            )
+        # Only get points from last 300 seconds worth
+        track = await storage.get_station_track("WB4BOR", since=t - 3600 + 200)
+        assert len(track) == 3  # points at i=2,3,4
+
+    async def test_get_all_station_tracks(self, storage):
+        t = time.time()
+        for i in range(3):
+            await storage.insert_packet(
+                _make_packet(
+                    from_call="WB4BOR",
+                    timestamp=t - 1800 + i * 100,
+                    latitude=37.75 + i * 0.01,
+                    longitude=-77.45,
+                )
+            )
+            await storage.insert_packet(
+                _make_packet(
+                    from_call="N3LLO",
+                    timestamp=t - 1800 + i * 100,
+                    latitude=38.0 + i * 0.01,
+                    longitude=-78.0,
+                )
+            )
+        tracks = await storage.get_all_station_tracks(since=t - 3600)
+        assert "WB4BOR" in tracks
+        assert "N3LLO" in tracks
+        assert len(tracks["WB4BOR"]) == 3
+        assert len(tracks["N3LLO"]) == 3
+        # Should be oldest first
+        assert tracks["WB4BOR"][0]["timestamp"] < tracks["WB4BOR"][-1]["timestamp"]
+
     async def test_get_all_station_positions(self, storage):
         await storage.upsert_station("N3ABC", 100.0, latitude=40.0, longitude=-75.0)
         await storage.upsert_station("N3DEF", 100.0, latitude=39.0, longitude=-76.0)
