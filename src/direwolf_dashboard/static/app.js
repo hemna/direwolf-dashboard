@@ -71,6 +71,176 @@
         });
     }
 
+    // --- APRS Symbol Names ---
+    const PRIMARY_SYMBOLS = {
+        '!':'Police Station','"':'Reserved','#':'Digi','$':'Phone','%':'DX Cluster',
+        '&':'HF Gateway','\'':'Small Aircraft','(':'Mobile Satellite Station',')':'Wheelchair',
+        '*':'Snowmobile','+':'Red Cross',',':'Boy Scouts','-':'House','.':'X','/':'Red Dot',
+        '0':'Circle (0)','1':'Circle (1)','2':'Circle (2)','3':'Circle (3)','4':'Circle (4)',
+        '5':'Circle (5)','6':'Circle (6)','7':'Circle (7)','8':'Circle (8)','9':'Circle (9)',
+        ':':'Fire',';':'Campground','<':'Motorcycle','=':'Railroad Engine','>':'Car',
+        '?':'File Server','@':'Hurricane','A':'Aid Station','B':'BBS','C':'Canoe','D':'Fire Dept',
+        'E':'Horse','F':'Fire Truck','G':'Glider','H':'Hospital','I':'TCP/IP','J':'Jeep',
+        'K':'School','L':'PC User','M':'MacAPRS','N':'NTS Station','O':'Balloon',
+        'P':'Police','Q':'TBD','R':'Rec Vehicle','S':'Space Shuttle','T':'SSTV',
+        'U':'Bus','V':'ATV','W':'NWS Site','X':'Helicopter','Y':'Yacht','Z':'WinAPRS',
+        '[':'Jogger','\\':'Triangle',']':'PBBS','^':'Large Aircraft','_':'Weather Station',
+        '`':'Dish Antenna','a':'Ambulance','b':'Bicycle','c':'ICP','d':'Fire Station',
+        'e':'Horse','f':'Fire Truck','g':'Glider','h':'Hospital','i':'IOTA','j':'Jeep',
+        'k':'Truck','l':'Laptop','m':'Mic-E Repeater','n':'Node','o':'EOC','p':'Dog',
+        'q':'Grid Square','r':'Repeater','s':'Ship','t':'Truck Stop','u':'Truck (18-wheeler)',
+        'v':'Van','w':'Water Station','x':'xAPRS','y':'House w/Yagi','z':'TBD',
+        '{':'TBD','|':'TNC Stream Switch','}':'TBD','~':'TNC Stream Switch'
+    };
+
+    const ALTERNATE_SYMBOLS = {
+        '!':'Emergency','"':'Reserved','#':'Digi (Overlay)','$':'Bank','%':'Power Plant',
+        '&':'HF Gateway (Overlay)','\'':'Crash Site','(':'Cloudy','(':'Cloudy',')':'Firenet',
+        '*':'Snow','+':'Church',',':'Girl Scouts','-':'House (Overlay)','.':'Unknown','/':'Red Dot',
+        '0':'Circle (Overlay)','1':'TBD','2':'TBD','3':'TBD','4':'TBD',
+        '5':'TBD','6':'TBD','7':'TBD','8':'802.11','9':'Gas Station',
+        ':':'Hail',';':'Park','<':'Advisory (Overlay)','=':'TBD','>':'Car (Overlay)',
+        '?':'Info Kiosk','@':'Hurricane','A':'Box','B':'Blowing Snow','C':'Coast Guard',
+        'D':'Drizzle','E':'Smoke','F':'Freezing Rain','G':'Snow Shower','H':'Haze',
+        'I':'Rain Shower','J':'Lightning','K':'Kenwood','L':'Lighthouse','M':'TBD',
+        'N':'Navigation Buoy','O':'Balloon (Overlay)','P':'Parking','Q':'Earthquake',
+        'R':'Restaurant','S':'Satellite','T':'Thunderstorm','U':'Sunny','V':'VORTAC',
+        'W':'NWS Site (Overlay)','X':'Pharmacy','Y':'TBD','Z':'TBD',
+        '[':'Wall Cloud','\\':'TBD',']':'TBD','^':'Aircraft (Overlay)','_':'WX Station (Overlay)',
+        '`':'Rain','a':'ARRL','b':'Blowing Dust','c':'Civil Defense','d':'DX Spot',
+        'e':'Sleet','f':'Funnel Cloud','g':'Gale Flags','h':'HAM Store','i':'Indoor POI',
+        'j':'Work Zone','k':'SUV','l':'Area Symbols','m':'Value Sign','n':'Triangle (Overlay)',
+        'o':'Small Circle','p':'Partly Cloudy','q':'TBD','r':'Restrooms','s':'Ship (Overlay)',
+        't':'Tornado','u':'Truck (Overlay)','v':'Van (Overlay)','w':'Flooding',
+        'x':'Wreck','y':'Skywarn','z':'Shelter (Overlay)','{':'Fog','|':'TNC Stream Switch',
+        '}':'TBD','~':'TNC Stream Switch'
+    };
+
+    function getSymbolName(table, symbol) {
+        if (table === '/') return PRIMARY_SYMBOLS[symbol] || 'Unknown';
+        return ALTERNATE_SYMBOLS[symbol] || 'Unknown';
+    }
+
+    // --- Symbol Picker ---
+    function updateSymbolPreview() {
+        const sym = document.getElementById('cfg-symbol').value || '-';
+        const tbl = document.getElementById('cfg-symbol-table').value || '/';
+        const preview = document.getElementById('symbol-preview');
+        const nameEl = document.getElementById('symbol-preview-name');
+
+        const pos = getSymbolSpritePosition(sym);
+        const { spriteUrl } = parseSymbolTable(tbl);
+        const overlay = (tbl !== '/' && tbl !== '\\') ? tbl : null;
+
+        let html = `<div style="width:24px;height:24px;background-image:url('${spriteUrl}');background-position:${pos.x}px ${pos.y}px;background-repeat:no-repeat;image-rendering:pixelated;"></div>`;
+        if (overlay) {
+            html += `<div style="position:absolute;top:0;left:0;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:bold;color:#000;text-shadow:0 0 2px #fff;">${overlay}</div>`;
+        }
+        preview.innerHTML = html;
+        nameEl.textContent = getSymbolName(tbl, sym) + ' (' + tbl + sym + ')';
+    }
+
+    function renderSymbolGrid(table) {
+        const grid = document.getElementById('symbol-picker-grid');
+        const currentSym = document.getElementById('cfg-symbol').value;
+        const currentTbl = document.getElementById('cfg-symbol-table').value;
+        const spriteUrl = table === '/' ? PRIMARY_SPRITE : SECONDARY_SPRITE;
+        const names = table === '/' ? PRIMARY_SYMBOLS : ALTERNATE_SYMBOLS;
+
+        grid.innerHTML = '';
+
+        for (let i = 33; i <= 126; i++) {
+            const ch = String.fromCharCode(i);
+            const pos = getSymbolSpritePosition(ch);
+            const name = names[ch] || 'Symbol';
+            const isSelected = (table === currentTbl && ch === currentSym);
+
+            const cell = document.createElement('button');
+            cell.type = 'button';
+            cell.className = 'symbol-cell' + (isSelected ? ' symbol-cell-selected' : '');
+            cell.dataset.table = table;
+            cell.dataset.symbol = ch;
+            cell.dataset.name = name;
+            cell.title = table + ch + ' - ' + name;
+
+            // Use 36px scale: 48px * 0.75
+            const x = (pos.x / 24) * 36;
+            const y = (pos.y / 24) * 36;
+            cell.innerHTML = `<div class="symbol-icon" style="background-image:url('${spriteUrl}');background-position:${x}px ${y}px;"></div>`;
+
+            grid.appendChild(cell);
+        }
+    }
+
+    function initSymbolPicker() {
+        const pickerModal = document.getElementById('symbol-picker-modal');
+        const btnPick = document.getElementById('btn-pick-symbol');
+        const preview = document.getElementById('symbol-preview');
+        const btnClose = document.getElementById('btn-close-symbol-picker');
+        const tabPrimary = document.getElementById('symbol-tab-primary');
+        const tabAlt = document.getElementById('symbol-tab-alternate');
+        const grid = document.getElementById('symbol-picker-grid');
+        const info = document.getElementById('symbol-picker-info');
+        let activeTable = '/';
+
+        function openPicker() {
+            const tbl = document.getElementById('cfg-symbol-table').value || '/';
+            activeTable = (tbl === '/' || tbl === '\\') ? tbl : '\\';
+            tabPrimary.classList.toggle('active', activeTable === '/');
+            tabAlt.classList.toggle('active', activeTable === '\\');
+            renderSymbolGrid(activeTable);
+            pickerModal.classList.remove('hidden');
+        }
+
+        function closePicker() {
+            pickerModal.classList.add('hidden');
+        }
+
+        btnPick.addEventListener('click', openPicker);
+        preview.addEventListener('click', openPicker);
+        btnClose.addEventListener('click', closePicker);
+        pickerModal.addEventListener('click', (e) => {
+            if (e.target === pickerModal) closePicker();
+        });
+
+        tabPrimary.addEventListener('click', () => {
+            if (activeTable === '/') return;
+            activeTable = '/';
+            tabPrimary.classList.add('active');
+            tabAlt.classList.remove('active');
+            renderSymbolGrid('/');
+        });
+
+        tabAlt.addEventListener('click', () => {
+            if (activeTable === '\\') return;
+            activeTable = '\\';
+            tabAlt.classList.add('active');
+            tabPrimary.classList.remove('active');
+            renderSymbolGrid('\\');
+        });
+
+        // Click on a symbol cell
+        grid.addEventListener('click', (e) => {
+            const cell = e.target.closest('.symbol-cell');
+            if (!cell) return;
+            document.getElementById('cfg-symbol').value = cell.dataset.symbol;
+            document.getElementById('cfg-symbol-table').value = cell.dataset.table;
+            updateSymbolPreview();
+            closePicker();
+        });
+
+        // Hover info
+        grid.addEventListener('mouseover', (e) => {
+            const cell = e.target.closest('.symbol-cell');
+            if (cell) {
+                info.textContent = cell.dataset.table + cell.dataset.symbol + ' - ' + cell.dataset.name;
+            }
+        });
+        grid.addEventListener('mouseleave', () => {
+            info.textContent = 'Hover over a symbol to see details';
+        });
+    }
+
     // --- Init ---
     document.addEventListener('DOMContentLoaded', async () => {
         await loadConfig();
@@ -79,6 +249,7 @@
         connectWebSocket();
         initFilters();
         initSettings();
+        initSymbolPicker();
         initMapResize();
     });
 
@@ -471,6 +642,8 @@
         if (config.tiles?.cache_mode === 'preload') {
             document.getElementById('preload-section').classList.remove('hidden');
         }
+
+        updateSymbolPreview();
     }
 
     async function saveSettings() {
@@ -567,6 +740,7 @@
             const fields = Object.keys(data).filter(k => data[k]).join(', ');
             feedback.className = 'success';
             feedback.textContent = `Imported: ${fields}. Click Save to apply.`;
+            updateSymbolPreview();
         } catch (e) {
             feedback.className = 'error';
             feedback.textContent = `Error: ${e.message}`;
