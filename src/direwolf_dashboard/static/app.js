@@ -334,6 +334,10 @@
         try {
             const resp = await fetch('/api/config');
             config = await resp.json();
+            if (config.version) {
+                const el = document.getElementById('app-version');
+                if (el) el.textContent = config.version;
+            }
         } catch (e) {
             console.error('Failed to load config:', e);
         }

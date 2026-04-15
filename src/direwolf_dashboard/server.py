@@ -207,7 +207,11 @@ def create_app(config: Config, config_path: str) -> FastAPI:
     @app.get("/api/config")
     async def get_config():
         """Get current configuration."""
-        return state.config.to_dict()
+        from direwolf_dashboard import __version__
+
+        d = state.config.to_dict()
+        d["version"] = __version__
+        return d
 
     @app.put("/api/config")
     async def put_config(updates: dict):

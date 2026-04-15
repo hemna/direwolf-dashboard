@@ -261,6 +261,29 @@ html, body {
     display: none;
 }
 
+/* Footer */
+#footer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 3px 12px;
+    background: var(--toolbar-bg);
+    border-top: 1px solid var(--border);
+    font-size: 10px;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+}
+
+#footer a {
+    color: var(--accent);
+    text-decoration: none;
+}
+
+#footer a:hover {
+    text-decoration: underline;
+}
+
 /* Layout */
 body {
     display: flex;
