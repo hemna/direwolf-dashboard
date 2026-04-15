@@ -166,17 +166,23 @@ def _strip_agw_header(raw: str) -> tuple[str, str | None]:
     return raw, None
 
 
-def _extract_aprs_for_parsing(payload: str, call_from: str, call_to: str) -> str:
+def _extract_aprs_for_parsing(
+    payload: str, call_from: str, call_to: str, via_path: str | None = None
+) -> str:
     """Build a parseable APRS string from the payload.
 
     Third-party packets start with '}' and contain a full embedded APRS packet.
     Normal packets are just the info field and need from>to: prepended.
+    If via_path is provided, it's included in the header so aprslib can parse
+    the digipeater path.
 
     Returns a string suitable for aprslib.parse().
     """
     if payload.startswith("}"):
         # Third-party packet — the part after '}' is a full APRS packet
         return payload[1:]
+    if via_path:
+        return f"{call_from}>{call_to},{via_path}:{payload}"
     # Build standard APRS format: FROM>TO:payload
     return f"{call_from}>{call_to}:{payload}"
 
@@ -201,7 +207,7 @@ def packet_to_dict(
     # Strip Direwolf AGW monitor header if present
     payload, via_path = _strip_agw_header(raw_aprs_string)
     is_third_party = payload.startswith("}")
-    aprs_string = _extract_aprs_for_parsing(payload, call_from, call_to)
+    aprs_string = _extract_aprs_for_parsing(payload, call_from, call_to, via_path)
 
     try:
         import aprslib

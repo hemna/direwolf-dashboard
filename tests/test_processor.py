@@ -5,6 +5,7 @@ import math
 import pytest
 
 from direwolf_dashboard.processor import (
+    _extract_aprs_for_parsing,
     _strip_agw_header,
     calculate_initial_compass_bearing,
     degrees_to_cardinal,
@@ -167,6 +168,29 @@ class TestStripAgwHeader:
         assert via_path == "N3LLO-10,WIDE1-1"
 
 
+class TestExtractAprsForParsing:
+    """Test APRS string construction for aprslib parsing."""
+
+    def test_normal_packet_without_via(self):
+        result = _extract_aprs_for_parsing("!3745.00N/07730.00W>", "WB4BOR", "APRS")
+        assert result == "WB4BOR>APRS:!3745.00N/07730.00W>"
+
+    def test_normal_packet_with_via_path(self):
+        result = _extract_aprs_for_parsing(
+            "!3745.00N/07730.00W>", "WB4BOR", "APRS", via_path="WIDE1-1,WIDE2-1"
+        )
+        assert result == "WB4BOR>APRS,WIDE1-1,WIDE2-1:!3745.00N/07730.00W>"
+
+    def test_third_party_packet_ignores_via_path(self):
+        result = _extract_aprs_for_parsing(
+            "}N3LLO>APRS,WIDE1-1:!3745.00N/07730.00W>",
+            "WB4BOR",
+            "APRS",
+            via_path="RELAY*",
+        )
+        assert result == "N3LLO>APRS,WIDE1-1:!3745.00N/07730.00W>"
+
+
 class TestPacketToDict:
     """Test raw APRS string parsing into packet dict."""
 
@@ -221,6 +245,16 @@ class TestPacketToDict:
         if result.get("latitude") and result.get("longitude"):
             assert result.get("bearing") is not None
             assert result.get("distance_miles") is not None
+
+    def test_agw_packet_with_via_path_populates_path(self):
+        raw = (
+            "1:Fm WB4BOR To APRS Via WIDE1-1,WIDE2-1 "
+            "<UI pid=F0 Len=64>[12:00:00]\r!3745.00N/07730.00W>"
+        )
+        result = packet_to_dict(raw, tx=False, call_from="WB4BOR", call_to="APRS")
+
+        assert result is not None
+        assert result["path"] == ["WIDE1-1", "WIDE2-1"]
 
 
 class TestPacketProcessor:
