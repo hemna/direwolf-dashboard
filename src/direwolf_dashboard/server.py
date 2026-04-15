@@ -205,6 +205,23 @@ def create_app(config: Config, config_path: str) -> FastAPI:
         except Exception as e:
             raise HTTPException(status_code=400, detail={"errors": str(e)})
 
+    @app.post("/api/import-direwolf-conf")
+    async def import_direwolf_conf(body: dict):
+        """Parse a Direwolf config file and return extracted station settings."""
+        from direwolf_dashboard.config import parse_direwolf_conf
+
+        conf_path = body.get("conf_path", "")
+        if not conf_path:
+            raise HTTPException(status_code=400, detail="conf_path is required")
+
+        extracted = parse_direwolf_conf(conf_path)
+        if not extracted:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Could not read or parse: {conf_path}",
+            )
+        return extracted
+
     @app.get("/api/tiles/{z}/{x}/{y}.png")
     async def get_tile(z: int, x: int, y: int):
         """Serve a map tile (cached or proxied from upstream)."""

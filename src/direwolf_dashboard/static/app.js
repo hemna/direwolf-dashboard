@@ -423,6 +423,9 @@
 
         btnSave.addEventListener('click', saveSettings);
 
+        // Import from Direwolf conf
+        document.getElementById('btn-import-dw-conf').addEventListener('click', importDirewolfConf);
+
         // Tile mode toggle
         document.getElementById('cfg-tile-mode').addEventListener('change', (e) => {
             const preloadSection = document.getElementById('preload-section');
@@ -458,6 +461,7 @@
         document.getElementById('cfg-agw-host').value = config.direwolf?.agw_host || 'localhost';
         document.getElementById('cfg-agw-port').value = config.direwolf?.agw_port || 8000;
         document.getElementById('cfg-log-file').value = config.direwolf?.log_file || '';
+        document.getElementById('cfg-conf-file').value = config.direwolf?.conf_file || '';
         document.getElementById('cfg-server-port').value = config.server?.port || 8080;
         document.getElementById('cfg-retention').value = config.storage?.retention_days || 7;
         document.getElementById('cfg-tile-mode').value = config.tiles?.cache_mode || 'lazy';
@@ -482,6 +486,7 @@
                 agw_host: document.getElementById('cfg-agw-host').value,
                 agw_port: parseInt(document.getElementById('cfg-agw-port').value),
                 log_file: document.getElementById('cfg-log-file').value,
+                conf_file: document.getElementById('cfg-conf-file').value,
             },
             server: {
                 port: parseInt(document.getElementById('cfg-server-port').value),
@@ -520,6 +525,51 @@
             feedback.className = 'error';
             feedback.textContent = `Error: ${e.message}`;
             feedback.classList.remove('hidden');
+        }
+    }
+
+    async function importDirewolfConf() {
+        const confPath = document.getElementById('cfg-conf-file').value.trim();
+        const feedback = document.getElementById('import-feedback');
+
+        if (!confPath) {
+            feedback.className = 'error';
+            feedback.textContent = 'Enter a config file path first';
+            feedback.classList.remove('hidden');
+            return;
+        }
+
+        feedback.className = '';
+        feedback.textContent = 'Importing...';
+        feedback.classList.remove('hidden');
+
+        try {
+            const resp = await fetch('/api/import-direwolf-conf', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ conf_path: confPath }),
+            });
+            const data = await resp.json();
+
+            if (!resp.ok) {
+                feedback.className = 'error';
+                feedback.textContent = data.detail || 'Import failed';
+                return;
+            }
+
+            // Populate the settings form with extracted values
+            if (data.callsign) document.getElementById('cfg-callsign').value = data.callsign;
+            if (data.latitude) document.getElementById('cfg-latitude').value = data.latitude;
+            if (data.longitude) document.getElementById('cfg-longitude').value = data.longitude;
+            if (data.symbol) document.getElementById('cfg-symbol').value = data.symbol;
+            if (data.symbol_table) document.getElementById('cfg-symbol-table').value = data.symbol_table;
+
+            const fields = Object.keys(data).filter(k => data[k]).join(', ');
+            feedback.className = 'success';
+            feedback.textContent = `Imported: ${fields}. Click Save to apply.`;
+        } catch (e) {
+            feedback.className = 'error';
+            feedback.textContent = `Error: ${e.message}`;
         }
     }
 

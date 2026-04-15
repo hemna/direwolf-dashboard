@@ -361,6 +361,21 @@ button.primary:hover {
 #settings-feedback.error { color: var(--danger); }
 #settings-feedback.warning { color: var(--warning); }
 
+#import-feedback.success { color: var(--success); }
+#import-feedback.error { color: var(--danger); }
+
+button.secondary {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    border-radius: 3px;
+    cursor: pointer;
+}
+button.secondary:hover {
+    color: var(--text-primary);
+    border-color: var(--accent);
+}
+
 .hidden { display: none !important; }
 
 /* Progress bar */

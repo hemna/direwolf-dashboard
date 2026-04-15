@@ -77,6 +77,12 @@
                     <label>AGW Host <input type="text" id="cfg-agw-host" /></label>
                     <label>AGW Port <input type="number" id="cfg-agw-port" /></label>
                     <label>Log File <input type="text" id="cfg-log-file" /></label>
+                    <label>Config File <input type="text" id="cfg-conf-file" placeholder="~/direwolf.conf" />
+                    </label>
+                    <div style="margin-top:4px;">
+                        <button id="btn-import-dw-conf" type="button" class="secondary" style="font-size:11px;padding:3px 10px;">Import from Direwolf conf</button>
+                        <span id="import-feedback" class="hidden" style="font-size:10px;margin-left:8px;"></span>
+                    </div>
                 </fieldset>
                 <fieldset>
                     <legend>Server</legend>
