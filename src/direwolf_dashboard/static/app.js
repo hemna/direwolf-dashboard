@@ -356,15 +356,28 @@
             maxZoom: 18,
         }).addTo(map);
 
-        // Add station marker if configured
+        // Add station marker if configured — register it in `stations`
+        // so that loadStations() / WebSocket updates don't create a duplicate.
         if (lat !== 0 || lon !== 0) {
             const callsign = config.station?.callsign || 'Home';
             const sym = config.station?.symbol || '-';
             const symTable = config.station?.symbol_table || '/';
             const icon = createSymbolIcon(symTable, sym, callsign);
-            L.marker([lat, lon], { icon: icon })
+            const marker = L.marker([lat, lon], { icon: icon })
                 .addTo(map)
                 .bindPopup(`<b>${callsign}</b><br>Home Station`);
+
+            stations[callsign] = {
+                marker: marker,
+                track: L.polyline([], { color: '#00b4d8', weight: 1.5, opacity: 0.6 }).addTo(map),
+                data: {
+                    callsign: callsign,
+                    latitude: lat,
+                    longitude: lon,
+                    symbol: sym,
+                    symbol_table: symTable,
+                },
+            };
         }
 
         setInterval(cleanupAnimations, 10000);
