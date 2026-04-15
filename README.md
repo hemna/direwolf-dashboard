@@ -2,6 +2,8 @@
 
 A lightweight, web-based live display of [Direwolf](https://github.com/wb2osz/direwolf) TNC activity. Designed to run on a **Raspberry Pi Zero 2W** — shows a live map of APRS stations and a scrolling packet log in your browser.
 
+![Direwolf Dashboard](screenshot.png)
+
 ## Features
 
 - **Live Leaflet map** with APRS symbol icons, callsign labels, and movement trails
