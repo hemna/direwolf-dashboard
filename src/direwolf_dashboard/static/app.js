@@ -634,23 +634,30 @@
                 const distKm = distMeters / 1000;
                 const distMiles = distMeters / 1609.344;
                 const label = `${distKm.toFixed(2)} km / ${distMiles.toFixed(2)} mi`;
-                // Midpoint
-                const midLat = (from.lat + to.lat) / 2;
-                const midLng = (from.lng + to.lng) / 2;
-                // Compute screen-space angle from the two endpoints
+                // Midpoint in screen space
                 const fromPt = map.latLngToContainerPoint(from);
                 const toPt = map.latLngToContainerPoint(to);
-                let angle = Math.atan2(toPt.y - fromPt.y, toPt.x - fromPt.x) * 180 / Math.PI;
+                const midPt = L.point((fromPt.x + toPt.x) / 2, (fromPt.y + toPt.y) / 2);
+                // Compute screen-space angle from the two endpoints
+                const dx = toPt.x - fromPt.x;
+                const dy = toPt.y - fromPt.y;
+                let angle = Math.atan2(dy, dx) * 180 / Math.PI;
                 // Keep text readable (not upside-down)
                 if (angle > 90) angle -= 180;
                 if (angle < -90) angle += 180;
+                // Offset perpendicular to the line (above it) by 8 pixels
+                const len = Math.sqrt(dx * dx + dy * dy) || 1;
+                const perpX = -dy / len * 8;
+                const perpY =  dx / len * 8;
+                const offsetPt = L.point(midPt.x + perpX, midPt.y + perpY);
+                const offsetLatLng = map.containerPointToLatLng(offsetPt);
                 const icon = L.divIcon({
                     className: 'route-distance-label',
                     html: `<span style="transform:rotate(${angle.toFixed(1)}deg);transform-origin:center center">${label}</span>`,
                     iconSize: [120, 16],
                     iconAnchor: [60, 8],
                 });
-                const marker = L.marker([midLat, midLng], { icon, interactive: false });
+                const marker = L.marker(offsetLatLng, { icon, interactive: false });
                 elements.push(marker);
             }
         }
