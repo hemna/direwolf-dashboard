@@ -828,3 +828,15 @@ button.secondary:hover {
         border-color: var(--accent);
     }
 }
+
+/* Route distance labels on packet route polylines */
+.route-distance-label {
+    background: rgba(0, 0, 0, 0.7);
+    border: 1px solid rgba(0, 0, 255, 0.5);
+    color: #e0e0e0;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 11px;
+    padding: 2px 5px;
+    white-space: nowrap;
+    box-shadow: none;
+}

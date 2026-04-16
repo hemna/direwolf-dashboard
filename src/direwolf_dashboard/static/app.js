@@ -620,10 +620,17 @@
         if (waypoints.length < 2) return [];
         const polylines = [];
         for (let i = 0; i < waypoints.length - 1; i++) {
+            const from = L.latLng(waypoints[i].lat, waypoints[i].lng);
+            const to = L.latLng(waypoints[i + 1].lat, waypoints[i + 1].lng);
+            const distMeters = from.distanceTo(to);
+            const distKm = distMeters / 1000;
+            const distMiles = distMeters / 1609.344;
+            const label = `${distKm.toFixed(2)} km / ${distMiles.toFixed(2)} mi`;
             const line = L.polyline(
-                [[waypoints[i].lat, waypoints[i].lng], [waypoints[i + 1].lat, waypoints[i + 1].lng]],
+                [[from.lat, from.lng], [to.lat, to.lng]],
                 { color: '#0000ff', weight: 3, opacity: 0.6, dashArray: '4,8', lineCap: 'round', lineJoin: 'round' }
             );
+            line.bindTooltip(label, { permanent: true, direction: 'center', className: 'route-distance-label' });
             polylines.push(line);
         }
         return polylines;
