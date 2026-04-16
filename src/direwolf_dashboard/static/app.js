@@ -1132,6 +1132,11 @@
                 config = { ...config, ...updates };
                 // Apply display settings immediately
                 showRouteDistances = updates.display.show_route_distances;
+                // Auto-close settings modal after a short delay
+                setTimeout(() => {
+                    document.getElementById('settings-modal').classList.add('hidden');
+                    feedback.classList.add('hidden');
+                }, 1500);
             } else {
                 feedback.className = 'error';
                 feedback.textContent = `Error: ${JSON.stringify(result.detail)}`;
