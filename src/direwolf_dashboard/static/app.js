@@ -1108,7 +1108,9 @@
         };
 
         // Save client-side map display settings to localStorage
-        showRouteDistances = document.getElementById('cfg-show-route-distances').checked;
+        const newShowRouteDistances = document.getElementById('cfg-show-route-distances').checked;
+        const displayChanged = newShowRouteDistances !== showRouteDistances;
+        showRouteDistances = newShowRouteDistances;
         localStorage.setItem('showRouteDistances', showRouteDistances);
 
         const feedback = document.getElementById('settings-feedback');
@@ -1121,10 +1123,12 @@
             const result = await resp.json();
 
             if (resp.ok) {
+                const saved = [...(result.updated || [])];
+                if (displayChanged) saved.push('map display');
                 feedback.className = result.restart_required ? 'warning' : 'success';
                 feedback.textContent = result.restart_required
                     ? `Saved. Restart required for: ${result.updated.join(', ')}`
-                    : `Saved: ${result.updated.join(', ') || 'no changes'}`;
+                    : `Saved: ${saved.join(', ') || 'no changes'}`;
                 feedback.classList.remove('hidden');
                 config = { ...config, ...updates };
             } else {
