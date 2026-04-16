@@ -20,7 +20,7 @@
     // --- Log View State ---
     const LOG_STATES = ['expanded', 'peek', 'hidden'];
     const LOG_STATE_KEY = 'logViewState';
-    let logViewState = 'expanded';
+    let logViewState = 'peek';
     let resizeEnabled = true;
 
     // --- Animation state ---
@@ -1241,7 +1241,7 @@
         } else if (window.innerWidth < 768) {
             logViewState = 'hidden';
         } else {
-            logViewState = 'expanded';
+            logViewState = 'peek';
         }
 
         applyLogViewState();
