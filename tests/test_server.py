@@ -221,7 +221,7 @@ class TestConfigEndpoint:
             data = response.json()
             assert "station" in data
             assert "server" in data
-            assert data["station"]["callsign"] == "N0CALL"
+            assert data["station"]["latitude"] == 37.75
 
     async def test_put_config_hot_reload(self, test_app):
         app, storage = test_app
@@ -255,3 +255,82 @@ class TestIndexEndpoint:
             assert response.status_code == 200
             # Should return HTML
             assert "html" in response.headers.get("content-type", "").lower()
+
+
+class TestMyPositionValidation:
+    """Test my_position validation in PUT /api/config."""
+
+    async def test_set_station_type(self, test_app):
+        app, storage = test_app
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.put(
+                "/api/config",
+                json={
+                    "station": {
+                        "my_position": {"type": "station", "callsign": "WB4BOR"}
+                    }
+                },
+            )
+            assert response.status_code == 200
+
+    async def test_set_pin_type(self, test_app):
+        app, storage = test_app
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.put(
+                "/api/config",
+                json={
+                    "station": {
+                        "my_position": {
+                            "type": "pin",
+                            "latitude": 37.75,
+                            "longitude": -77.45,
+                        }
+                    }
+                },
+            )
+            assert response.status_code == 200
+
+    async def test_clear_my_position(self, test_app):
+        app, storage = test_app
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.put(
+                "/api/config",
+                json={"station": {"my_position": {"type": None}}},
+            )
+            assert response.status_code == 200
+
+    async def test_station_type_requires_callsign(self, test_app):
+        app, storage = test_app
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.put(
+                "/api/config",
+                json={"station": {"my_position": {"type": "station", "callsign": ""}}},
+            )
+            assert response.status_code == 400
+
+    async def test_pin_type_requires_valid_coords(self, test_app):
+        app, storage = test_app
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.put(
+                "/api/config",
+                json={"station": {"my_position": {"type": "pin", "latitude": 999}}},
+            )
+            assert response.status_code == 400
+
+    async def test_pin_type_requires_longitude(self, test_app):
+        app, storage = test_app
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.put(
+                "/api/config",
+                json={"station": {"my_position": {"type": "pin", "latitude": 37.75}}},
+            )
+            assert response.status_code == 400
+
+    async def test_invalid_type(self, test_app):
+        app, storage = test_app
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.put(
+                "/api/config",
+                json={"station": {"my_position": {"type": "invalid"}}},
+            )
+            assert response.status_code == 400

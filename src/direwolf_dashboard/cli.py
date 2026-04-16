@@ -69,7 +69,17 @@ def check(ctx):
         click.secho(f"Config error: {e}", fg="red")
         raise SystemExit(1)
 
-    click.echo(f"  Station: {config.station.callsign}")
+    click.echo(
+        f"  Station lat/lon: {config.station.latitude}, {config.station.longitude}"
+    )
+    click.echo(f"  Zoom: {config.station.zoom}")
+    mp = config.station.my_position
+    if mp.type == "station":
+        click.echo(f"  My Position: tracking station {mp.callsign}")
+    elif mp.type == "pin":
+        click.echo(f"  My Position: pin at {mp.latitude}, {mp.longitude}")
+    else:
+        click.echo(f"  My Position: not set")
     click.echo(f"  AGW: {config.direwolf.agw_host}:{config.direwolf.agw_port}")
     click.echo(f"  Log file: {config.direwolf.log_file}")
     click.echo(f"  Web server: {config.server.host}:{config.server.port}")
@@ -91,6 +101,7 @@ def check(ctx):
     # Test log file
     click.echo("Testing log file...")
     import os
+
     if os.path.exists(config.direwolf.log_file):
         click.secho(f"  Log file exists: {config.direwolf.log_file}", fg="green")
     else:

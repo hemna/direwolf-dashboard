@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from direwolf_dashboard.config import Config, load_config, update_config
+from dataclasses import asdict
 from direwolf_dashboard.storage import Storage
 from direwolf_dashboard.tile_proxy import TileProxy
 from direwolf_dashboard.processor import PacketProcessor
@@ -75,8 +76,6 @@ def create_app(config: Config, config_path: str) -> FastAPI:
         # Init broadcast queue and processor
         state.broadcast_queue = asyncio.Queue(maxsize=500)
         state.processor = PacketProcessor(
-            station_lat=config.station.latitude,
-            station_lon=config.station.longitude,
             broadcast_queue=state.broadcast_queue,
         )
 
@@ -144,7 +143,7 @@ def create_app(config: Config, config_path: str) -> FastAPI:
         )
         # Compute bearing/distance for each packet
         for p in packets:
-            _enrich_with_bearing(p)
+            await _enrich_with_bearing(p)
         return packets
 
     @app.get("/api/stations")
@@ -217,39 +216,55 @@ def create_app(config: Config, config_path: str) -> FastAPI:
     async def put_config(updates: dict):
         """Update configuration. Returns updated fields and restart status."""
         try:
+            # Validate my_position if present
+            my_pos = updates.get("station", {}).get("my_position")
+            if my_pos is not None:
+                mp_type = my_pos.get("type")
+                if mp_type == "station":
+                    if not my_pos.get("callsign"):
+                        raise HTTPException(
+                            status_code=400,
+                            detail="my_position type 'station' requires a non-empty callsign",
+                        )
+                elif mp_type == "pin":
+                    lat = my_pos.get("latitude")
+                    lon = my_pos.get("longitude")
+                    if lat is None or lon is None:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="my_position type 'pin' requires latitude and longitude",
+                        )
+                    if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
+                        raise HTTPException(
+                            status_code=400,
+                            detail="latitude must be [-90, 90], longitude must be [-180, 180]",
+                        )
+                elif mp_type is not None:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid my_position type: {mp_type}",
+                    )
+
             new_config, updated_fields, restart_required = update_config(
                 state.config, updates, state.config_path
             )
             state.config = new_config
 
-            # Apply hot-reload fields
-            if state.processor:
-                state.processor.station_lat = new_config.station.latitude
-                state.processor.station_lon = new_config.station.longitude
+            # Broadcast my_position changes to all WebSocket clients
+            if my_pos is not None:
+                await _broadcast_event(
+                    "config_updated",
+                    {"my_position": asdict(state.config.station.my_position)},
+                )
 
             return {
                 "updated": updated_fields,
                 "restart_required": restart_required,
             }
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(status_code=400, detail={"errors": str(e)})
-
-    @app.post("/api/import-direwolf-conf")
-    async def import_direwolf_conf(body: dict):
-        """Parse a Direwolf config file and return extracted station settings."""
-        from direwolf_dashboard.config import parse_direwolf_conf
-
-        conf_path = body.get("conf_path", "")
-        if not conf_path:
-            raise HTTPException(status_code=400, detail="conf_path is required")
-
-        extracted = parse_direwolf_conf(conf_path)
-        if not extracted:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Could not read or parse: {conf_path}",
-            )
-        return extracted
 
     @app.get("/api/tiles/{z}/{x}/{y}.png")
     async def get_tile(z: int, x: int, y: int):
@@ -313,7 +328,7 @@ def create_app(config: Config, config_path: str) -> FastAPI:
             # Send initial burst of recent packets
             recent = await state.storage.query_packets(limit=50)
             for p in reversed(recent):  # Oldest first for initial load
-                _enrich_with_bearing(p)
+                await _enrich_with_bearing(p)
                 await ws.send_json({"event": "packet", "data": p})
 
             # Send current status
@@ -367,31 +382,44 @@ def create_app(config: Config, config_path: str) -> FastAPI:
     return app
 
 
-def _enrich_with_bearing(packet: dict) -> None:
-    """Add bearing and distance to a packet dict if position data is available."""
+async def _resolve_my_position() -> Optional[tuple[float, float]]:
+    """Resolve current 'my position' coordinates from config."""
+    if not state.config:
+        return None
+    mp = state.config.station.my_position
+    if mp.type == "pin" and mp.latitude is not None and mp.longitude is not None:
+        return (mp.latitude, mp.longitude)
+    if mp.type == "station" and mp.callsign and state.storage:
+        stn = await state.storage.get_station(mp.callsign)
+        if stn and stn.get("latitude") and stn.get("longitude"):
+            return (stn["latitude"], stn["longitude"])
+    return None
+
+
+async def _enrich_with_bearing(packet: dict) -> None:
+    """Add bearing/distance to packet using my_position as reference."""
     from direwolf_dashboard.processor import (
         calculate_initial_compass_bearing,
         degrees_to_cardinal,
     )
     from haversine import haversine, Unit
 
-    if (
-        state.config
-        and state.config.station.latitude
-        and state.config.station.longitude
-        and packet.get("latitude")
-        and packet.get("longitude")
-    ):
-        try:
-            my_coords = (state.config.station.latitude, state.config.station.longitude)
-            pkt_coords = (packet["latitude"], packet["longitude"])
-            bearing_deg = calculate_initial_compass_bearing(my_coords, pkt_coords)
-            packet["bearing"] = degrees_to_cardinal(bearing_deg, full_string=True)
-            packet["distance_miles"] = round(
-                haversine(my_coords, pkt_coords, unit=Unit.MILES), 2
-            )
-        except Exception:
-            pass
+    if not packet.get("latitude") or not packet.get("longitude"):
+        return
+
+    my_coords = await _resolve_my_position()
+    if not my_coords:
+        return
+
+    try:
+        pkt_coords = (packet["latitude"], packet["longitude"])
+        bearing_deg = calculate_initial_compass_bearing(my_coords, pkt_coords)
+        packet["bearing"] = degrees_to_cardinal(bearing_deg, full_string=True)
+        packet["distance_miles"] = round(
+            haversine(my_coords, pkt_coords, unit=Unit.MILES), 2
+        )
+    except Exception:
+        pass
 
 
 async def _broadcast_consumer() -> None:
@@ -428,13 +456,23 @@ async def _broadcast_consumer() -> None:
                             "symbol_table"
                         )
                         packet["position_from_db"] = True
-                        # Also enrich with bearing/distance
-                        _enrich_with_bearing(packet)
                     # Update last_seen / packet_count even without position
                     await state.storage.upsert_station(
                         callsign=packet["from_call"],
                         last_seen=packet["timestamp"],
                     )
+
+                # Enrich with bearing/distance from my_position
+                await _enrich_with_bearing(packet)
+
+                # Append bearing/distance to compact_log if present
+                if packet.get("bearing") and packet.get("compact_log"):
+                    dist = packet.get("distance_miles", 0)
+                    bearing_html = (
+                        f' : <span style="color:#FFA900">{packet["bearing"]}</span>'
+                        f'<span style="color:#FF5733">@{dist:.2f}miles</span>'
+                    )
+                    packet["compact_log"] += bearing_html
 
             # Broadcast to WebSocket clients
             await _broadcast_event("packet", packet)

@@ -128,15 +128,6 @@ def format_compact_log(packet: dict) -> str:
     if human_info:
         parts.append(f' : <span style="color:#DAA520">{human_info}</span>')
 
-    # Bearing and distance
-    bearing = packet.get("bearing")
-    distance = packet.get("distance_miles")
-    if bearing and distance is not None:
-        parts.append(
-            f' : <span style="color:{DEGREES_COLOR}">{bearing}</span>'
-            f'<span style="color:{DISTANCE_COLOR}">@{distance:.2f}miles</span>'
-        )
-
     return "".join(parts)
 
 
@@ -194,8 +185,6 @@ def packet_to_dict(
     call_to: str,
     audio_level: Optional[int] = None,
     raw_log_lines: Optional[list[str]] = None,
-    station_lat: Optional[float] = None,
-    station_lon: Optional[float] = None,
 ) -> Optional[dict]:
     """Parse a raw APRS string and build a packet dict.
 
@@ -254,24 +243,6 @@ def packet_to_dict(
         packet["msg_no"] = ""
         packet["human_info"] = payload
         packet["comment"] = ""
-
-    # Compute bearing and distance if we have positions
-    if (
-        station_lat
-        and station_lon
-        and packet.get("latitude")
-        and packet.get("longitude")
-    ):
-        try:
-            from haversine import haversine, Unit
-
-            my_coords = (station_lat, station_lon)
-            pkt_coords = (packet["latitude"], packet["longitude"])
-            bearing_deg = calculate_initial_compass_bearing(my_coords, pkt_coords)
-            packet["bearing"] = degrees_to_cardinal(bearing_deg, full_string=True)
-            packet["distance_miles"] = haversine(my_coords, pkt_coords, unit=Unit.MILES)
-        except Exception as e:
-            LOG.error(f"Failed to compute bearing/distance: {e}")
 
     # Generate compact log HTML
     packet["compact_log"] = format_compact_log(packet)
@@ -344,12 +315,8 @@ class PacketProcessor:
 
     def __init__(
         self,
-        station_lat: float,
-        station_lon: float,
         broadcast_queue: asyncio.Queue,
     ):
-        self.station_lat = station_lat
-        self.station_lon = station_lon
         self.broadcast_queue = broadcast_queue
         # Buffer for correlating AGW packets with log data
         self._pending_log_data: dict[
@@ -388,8 +355,6 @@ class PacketProcessor:
             call_to=call_to,
             audio_level=audio_level,
             raw_log_lines=raw_log_lines,
-            station_lat=self.station_lat if self.station_lat else None,
-            station_lon=self.station_lon if self.station_lon else None,
         )
 
         if packet:

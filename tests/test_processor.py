@@ -71,9 +71,7 @@ class TestFormatCompactLog:
             "from_call": "WB4BOR",
             "to_call": "APRS",
             "path": ["WIDE1-1", "WIDE2-1"],
-            "human_info": "38.50mph 287°",
-            "bearing": "NNW",
-            "distance_miles": 12.34,
+            "human_info": "38.50mph 287\u00b0",
         }
         html = format_compact_log(packet)
 
@@ -84,8 +82,7 @@ class TestFormatCompactLog:
         assert "APRS" in html
         assert "WIDE1-1" in html
         assert "38.50mph" in html
-        assert "NNW" in html
-        assert "12.34miles" in html
+        # Bearing/distance no longer in compact_log (moved to broadcast consumer)
         assert "#C70039" in html  # from_call color
         assert "#D033FF" in html  # to_call color
 
@@ -229,22 +226,19 @@ class TestPacketToDict:
 
         assert result["raw_log"] == lines
 
-    def test_with_station_position_computes_bearing(self):
-        # Station at origin, packet to the north
+    def test_bearing_not_computed_in_packet_to_dict(self):
+        """Bearing/distance is now computed in broadcast consumer, not packet_to_dict."""
         raw = "WB4BOR>APRS:!3800.00N/07700.00W>"
         result = packet_to_dict(
             raw,
             tx=False,
             call_from="WB4BOR",
             call_to="APRS",
-            station_lat=37.0,
-            station_lon=-77.0,
         )
 
-        # If parsing succeeds and lat/lon are present, bearing should be computed
-        if result.get("latitude") and result.get("longitude"):
-            assert result.get("bearing") is not None
-            assert result.get("distance_miles") is not None
+        # Bearing should NOT be computed at parse time anymore
+        assert result.get("bearing") is None
+        assert result.get("distance_miles") is None
 
     def test_agw_packet_with_via_path_populates_path(self):
         raw = (
@@ -262,7 +256,7 @@ class TestPacketProcessor:
 
     async def test_agw_packet_queued(self):
         queue = asyncio.Queue(maxsize=100)
-        proc = PacketProcessor(37.0, -77.0, queue)
+        proc = PacketProcessor(broadcast_queue=queue)
 
         raw = b"WB4BOR>APRS:!3745.00N/07730.00W>"
         await proc.on_agw_packet(raw, tx=False, call_from="WB4BOR", call_to="APRS")
@@ -273,7 +267,7 @@ class TestPacketProcessor:
 
     async def test_queue_full_drops_oldest(self):
         queue = asyncio.Queue(maxsize=2)
-        proc = PacketProcessor(0, 0, queue)
+        proc = PacketProcessor(broadcast_queue=queue)
 
         for i in range(3):
             await proc.on_agw_packet(
@@ -288,7 +282,7 @@ class TestPacketProcessor:
 
     async def test_log_data_correlation(self):
         queue = asyncio.Queue(maxsize=100)
-        proc = PacketProcessor(0, 0, queue)
+        proc = PacketProcessor(broadcast_queue=queue)
 
         # First, log data arrives
         await proc.on_log_lines(
