@@ -16,6 +16,7 @@
     let autoScroll = true;
     const MAX_LOG_ROWS = 500;
     let trailHours = 1;  // Current trail duration in hours
+    let showRouteDistances = localStorage.getItem('showRouteDistances') !== 'false'; // default true
 
     // --- Log View State ---
     const LOG_STATES = ['expanded', 'peek', 'hidden'];
@@ -618,22 +619,45 @@
             }
         }
         if (waypoints.length < 2) return [];
-        const polylines = [];
+        const elements = [];
         for (let i = 0; i < waypoints.length - 1; i++) {
             const from = L.latLng(waypoints[i].lat, waypoints[i].lng);
             const to = L.latLng(waypoints[i + 1].lat, waypoints[i + 1].lng);
-            const distMeters = from.distanceTo(to);
-            const distKm = distMeters / 1000;
-            const distMiles = distMeters / 1609.344;
-            const label = `${distKm.toFixed(2)} km / ${distMiles.toFixed(2)} mi`;
             const line = L.polyline(
                 [[from.lat, from.lng], [to.lat, to.lng]],
                 { color: '#0000ff', weight: 3, opacity: 0.6, dashArray: '4,8', lineCap: 'round', lineJoin: 'round' }
             );
-            line.bindTooltip(label, { permanent: true, direction: 'center', className: 'route-distance-label' });
-            polylines.push(line);
+            elements.push(line);
+
+            if (showRouteDistances) {
+                const distMeters = from.distanceTo(to);
+                const distKm = distMeters / 1000;
+                const distMiles = distMeters / 1609.344;
+                const label = `${distKm.toFixed(2)} km / ${distMiles.toFixed(2)} mi`;
+                // Midpoint
+                const midLat = (from.lat + to.lat) / 2;
+                const midLng = (from.lng + to.lng) / 2;
+                // Bearing (degrees) so text runs along the line
+                const dLng = (to.lng - from.lng) * Math.PI / 180;
+                const lat1 = from.lat * Math.PI / 180;
+                const lat2 = to.lat * Math.PI / 180;
+                const y = Math.sin(dLng) * Math.cos(lat2);
+                const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+                let bearing = Math.atan2(y, x) * 180 / Math.PI;
+                // Keep text readable (not upside-down)
+                if (bearing > 90) bearing -= 180;
+                if (bearing < -90) bearing += 180;
+                const icon = L.divIcon({
+                    className: 'route-distance-label',
+                    html: `<span style="display:inline-block;transform:rotate(${bearing.toFixed(1)}deg)">${label}</span>`,
+                    iconSize: [0, 0],
+                    iconAnchor: [0, 0],
+                });
+                const marker = L.marker([midLat, midLng], { icon, interactive: false });
+                elements.push(marker);
+            }
         }
-        return polylines;
+        return elements;
     }
 
     // --- Animation Lifecycle ---
@@ -1040,6 +1064,9 @@
         document.getElementById('cfg-tile-mode').value = config.tiles?.cache_mode || 'lazy';
         document.getElementById('cfg-max-cache').value = config.tiles?.max_cache_mb || 500;
 
+        // Map display settings (localStorage)
+        document.getElementById('cfg-show-route-distances').checked = showRouteDistances;
+
         // Show/hide preload section
         if (config.tiles?.cache_mode === 'preload') {
             document.getElementById('preload-section').classList.remove('hidden');
@@ -1075,6 +1102,10 @@
                 max_cache_mb: parseInt(document.getElementById('cfg-max-cache').value),
             },
         };
+
+        // Save client-side map display settings to localStorage
+        showRouteDistances = document.getElementById('cfg-show-route-distances').checked;
+        localStorage.setItem('showRouteDistances', showRouteDistances);
 
         const feedback = document.getElementById('settings-feedback');
         try {
