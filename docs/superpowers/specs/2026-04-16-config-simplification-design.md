@@ -55,6 +55,17 @@ station:
   config
 - `my_position.type: null` -- no "me" set, no bearing/distance in logs
 
+### Validation Rules
+
+When `PUT /api/config` receives a `my_position` update:
+
+- `type: "station"` -- requires non-empty `callsign`; `latitude`/`longitude`
+  fields are ignored (position comes from DB)
+- `type: "pin"` -- requires `latitude` in [-90, 90] and `longitude` in
+  [-180, 180]; `callsign` field is ignored
+- `type: null` -- all other fields are reset to null
+- Invalid combinations return HTTP 400 with a descriptive error message
+
 ### Migration
 
 Existing config.yaml files with removed fields (callsign, symbol, conf_file,
@@ -66,11 +77,13 @@ with null defaults.
 ### Startup Center Logic (priority order)
 
 1. `my_position` resolved coordinates:
-   - `type: station` -- look up callsign's latest position from DB
+   - `type: station` -- look up callsign's latest position from DB. If the
+     station has no position in the DB, fall through to next option.
    - `type: pin` -- use lat/lon from config
-2. `station.latitude` / `station.longitude` if present
-3. Most recently seen station with a position in the DB
-4. Random coordinates at zoom level 3-4 (cold start)
+   - Use `station.zoom` from config.
+2. `station.latitude` / `station.longitude` if present. Use `station.zoom`.
+3. Most recently seen station with a position in the DB. Use `station.zoom`.
+4. Center on (0, 0) at zoom 3 to show the full world map (cold start).
 
 ### Cold Start Modal
 
@@ -99,6 +112,9 @@ passively indicates "waiting for position" state.
 - Popup includes a "Set as My Position" button
 - Saves `my_position: { type: "station", callsign: "<callsign>" }` via
   `PUT /api/config`
+- Setting a new `my_position` replaces any existing one. The previous
+  station's visual indicator (ring/highlight) is removed, and any existing
+  pin marker is removed.
 - Map centers on that station
 - As new position packets arrive from that callsign, the bearing/distance
   reference point auto-updates
@@ -110,8 +126,12 @@ Two triggers:
 
 - **Toolbar button:** "Drop Pin" button enters pin-placement mode. Next tap
   on the map places the pin. Tap button again or press Escape to cancel.
-- **Long-press on map:** ~500ms touch-and-hold places pin directly (also
-  works as right-click on desktop).
+- **Long-press on map:** ~500ms touch-and-hold on mobile. On desktop,
+  right-click opens a context popup at the clicked location with a "Set My
+  Position Here" button and Cancel. The browser context menu is suppressed on
+  the map area via `event.preventDefault()`.
+
+Setting a new pin replaces any existing `my_position` (station or pin).
 
 Saves `my_position: { type: "pin", latitude: <lat>, longitude: <lon> }` via
 `PUT /api/config`.
@@ -131,11 +151,49 @@ here" marker).
 
 - When `my_position` is set, position packets are enriched with bearing and
   distance from "me":
-  - `type: station` -- reference coords from that station's latest DB position
+  - `type: station` -- reference coords from that station's latest DB position.
+    If the tracked station has no position in the DB yet (e.g., only sent
+    non-position packets, or data was purged by retention), bearing/distance
+    enrichment is silently skipped until a position packet arrives for that
+    callsign.
   - `type: pin` -- reference coords from config
 - When `my_position` is null, bearing/distance fields are omitted
 - Bearing/distance computation moves from `processor.py` to the broadcast
   consumer in `server.py` (since it needs DB access for station lookups)
+- The broadcast consumer reads `my_position` from `state.config` on every
+  packet, which is updated in-memory by `PUT /api/config`. No additional
+  hot-reload mechanism is needed.
+
+### Compact Log and Bearing/Distance
+
+Currently `compact_log` HTML is generated in `processor.py` `packet_to_dict()`
+at parse time, and it includes bearing/distance. Since bearing/distance
+computation moves to the broadcast consumer (which runs after parsing), the
+compact log will be generated **without** bearing/distance in `processor.py`.
+
+The broadcast consumer will append bearing/distance to the `compact_log`
+string after enrichment, before broadcasting via WebSocket. This keeps the
+compact log as a single pre-rendered HTML string for the frontend.
+
+### Retention and Station Tracking
+
+Retention cleanup (`_housekeeping_loop`) does not affect the `my_position`
+config. If the tracked station's position data is purged from the DB,
+bearing/distance enrichment silently stops until new packets arrive from that
+callsign. The `my_position` config is not auto-cleared.
+
+### Multi-Client Behavior
+
+When `my_position` is updated via `PUT /api/config`, a WebSocket event is
+broadcast to all connected clients:
+`{ "type": "config_updated", "my_position": {...} }`. The frontend listens
+for this event and updates the "me" marker/indicator accordingly.
+
+### GET /api/config Response
+
+`GET /api/config` returns `my_position` as part of the station config,
+allowing the frontend to restore the "me" marker and visual indicator on
+page load.
 
 ## Code Removal
 
@@ -158,6 +216,7 @@ here" marker).
 
 - `station_lat` / `station_lon` constructor parameters
 - Bearing/distance computation (moves to server.py broadcast consumer)
+- Bearing/distance removed from `compact_log` generation in `packet_to_dict()`
 
 ### Frontend (index.html / app.js)
 
@@ -176,7 +235,8 @@ here" marker).
 - `createSymbolIcon()` -- still needed for station markers from packets
 - Symbol sprite sheets -- still needed for station markers
 - Settings modal -- simplified (lat/lon, zoom, direwolf connection, storage,
-  tiles)
+  tiles). Note: the `direwolf` config section name is retained as-is; renaming
+  it is out of scope for this change.
 - Station markers, tracks, and route lines -- all derived from packet data
 
 ## New Components
@@ -190,14 +250,17 @@ here" marker).
   - `type: station` -- query DB for latest position of that callsign
   - `type: pin` -- read lat/lon from config
   - `null` -- skip enrichment
-- `PUT /api/config` updated to handle `my_position` updates
+- Bearing/distance appended to `compact_log` HTML in broadcast consumer
+  after enrichment
+- `PUT /api/config` updated to handle `my_position` updates with validation
+- WebSocket `config_updated` event broadcast on `my_position` changes
 
 ### Frontend
 
 - **"Drop Pin" toolbar button** + pin-placement mode (click button, then tap
   map to place; click again or Escape to cancel)
-- **Long-press handler** on map for pin placement (~500ms touch-and-hold;
-  also works as right-click on desktop)
+- **Long-press handler** on map for pin placement (~500ms touch-and-hold on
+  mobile; right-click context popup on desktop with Save/Cancel)
 - **"Set as My Position"** button in station marker popups
 - **"Remove as My Position"** / **"Remove My Position"** in popups when
   already set
@@ -209,4 +272,6 @@ here" marker).
   position packet...", auto-dismissed on first position packet
 - **Map fly-to** on first position packet when in cold-start state
 - **Startup logic** updated to follow priority: my_position > config lat/lon >
-  most recent DB station > random coords
+  most recent DB station > (0, 0) at zoom 3
+- **WebSocket listener** for `config_updated` events to sync "me"
+  marker/indicator across multiple connected clients
