@@ -9,6 +9,7 @@ import yaml
 from direwolf_dashboard.config import (
     Config,
     StationConfig,
+    MyPositionConfig,
     DirewolfConfig,
     ServerConfig,
     StorageConfig,
@@ -16,9 +17,57 @@ from direwolf_dashboard.config import (
     load_config,
     save_config,
     update_config,
-    parse_direwolf_conf,
     RESTART_REQUIRED_FIELDS,
 )
+
+
+class TestMyPositionConfig:
+    """Test MyPositionConfig dataclass."""
+
+    def test_default_my_position_all_none(self):
+        mp = MyPositionConfig()
+        assert mp.type is None
+        assert mp.callsign is None
+        assert mp.latitude is None
+        assert mp.longitude is None
+
+    def test_station_type(self):
+        mp = MyPositionConfig(type="station", callsign="WB4BOR")
+        assert mp.type == "station"
+        assert mp.callsign == "WB4BOR"
+        assert mp.latitude is None
+        assert mp.longitude is None
+
+    def test_pin_type(self):
+        mp = MyPositionConfig(type="pin", latitude=37.75, longitude=-77.45)
+        assert mp.type == "pin"
+        assert mp.callsign is None
+        assert mp.latitude == 37.75
+        assert mp.longitude == -77.45
+
+
+class TestStationConfigSimplified:
+    """Test StationConfig after removing callsign/symbol fields."""
+
+    def test_station_config_has_no_callsign(self):
+        config = Config()
+        assert not hasattr(config.station, "callsign")
+
+    def test_station_config_has_no_symbol(self):
+        config = Config()
+        assert not hasattr(config.station, "symbol")
+        assert not hasattr(config.station, "symbol_table")
+
+    def test_station_config_has_my_position(self):
+        config = Config()
+        assert isinstance(config.station.my_position, MyPositionConfig)
+        assert config.station.my_position.type is None
+
+    def test_config_to_dict_includes_my_position(self):
+        config = Config()
+        d = config.to_dict()
+        assert "my_position" in d["station"]
+        assert d["station"]["my_position"]["type"] is None
 
 
 class TestDefaultConfig:
@@ -32,9 +81,9 @@ class TestDefaultConfig:
         assert isinstance(config.storage, StorageConfig)
         assert isinstance(config.tiles, TilesConfig)
 
-    def test_default_station_callsign(self):
+    def test_default_station_latitude(self):
         config = Config()
-        assert config.station.callsign == "N0CALL"
+        assert config.station.latitude == 0.0
 
     def test_default_server_port(self):
         config = Config()
@@ -61,7 +110,7 @@ class TestDefaultConfig:
         assert "server" in d
         assert "storage" in d
         assert "tiles" in d
-        assert d["station"]["callsign"] == "N0CALL"
+        assert d["station"]["latitude"] == 0.0
 
 
 class TestLoadSaveConfig:
@@ -70,7 +119,6 @@ class TestLoadSaveConfig:
     def test_save_and_load_roundtrip(self, tmp_path):
         config_path = str(tmp_path / "config.yaml")
         config = Config()
-        config.station.callsign = "WB4BOR"
         config.station.latitude = 37.75
         config.station.longitude = -77.45
         config.server.port = 9090
@@ -78,7 +126,6 @@ class TestLoadSaveConfig:
         save_config(config, config_path)
         loaded = load_config(config_path)
 
-        assert loaded.station.callsign == "WB4BOR"
         assert loaded.station.latitude == 37.75
         assert loaded.station.longitude == -77.45
         assert loaded.server.port == 9090
@@ -90,24 +137,59 @@ class TestLoadSaveConfig:
         config = load_config(config_path)
 
         assert os.path.exists(config_path)
-        assert config.station.callsign == "N0CALL"
+        assert config.station.latitude == 0.0
 
     def test_partial_config_merges_with_defaults(self, tmp_path):
         config_path = str(tmp_path / "config.yaml")
 
         # Write a partial config — only station section
-        partial = {"station": {"callsign": "WB4BOR"}}
+        partial = {"station": {"latitude": 37.75}}
         with open(config_path, "w") as f:
             yaml.dump(partial, f)
 
         config = load_config(config_path)
 
         # User value should be applied
-        assert config.station.callsign == "WB4BOR"
+        assert config.station.latitude == 37.75
         # Defaults should fill in the rest
-        assert config.station.latitude == 0.0
+        assert config.station.longitude == 0.0
         assert config.server.port == 8080
         assert config.storage.retention_days == 7
+
+    def test_old_config_with_removed_fields_loads(self, tmp_path):
+        """Old config files with callsign/symbol/conf_file should load fine."""
+        config_path = str(tmp_path / "config.yaml")
+
+        old_config = {
+            "station": {
+                "callsign": "WB4BOR",
+                "latitude": 37.75,
+                "longitude": -77.45,
+                "symbol": "#",
+                "symbol_table": "S",
+                "zoom": 14,
+            },
+            "direwolf": {
+                "agw_host": "localhost",
+                "agw_port": 8000,
+                "log_file": "/var/log/direwolf/direwolf.log",
+                "conf_file": "/home/pi/direwolf.conf",
+            },
+        }
+        with open(config_path, "w") as f:
+            yaml.dump(old_config, f)
+
+        config = load_config(config_path)
+
+        # Removed fields should be silently ignored
+        assert not hasattr(config.station, "callsign")
+        assert not hasattr(config.station, "symbol")
+        # Preserved fields should work
+        assert config.station.latitude == 37.75
+        assert config.station.longitude == -77.45
+        assert config.station.zoom == 14
+        assert not hasattr(config.direwolf, "conf_file")
+        assert config.direwolf.agw_host == "localhost"
 
     def test_path_expansion(self, tmp_path):
         config_path = str(tmp_path / "config.yaml")
@@ -133,7 +215,7 @@ class TestLoadSaveConfig:
 
         assert isinstance(data, dict)
         assert "station" in data
-        assert data["station"]["callsign"] == "N0CALL"
+        assert d["station"]["latitude"] == 0.0 if (d := data) else False
 
 
 class TestUpdateConfig:
@@ -170,10 +252,10 @@ class TestUpdateConfig:
         config = Config()
         save_config(config, config_path)
 
-        update_config(config, {"station": {"callsign": "WB4BOR"}}, config_path)
+        update_config(config, {"station": {"latitude": 37.75}}, config_path)
 
         reloaded = load_config(config_path)
-        assert reloaded.station.callsign == "WB4BOR"
+        assert reloaded.station.latitude == 37.75
 
     def test_update_no_change(self, tmp_path):
         config_path = str(tmp_path / "config.yaml")
@@ -181,7 +263,7 @@ class TestUpdateConfig:
         save_config(config, config_path)
 
         new_config, updated, restart = update_config(
-            config, {"station": {"callsign": "N0CALL"}}, config_path
+            config, {"station": {"latitude": 0.0}}, config_path
         )
 
         assert updated == []
@@ -195,92 +277,76 @@ class TestUpdateConfig:
         new_config, updated, restart = update_config(
             config,
             {
-                "station": {"callsign": "WB4BOR", "latitude": 37.75},
+                "station": {"latitude": 37.75, "longitude": -77.45},
                 "storage": {"retention_days": 30},
             },
             config_path,
         )
 
-        assert new_config.station.callsign == "WB4BOR"
         assert new_config.station.latitude == 37.75
+        assert new_config.station.longitude == -77.45
         assert new_config.storage.retention_days == 30
         assert len(updated) == 3
         assert restart is False
 
-
-class TestFirstLaunchDirewolfImport:
-    """Test auto-import from DigiPi Direwolf conf on first launch."""
-
-    SAMPLE_DIREWOLF_CONF = """\
-# Direwolf config for DigiPi
-MYCALL WB4BOR-1
-
-PBEACON delay=1 every=30 overlay=S symbol="digi" lat=37.7500 long=-77.4500 comment="DigiPi"
-"""
-
-    def test_first_launch_imports_direwolf_conf(self, tmp_path):
-        """When config.yaml doesn't exist and direwolf conf is present,
-        station settings should be auto-imported."""
-        config_path = str(tmp_path / "subdir" / "config.yaml")
-        dw_conf_path = str(tmp_path / "direwolf.digipeater.conf")
-
-        with open(dw_conf_path, "w") as f:
-            f.write(self.SAMPLE_DIREWOLF_CONF)
-
-        with mock.patch("direwolf_dashboard.config.DIGIPI_DIREWOLF_CONF", dw_conf_path):
-            config = load_config(config_path)
-
-        assert config.station.callsign == "WB4BOR-1"
-        assert config.station.latitude == 37.75
-        assert config.station.longitude == -77.45
-        assert config.station.symbol == "#"  # "digi" maps to "#"
-        assert config.station.symbol_table == "S"  # overlay=S
-
-    def test_first_launch_persists_imported_values(self, tmp_path):
-        """Imported values should be persisted to the new config.yaml."""
+    def test_update_my_position_station(self, tmp_path):
         config_path = str(tmp_path / "config.yaml")
-        dw_conf_path = str(tmp_path / "direwolf.digipeater.conf")
+        config = Config()
+        save_config(config, config_path)
 
-        with open(dw_conf_path, "w") as f:
-            f.write(self.SAMPLE_DIREWOLF_CONF)
+        new_config, updated, restart = update_config(
+            config,
+            {"station": {"my_position": {"type": "station", "callsign": "WB4BOR"}}},
+            config_path,
+        )
 
-        with mock.patch("direwolf_dashboard.config.DIGIPI_DIREWOLF_CONF", dw_conf_path):
-            load_config(config_path)
+        assert new_config.station.my_position.type == "station"
+        assert new_config.station.my_position.callsign == "WB4BOR"
 
-        # Reload from the persisted file (no mock needed — file exists now)
-        reloaded = load_config(config_path)
-        assert reloaded.station.callsign == "WB4BOR-1"
-        assert reloaded.station.latitude == 37.75
-
-    def test_first_launch_no_direwolf_conf(self, tmp_path):
-        """When direwolf conf doesn't exist, defaults should be used."""
+    def test_update_my_position_pin(self, tmp_path):
         config_path = str(tmp_path / "config.yaml")
-        missing_dw_conf = str(tmp_path / "nonexistent.conf")
+        config = Config()
+        save_config(config, config_path)
 
-        with mock.patch(
-            "direwolf_dashboard.config.DIGIPI_DIREWOLF_CONF", missing_dw_conf
-        ):
-            config = load_config(config_path)
+        new_config, updated, restart = update_config(
+            config,
+            {
+                "station": {
+                    "my_position": {
+                        "type": "pin",
+                        "latitude": 37.75,
+                        "longitude": -77.45,
+                    }
+                }
+            },
+            config_path,
+        )
 
-        assert config.station.callsign == "N0CALL"
-        assert config.station.latitude == 0.0
+        assert new_config.station.my_position.type == "pin"
+        assert new_config.station.my_position.latitude == 37.75
+        assert new_config.station.my_position.longitude == -77.45
 
-    def test_existing_config_not_overwritten_by_import(self, tmp_path):
-        """If config.yaml already exists, direwolf conf should NOT be imported."""
+    def test_update_my_position_clear(self, tmp_path):
         config_path = str(tmp_path / "config.yaml")
-        dw_conf_path = str(tmp_path / "direwolf.digipeater.conf")
+        config = Config()
+        config.station.my_position = MyPositionConfig(
+            type="pin", latitude=37.0, longitude=-77.0
+        )
+        save_config(config, config_path)
 
-        # Create an existing config with custom callsign
-        existing = {"station": {"callsign": "EXISTING"}}
-        with open(config_path, "w") as f:
-            yaml.dump(existing, f)
+        new_config, updated, restart = update_config(
+            config,
+            {
+                "station": {
+                    "my_position": {
+                        "type": None,
+                        "callsign": None,
+                        "latitude": None,
+                        "longitude": None,
+                    }
+                }
+            },
+            config_path,
+        )
 
-        # Write a direwolf conf with different callsign
-        with open(dw_conf_path, "w") as f:
-            f.write("MYCALL DIFFERENT-1\n")
-
-        with mock.patch("direwolf_dashboard.config.DIGIPI_DIREWOLF_CONF", dw_conf_path):
-            config = load_config(config_path)
-
-        # Existing config should be preserved, NOT overwritten
-        assert config.station.callsign == "EXISTING"
+        assert new_config.station.my_position.type is None
