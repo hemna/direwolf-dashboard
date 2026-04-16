@@ -17,6 +17,9 @@
     const MAX_LOG_ROWS = 500;
     let trailHours = 1;  // Current trail duration in hours
     let showRouteDistances = true; // updated from config on load
+    let waitingForPosition = false;
+    let myPositionPinMarker = null;
+    let pinModeActive = false;
 
     // --- Log View State ---
     const LOG_STATES = ['expanded', 'peek', 'hidden'];
@@ -140,126 +143,6 @@
         return ALTERNATE_SYMBOLS[symbol] || 'Unknown';
     }
 
-    // --- Symbol Picker ---
-    function updateSymbolPreview() {
-        const sym = document.getElementById('cfg-symbol').value || '-';
-        const tbl = document.getElementById('cfg-symbol-table').value || '/';
-        const preview = document.getElementById('symbol-preview');
-        const nameEl = document.getElementById('symbol-preview-name');
-
-        const pos = getSymbolSpritePosition(sym);
-        const { spriteUrl } = parseSymbolTable(tbl);
-        const overlay = (tbl !== '/' && tbl !== '\\') ? tbl : null;
-
-        let html = `<div style="width:24px;height:24px;background-image:url('${spriteUrl}');background-position:${pos.x}px ${pos.y}px;background-repeat:no-repeat;image-rendering:pixelated;"></div>`;
-        if (overlay) {
-            html += `<div style="position:absolute;top:0;left:0;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:bold;color:#000;text-shadow:0 0 2px #fff;">${overlay}</div>`;
-        }
-        preview.innerHTML = html;
-        nameEl.textContent = getSymbolName(tbl, sym) + ' (' + tbl + sym + ')';
-    }
-
-    function renderSymbolGrid(table) {
-        const grid = document.getElementById('symbol-picker-grid');
-        const currentSym = document.getElementById('cfg-symbol').value;
-        const currentTbl = document.getElementById('cfg-symbol-table').value;
-        const spriteUrl = table === '/' ? PRIMARY_SPRITE : SECONDARY_SPRITE;
-        const names = table === '/' ? PRIMARY_SYMBOLS : ALTERNATE_SYMBOLS;
-
-        grid.innerHTML = '';
-
-        for (let i = 33; i <= 126; i++) {
-            const ch = String.fromCharCode(i);
-            const pos = getSymbolSpritePosition(ch);
-            const name = names[ch] || 'Symbol';
-            const isSelected = (table === currentTbl && ch === currentSym);
-
-            const cell = document.createElement('button');
-            cell.type = 'button';
-            cell.className = 'symbol-cell' + (isSelected ? ' symbol-cell-selected' : '');
-            cell.dataset.table = table;
-            cell.dataset.symbol = ch;
-            cell.dataset.name = name;
-            cell.title = table + ch + ' - ' + name;
-
-            // Use 36px scale: 48px * 0.75
-            const x = (pos.x / 24) * 36;
-            const y = (pos.y / 24) * 36;
-            cell.innerHTML = `<div class="symbol-icon" style="background-image:url('${spriteUrl}');background-position:${x}px ${y}px;"></div>`;
-
-            grid.appendChild(cell);
-        }
-    }
-
-    function initSymbolPicker() {
-        const pickerModal = document.getElementById('symbol-picker-modal');
-        const btnPick = document.getElementById('btn-pick-symbol');
-        const preview = document.getElementById('symbol-preview');
-        const btnClose = document.getElementById('btn-close-symbol-picker');
-        const tabPrimary = document.getElementById('symbol-tab-primary');
-        const tabAlt = document.getElementById('symbol-tab-alternate');
-        const grid = document.getElementById('symbol-picker-grid');
-        const info = document.getElementById('symbol-picker-info');
-        let activeTable = '/';
-
-        function openPicker() {
-            const tbl = document.getElementById('cfg-symbol-table').value || '/';
-            activeTable = (tbl === '/' || tbl === '\\') ? tbl : '\\';
-            tabPrimary.classList.toggle('active', activeTable === '/');
-            tabAlt.classList.toggle('active', activeTable === '\\');
-            renderSymbolGrid(activeTable);
-            pickerModal.classList.remove('hidden');
-        }
-
-        function closePicker() {
-            pickerModal.classList.add('hidden');
-        }
-
-        btnPick.addEventListener('click', openPicker);
-        preview.addEventListener('click', openPicker);
-        btnClose.addEventListener('click', closePicker);
-        pickerModal.addEventListener('click', (e) => {
-            if (e.target === pickerModal) closePicker();
-        });
-
-        tabPrimary.addEventListener('click', () => {
-            if (activeTable === '/') return;
-            activeTable = '/';
-            tabPrimary.classList.add('active');
-            tabAlt.classList.remove('active');
-            renderSymbolGrid('/');
-        });
-
-        tabAlt.addEventListener('click', () => {
-            if (activeTable === '\\') return;
-            activeTable = '\\';
-            tabAlt.classList.add('active');
-            tabPrimary.classList.remove('active');
-            renderSymbolGrid('\\');
-        });
-
-        // Click on a symbol cell
-        grid.addEventListener('click', (e) => {
-            const cell = e.target.closest('.symbol-cell');
-            if (!cell) return;
-            document.getElementById('cfg-symbol').value = cell.dataset.symbol;
-            document.getElementById('cfg-symbol-table').value = cell.dataset.table;
-            updateSymbolPreview();
-            closePicker();
-        });
-
-        // Hover info
-        grid.addEventListener('mouseover', (e) => {
-            const cell = e.target.closest('.symbol-cell');
-            if (cell) {
-                info.textContent = cell.dataset.table + cell.dataset.symbol + ' - ' + cell.dataset.name;
-            }
-        });
-        grid.addEventListener('mouseleave', () => {
-            info.textContent = 'Hover over a symbol to see details';
-        });
-    }
-
     function initLegend() {
         const LegendControl = L.Control.extend({
             options: { position: 'bottomright' },
@@ -321,10 +204,12 @@
         await loadStations();
         loadStationPositions();
         loadTracks();
+        await initMapCenter();
+        updateMyPositionMarker();
         connectWebSocket();
         initFilters();
         initSettings();
-        initSymbolPicker();
+        initDropPin();
         initMapResize();
         initLogToggle();
         initMobileMenu();
@@ -360,30 +245,6 @@
             attribution: '&copy; OpenStreetMap contributors',
             maxZoom: 18,
         }).addTo(map);
-
-        // Add station marker if configured — register it in `stations`
-        // so that loadStations() / WebSocket updates don't create a duplicate.
-        if (lat !== 0 || lon !== 0) {
-            const callsign = config.station?.callsign || 'Home';
-            const sym = config.station?.symbol || '-';
-            const symTable = config.station?.symbol_table || '/';
-            const icon = createSymbolIcon(symTable, sym, callsign);
-            const marker = L.marker([lat, lon], { icon: icon })
-                .addTo(map)
-                .bindPopup(`<b>${callsign}</b><br>Home Station`);
-
-            stations[callsign] = {
-                marker: marker,
-                track: L.polyline([], { color: '#00b4d8', weight: 1.5, opacity: 0.6 }).addTo(map),
-                data: {
-                    callsign: callsign,
-                    latitude: lat,
-                    longitude: lon,
-                    symbol: sym,
-                    symbol_table: symTable,
-                },
-            };
-        }
 
         setInterval(cleanupAnimations, 10000);
     }
@@ -477,7 +338,15 @@
         if (d.packet_count) html += `Packets: ${d.packet_count}<br>`;
         if (d.last_seen) {
             const ago = Math.round((Date.now() / 1000 - d.last_seen) / 60);
-            html += `Last seen: ${ago}m ago`;
+            html += `Last seen: ${ago}m ago<br>`;
+        }
+        // "Set as My Position" / "Remove as My Position" button
+        const mp = config.station?.my_position;
+        const isMyStation = mp && mp.type === 'station' && mp.callsign === callsign;
+        if (isMyStation) {
+            html += `<button class="popup-btn popup-btn-remove" onclick="window._removeMyPosition()">Remove as My Position</button>`;
+        } else {
+            html += `<button class="popup-btn popup-btn-set" onclick="window._setMyPositionStation('${callsign}')">Set as My Position</button>`;
         }
         s.marker.bindPopup(html);
     }
@@ -514,12 +383,6 @@
 
     // --- Station Position Helpers ---
     function getStationPosition(callsign) {
-        const homeCall = config.station?.callsign;
-        if (homeCall && callsign.toUpperCase() === homeCall.toUpperCase()) {
-            const lat = config.station?.latitude;
-            const lng = config.station?.longitude;
-            if (lat != null && lng != null) return { lat, lng };
-        }
         const s = stations[callsign];
         if (s && s.data && s.data.latitude != null && s.data.longitude != null) {
             return { lat: s.data.latitude, lng: s.data.longitude };
@@ -612,15 +475,6 @@
         if (pathInfo.igate) {
             const pos = getStationPosition(pathInfo.igate);
             if (pos) waypoints.push(pos);
-        }
-        const homeCall = config.station?.callsign;
-        if (homeCall) {
-            const homePos = getStationPosition(homeCall);
-            if (homePos && (waypoints.length === 0 ||
-                waypoints[waypoints.length - 1].lat !== homePos.lat ||
-                waypoints[waypoints.length - 1].lng !== homePos.lng)) {
-                waypoints.push(homePos);
-            }
         }
         if (waypoints.length < 2) return [];
         const elements = [];
@@ -812,10 +666,38 @@
             case 'preload_progress':
                 onPreloadProgress(msg.data);
                 break;
+            case 'config_updated':
+                onConfigUpdated(msg.data);
+                break;
             case 'ping':
                 // Respond with pong (keep-alive)
                 break;
         }
+    }
+
+    function onConfigUpdated(data) {
+        if (data.my_position !== undefined) {
+            if (!config.station) config.station = {};
+            config.station.my_position = data.my_position;
+            updateMyPositionMarker();
+            // Re-render all open popups
+            for (const cs of Object.keys(stations)) {
+                updateStationPopup(cs);
+            }
+        }
+    }
+
+    function getMyPosition() {
+        const mp = config.station?.my_position;
+        if (!mp || !mp.type) return null;
+        if (mp.type === 'pin') {
+            return mp.latitude != null && mp.longitude != null
+                ? { lat: mp.latitude, lng: mp.longitude } : null;
+        }
+        if (mp.type === 'station' && mp.callsign) {
+            return getStationPosition(mp.callsign);
+        }
+        return null;
     }
 
     function onPacket(packet) {
@@ -824,6 +706,11 @@
             updatePositionCache(packet.from_call, packet.latitude, packet.longitude);
         }
         if (packet.latitude && packet.longitude) {
+            if (waitingForPosition) {
+                dismissWaiting();
+                const zoom = config.station?.zoom || 12;
+                map.flyTo([packet.latitude, packet.longitude], zoom);
+            }
             addOrUpdateStation({
                 callsign: packet.from_call,
                 latitude: packet.latitude,
@@ -838,21 +725,22 @@
                 updateStationTrack(packet.from_call, packet.latitude, packet.longitude);
             }
         }
-        const homeLat = config.station?.latitude;
-        const homeLon = config.station?.longitude;
-        const homeCall = config.station?.callsign;
+        const myPos = getMyPosition();
         if (packet.tx) {
-            if (homeLat != null && homeLon != null) {
-                playTransmitAnimation(homeCall || 'Home', homeLat, homeLon, []);
+            if (myPos) {
+                playTransmitAnimation('My Station', myPos.lat, myPos.lng, []);
             }
         } else {
             if (packet.latitude && packet.longitude) {
                 playTransmitAnimation(packet.from_call, packet.latitude, packet.longitude, packet.path || []);
             }
-            if (homeLat != null && homeLon != null && homeCall) {
-                setTimeout(() => {
-                    playReceiveAnimation(homeCall, homeLat, homeLon);
-                }, 300);
+            if (myPos) {
+                const myCall = config.station?.my_position?.callsign;
+                if (myCall) {
+                    setTimeout(() => {
+                        playReceiveAnimation(myCall, myPos.lat, myPos.lng);
+                    }, 300);
+                }
             }
         }
     }
@@ -1027,9 +915,6 @@
 
         btnSave.addEventListener('click', saveSettings);
 
-        // Import from Direwolf conf
-        document.getElementById('btn-import-dw-conf').addEventListener('click', importDirewolfConf);
-
         // Tile mode toggle
         document.getElementById('cfg-tile-mode').addEventListener('change', (e) => {
             const preloadSection = document.getElementById('preload-section');
@@ -1057,16 +942,12 @@
     }
 
     function populateSettings() {
-        document.getElementById('cfg-callsign').value = config.station?.callsign || '';
         document.getElementById('cfg-latitude').value = config.station?.latitude || 0;
         document.getElementById('cfg-longitude').value = config.station?.longitude || 0;
         document.getElementById('cfg-zoom').value = config.station?.zoom || 12;
-        document.getElementById('cfg-symbol').value = config.station?.symbol || '-';
-        document.getElementById('cfg-symbol-table').value = config.station?.symbol_table || '/';
         document.getElementById('cfg-agw-host').value = config.direwolf?.agw_host || 'localhost';
         document.getElementById('cfg-agw-port').value = config.direwolf?.agw_port || 8000;
         document.getElementById('cfg-log-file').value = config.direwolf?.log_file || '';
-        document.getElementById('cfg-conf-file').value = config.direwolf?.conf_file || '';
         document.getElementById('cfg-server-port').value = config.server?.port || 8080;
         document.getElementById('cfg-retention').value = config.storage?.retention_days || 7;
         document.getElementById('cfg-tile-mode').value = config.tiles?.cache_mode || 'lazy';
@@ -1079,25 +960,19 @@
         if (config.tiles?.cache_mode === 'preload') {
             document.getElementById('preload-section').classList.remove('hidden');
         }
-
-        updateSymbolPreview();
     }
 
     async function saveSettings() {
         const updates = {
             station: {
-                callsign: document.getElementById('cfg-callsign').value,
                 latitude: parseFloat(document.getElementById('cfg-latitude').value),
                 longitude: parseFloat(document.getElementById('cfg-longitude').value),
                 zoom: parseInt(document.getElementById('cfg-zoom').value) || 12,
-                symbol: document.getElementById('cfg-symbol').value || '-',
-                symbol_table: document.getElementById('cfg-symbol-table').value || '/',
             },
             direwolf: {
                 agw_host: document.getElementById('cfg-agw-host').value,
                 agw_port: parseInt(document.getElementById('cfg-agw-port').value),
                 log_file: document.getElementById('cfg-log-file').value,
-                conf_file: document.getElementById('cfg-conf-file').value,
             },
             server: {
                 port: parseInt(document.getElementById('cfg-server-port').value),
@@ -1146,52 +1021,6 @@
             feedback.className = 'error';
             feedback.textContent = `Error: ${e.message}`;
             feedback.classList.remove('hidden');
-        }
-    }
-
-    async function importDirewolfConf() {
-        const confPath = document.getElementById('cfg-conf-file').value.trim();
-        const feedback = document.getElementById('import-feedback');
-
-        if (!confPath) {
-            feedback.className = 'error';
-            feedback.textContent = 'Enter a config file path first';
-            feedback.classList.remove('hidden');
-            return;
-        }
-
-        feedback.className = '';
-        feedback.textContent = 'Importing...';
-        feedback.classList.remove('hidden');
-
-        try {
-            const resp = await fetch('/api/import-direwolf-conf', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ conf_path: confPath }),
-            });
-            const data = await resp.json();
-
-            if (!resp.ok) {
-                feedback.className = 'error';
-                feedback.textContent = data.detail || 'Import failed';
-                return;
-            }
-
-            // Populate the settings form with extracted values
-            if (data.callsign) document.getElementById('cfg-callsign').value = data.callsign;
-            if (data.latitude) document.getElementById('cfg-latitude').value = data.latitude;
-            if (data.longitude) document.getElementById('cfg-longitude').value = data.longitude;
-            if (data.symbol) document.getElementById('cfg-symbol').value = data.symbol;
-            if (data.symbol_table) document.getElementById('cfg-symbol-table').value = data.symbol_table;
-
-            const fields = Object.keys(data).filter(k => data[k]).join(', ');
-            feedback.className = 'success';
-            feedback.textContent = `Imported: ${fields}. Click Save to apply.`;
-            updateSymbolPreview();
-        } catch (e) {
-            feedback.className = 'error';
-            feedback.textContent = `Error: ${e.message}`;
         }
     }
 
@@ -1437,12 +1266,243 @@
         });
     }
 
+    // --- Cold Start / Map Centering ---
+    async function initMapCenter() {
+        // Priority 1: my_position resolved coords
+        const myPos = getMyPosition();
+        if (myPos) {
+            const zoom = config.station?.zoom || 12;
+            map.setView([myPos.lat, myPos.lng], zoom);
+            return;
+        }
+
+        // Priority 2: config lat/lon if non-zero
+        const lat = config.station?.latitude || 0;
+        const lon = config.station?.longitude || 0;
+        if (lat !== 0 || lon !== 0) {
+            const zoom = config.station?.zoom || 12;
+            map.setView([lat, lon], zoom);
+            return;
+        }
+
+        // Priority 3: Most recent station from DB (already loaded)
+        const stationKeys = Object.keys(stations);
+        if (stationKeys.length > 0) {
+            // Find most recently seen station
+            let best = null;
+            let bestTime = 0;
+            for (const cs of stationKeys) {
+                const s = stations[cs];
+                if (s.data && s.data.latitude && s.data.longitude) {
+                    const t = s.data.last_seen || 0;
+                    if (!best || t > bestTime) {
+                        best = s;
+                        bestTime = t;
+                    }
+                }
+            }
+            if (best) {
+                const zoom = config.station?.zoom || 12;
+                map.setView([best.data.latitude, best.data.longitude], zoom);
+                return;
+            }
+        }
+
+        // Priority 4: Cold start - center (0,0) zoom 3, show waiting modal
+        map.setView([0, 0], 3);
+        showWaitingModal();
+    }
+
+    function showWaitingModal() {
+        waitingForPosition = true;
+        const modal = document.getElementById('waiting-modal');
+        if (modal) modal.classList.remove('hidden');
+
+        const btnClose = document.getElementById('btn-close-waiting');
+        if (btnClose) {
+            btnClose.addEventListener('click', () => {
+                modal.classList.add('hidden');
+                showWaitingToast();
+            });
+        }
+        // Also close when clicking backdrop
+        if (modal) {
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    modal.classList.add('hidden');
+                    showWaitingToast();
+                }
+            });
+        }
+    }
+
+    function showWaitingToast() {
+        const toast = document.getElementById('waiting-toast');
+        if (toast) toast.classList.remove('hidden');
+    }
+
+    function dismissWaiting() {
+        waitingForPosition = false;
+        const modal = document.getElementById('waiting-modal');
+        if (modal) modal.classList.add('hidden');
+        const toast = document.getElementById('waiting-toast');
+        if (toast) toast.classList.add('hidden');
+    }
+
+    // --- My Position Marker ---
+    function updateMyPositionMarker() {
+        // Remove old marker if present
+        if (myPositionPinMarker) {
+            map.removeLayer(myPositionPinMarker);
+            myPositionPinMarker = null;
+        }
+        // Remove my-station class from all station markers
+        for (const cs of Object.keys(stations)) {
+            const el = stations[cs].marker?.getElement?.();
+            if (el) el.classList.remove('my-station');
+        }
+
+        const mp = config.station?.my_position;
+        if (!mp || !mp.type) return;
+
+        if (mp.type === 'pin' && mp.latitude != null && mp.longitude != null) {
+            const icon = L.divIcon({
+                className: 'my-position-pin',
+                html: '<div class="pin-marker">📌</div>',
+                iconSize: [24, 24],
+                iconAnchor: [12, 24],
+                popupAnchor: [0, -24],
+            });
+            myPositionPinMarker = L.marker([mp.latitude, mp.longitude], { icon: icon })
+                .addTo(map)
+                .bindPopup('<b>My Position</b><br>(dropped pin)<br><button class="popup-btn popup-btn-remove" onclick="window._removeMyPosition()">Remove Pin</button>');
+        } else if (mp.type === 'station' && mp.callsign) {
+            const s = stations[mp.callsign];
+            if (s && s.marker) {
+                const el = s.marker.getElement?.();
+                if (el) el.classList.add('my-station');
+            }
+        }
+    }
+
+    async function saveMyPosition(myPosition) {
+        try {
+            const resp = await fetch('/api/config', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ station: { my_position: myPosition } }),
+            });
+            if (resp.ok) {
+                if (!config.station) config.station = {};
+                config.station.my_position = myPosition;
+                updateMyPositionMarker();
+                // Re-render all popups
+                for (const cs of Object.keys(stations)) {
+                    updateStationPopup(cs);
+                }
+                // Fly to position
+                const pos = getMyPosition();
+                if (pos) {
+                    const zoom = config.station?.zoom || 12;
+                    map.flyTo([pos.lat, pos.lng], zoom);
+                }
+                // Dismiss waiting if active
+                if (waitingForPosition) dismissWaiting();
+            }
+        } catch (e) {
+            console.error('Failed to save my position:', e);
+        }
+    }
+
+    // Expose to popup onclick handlers
+    window._setMyPositionStation = function (callsign) {
+        saveMyPosition({ type: 'station', callsign: callsign });
+        map.closePopup();
+    };
+
+    window._removeMyPosition = function () {
+        saveMyPosition(null);
+        map.closePopup();
+    };
+
+    // --- Drop Pin ---
+    function initDropPin() {
+        const btn = document.getElementById('btn-drop-pin');
+        const mobileBtn = document.getElementById('mobile-btn-drop-pin');
+        if (btn) {
+            btn.addEventListener('click', () => togglePinMode());
+        }
+        if (mobileBtn) {
+            mobileBtn.addEventListener('click', () => {
+                togglePinMode();
+                document.getElementById('mobile-menu')?.classList.add('hidden');
+            });
+        }
+
+        // Right-click on map for context popup
+        map.on('contextmenu', (e) => {
+            showPinContextPopup(e.latlng);
+        });
+
+        // Long-press on map (mobile)
+        let longPressTimer = null;
+        map.on('mousedown', (e) => {
+            if (!e.originalEvent) return;
+            longPressTimer = setTimeout(() => {
+                showPinContextPopup(e.latlng);
+            }, 700);
+        });
+        map.on('mouseup', () => { clearTimeout(longPressTimer); });
+        map.on('mousemove', () => { clearTimeout(longPressTimer); });
+        map.on('drag', () => { clearTimeout(longPressTimer); });
+    }
+
+    function togglePinMode() {
+        pinModeActive = !pinModeActive;
+        const btn = document.getElementById('btn-drop-pin');
+        if (btn) btn.classList.toggle('active', pinModeActive);
+        if (pinModeActive) {
+            map.getContainer().style.cursor = 'crosshair';
+            map.once('click', onPinPlacementClick);
+        } else {
+            map.getContainer().style.cursor = '';
+            map.off('click', onPinPlacementClick);
+        }
+    }
+
+    function onPinPlacementClick(e) {
+        pinModeActive = false;
+        const btn = document.getElementById('btn-drop-pin');
+        if (btn) btn.classList.remove('active');
+        map.getContainer().style.cursor = '';
+        dropPinAt(e.latlng.lat, e.latlng.lng);
+    }
+
+    function dropPinAt(lat, lng) {
+        saveMyPosition({ type: 'pin', latitude: lat, longitude: lng });
+    }
+
+    function showPinContextPopup(latlng) {
+        const lat = latlng.lat.toFixed(6);
+        const lng = latlng.lng.toFixed(6);
+        L.popup()
+            .setLatLng(latlng)
+            .setContent(`<b>${lat}, ${lng}</b><br><button class="popup-btn popup-btn-set" onclick="window._dropPinFromPopup(${lat}, ${lng})">Set as My Position</button>`)
+            .openOn(map);
+    }
+
+    window._dropPinFromPopup = function (lat, lng) {
+        map.closePopup();
+        dropPinAt(lat, lng);
+    };
+
     // --- Debug: Simulate stations at various angles/distances from home ---
     function simulateStations() {
-        const homeLat = config.station?.latitude;
-        const homeLng = config.station?.longitude;
+        const myPos = getMyPosition();
+        const homeLat = myPos ? myPos.lat : (config.station?.latitude || null);
+        const homeLng = myPos ? myPos.lng : (config.station?.longitude || null);
         if (!homeLat || !homeLng) {
-            console.warn('simulateStations: no home station configured');
+            console.warn('simulateStations: no position configured');
             return;
         }
         // Place stations at different bearings and distances from home

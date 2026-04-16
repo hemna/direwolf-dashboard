@@ -41,6 +41,7 @@
                     <option value="tx">TX Only</option>
                 </select>
             </div>
+            <button id="btn-drop-pin" title="Drop Pin - set my position">&#x1F4CC;</button>
             <button id="btn-toggle-log" title="Toggle packet log">&#9776;</button>
             <button id="btn-settings" title="Settings">&#9881;</button>
             <button id="btn-mobile-menu" title="Menu" class="mobile-only">&#8942;</button>
@@ -83,6 +84,7 @@
             </select>
         </div>
         <div class="mobile-menu-buttons">
+            <button id="mobile-btn-drop-pin">Drop Pin</button>
             <button id="mobile-btn-toggle-log">Toggle Log</button>
             <button id="mobile-btn-settings">Settings</button>
         </div>
@@ -124,33 +126,15 @@
             <div class="modal-body">
                 <fieldset>
                     <legend>Station</legend>
-                    <label>Callsign <input type="text" id="cfg-callsign" /></label>
                     <label>Latitude <input type="number" step="0.0001" id="cfg-latitude" /></label>
                     <label>Longitude <input type="number" step="0.0001" id="cfg-longitude" /></label>
                     <label>Default Map Zoom (1–18) <input type="number" id="cfg-zoom" min="1" max="18" step="1" /></label>
-                    <div class="symbol-row">
-                        <label>Symbol
-                            <input type="text" id="cfg-symbol" maxlength="1" style="width:3em;flex:none;" readonly />
-                        </label>
-                        <label>Table
-                            <input type="text" id="cfg-symbol-table" maxlength="1" style="width:3em;flex:none;" readonly />
-                        </label>
-                        <div id="symbol-preview" class="symbol-preview" title="Click to change symbol"></div>
-                        <span id="symbol-preview-name" class="symbol-preview-name"></span>
-                        <button type="button" id="btn-pick-symbol" class="secondary" style="font-size:11px;padding:3px 10px;">Pick Symbol</button>
-                    </div>
                 </fieldset>
                 <fieldset>
                     <legend>Direwolf</legend>
                     <label>AGW Host <input type="text" id="cfg-agw-host" /></label>
                     <label>AGW Port <input type="number" id="cfg-agw-port" /></label>
                     <label>Log File <input type="text" id="cfg-log-file" /></label>
-                    <label>Config File <input type="text" id="cfg-conf-file" placeholder="~/direwolf.conf" />
-                    </label>
-                    <div style="margin-top:4px;">
-                        <button id="btn-import-dw-conf" type="button" class="secondary" style="font-size:11px;padding:3px 10px;">Import from Direwolf conf</button>
-                        <span id="import-feedback" class="hidden" style="font-size:10px;margin-left:8px;"></span>
-                    </div>
                 </fieldset>
                 <fieldset>
                     <legend>Server</legend>
@@ -205,23 +189,19 @@
         </div>
     </div>
 
-    <!-- Symbol Picker Modal -->
-    <div id="symbol-picker-modal" class="modal hidden">
-        <div class="modal-content symbol-picker-content">
+    <!-- Waiting Modal -->
+    <div id="waiting-modal" class="modal hidden">
+        <div class="modal-content waiting-modal-content">
             <div class="modal-header">
-                <h2>Select Symbol</h2>
-                <button id="btn-close-symbol-picker">&times;</button>
+                <h2>Waiting for Stations</h2>
+                <button id="btn-close-waiting">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="symbol-tabs">
-                    <button type="button" class="symbol-tab active" id="symbol-tab-primary">Primary (/)</button>
-                    <button type="button" class="symbol-tab" id="symbol-tab-alternate">Alternate (\)</button>
-                </div>
-                <div class="symbol-picker-info" id="symbol-picker-info">Hover over a symbol to see details</div>
-                <div class="symbol-grid" id="symbol-picker-grid"></div>
+                <p>Listening for APRS packets... The map will center on the first station heard with a position report.</p>
             </div>
         </div>
     </div>
+    <div id="waiting-toast" class="toast hidden">Waiting for first position packet...</div>
 
     <script src="/static/leaflet/leaflet.js"></script>
     <script src="/static/app.js"></script>
