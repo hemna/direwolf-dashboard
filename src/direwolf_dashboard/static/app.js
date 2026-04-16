@@ -637,21 +637,18 @@
                 // Midpoint
                 const midLat = (from.lat + to.lat) / 2;
                 const midLng = (from.lng + to.lng) / 2;
-                // Bearing (degrees) so text runs along the line
-                const dLng = (to.lng - from.lng) * Math.PI / 180;
-                const lat1 = from.lat * Math.PI / 180;
-                const lat2 = to.lat * Math.PI / 180;
-                const y = Math.sin(dLng) * Math.cos(lat2);
-                const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
-                let bearing = Math.atan2(y, x) * 180 / Math.PI;
+                // Compute screen-space angle from the two endpoints
+                const fromPt = map.latLngToContainerPoint(from);
+                const toPt = map.latLngToContainerPoint(to);
+                let angle = Math.atan2(toPt.y - fromPt.y, toPt.x - fromPt.x) * 180 / Math.PI;
                 // Keep text readable (not upside-down)
-                if (bearing > 90) bearing -= 180;
-                if (bearing < -90) bearing += 180;
+                if (angle > 90) angle -= 180;
+                if (angle < -90) angle += 180;
                 const icon = L.divIcon({
                     className: 'route-distance-label',
-                    html: `<span style="display:inline-block;transform:rotate(${bearing.toFixed(1)}deg)">${label}</span>`,
-                    iconSize: [0, 0],
-                    iconAnchor: [0, 0],
+                    html: `<span style="transform:rotate(${angle.toFixed(1)}deg);transform-origin:center center">${label}</span>`,
+                    iconSize: [120, 16],
+                    iconAnchor: [60, 8],
                 });
                 const marker = L.marker([midLat, midLng], { icon, interactive: false });
                 elements.push(marker);
