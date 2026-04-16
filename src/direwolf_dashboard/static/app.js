@@ -1420,4 +1420,69 @@
         });
     }
 
+    // --- Debug: Simulate stations at various angles/distances from home ---
+    function simulateStations() {
+        const homeLat = config.station?.latitude;
+        const homeLng = config.station?.longitude;
+        if (!homeLat || !homeLng) {
+            console.warn('simulateStations: no home station configured');
+            return;
+        }
+        // Place stations at different bearings and distances from home
+        // Each entry: [callsign, bearingDeg, distanceKm, symbol, symbolTable]
+        const simStations = [
+            ['SIM-N',    0,    5,  '>', '/'],  // North, 5 km
+            ['SIM-NE',  45,   12,  '>', '/'],  // NE, 12 km
+            ['SIM-E',   90,   25,  '-', '/'],  // East, 25 km
+            ['SIM-SE', 135,    8,  'k', '/'],  // SE, 8 km
+            ['SIM-S',  180,   40,  '>', '/'],  // South, 40 km
+            ['SIM-SW', 225,   18,  '-', '/'],  // SW, 18 km
+            ['SIM-W',  270,    3,  '>', '/'],  // West, 3 km (short)
+            ['SIM-NW', 315,   55,  'k', '/'],  // NW, 55 km (long)
+            ['SIM-FAR', 60,  100,  '>', '/'],  // ENE, 100 km (very long)
+            ['SIM-NEAR',200,   1,  '-', '/'],  // SSW, 1 km (very short)
+        ];
+        const deg2rad = Math.PI / 180;
+        const R = 6371; // Earth radius in km
+        let delay = 0;
+        for (const [call, bearing, distKm, sym, symTbl] of simStations) {
+            const brng = bearing * deg2rad;
+            const lat1 = homeLat * deg2rad;
+            const lng1 = homeLng * deg2rad;
+            const lat2 = Math.asin(
+                Math.sin(lat1) * Math.cos(distKm / R) +
+                Math.cos(lat1) * Math.sin(distKm / R) * Math.cos(brng)
+            );
+            const lng2 = lng1 + Math.atan2(
+                Math.sin(brng) * Math.sin(distKm / R) * Math.cos(lat1),
+                Math.cos(distKm / R) - Math.sin(lat1) * Math.sin(lat2)
+            );
+            const lat = lat2 / deg2rad;
+            const lng = lng2 / deg2rad;
+            const packet = {
+                timestamp: Date.now() / 1000,
+                tx: false,
+                from_call: call,
+                to_call: 'APRS',
+                type: 'GPSPacket',
+                latitude: lat,
+                longitude: lng,
+                symbol: sym,
+                symbol_table: symTbl,
+                path: [],
+                comment: `Simulated ${distKm} km @ ${bearing}°`,
+                human_info: '',
+                msg_no: '',
+                raw_log: [],
+                raw_packet: `${call}>APRS:!${lat.toFixed(4)}/${lng.toFixed(4)}>${sym}`,
+                audio_level: null,
+                compact_log: `<span style="color:#1AA730">RX&#x2193;</span> <span style="color:cyan">GPSPacket</span> <span style="color:#C70039">${call}</span><span style="color:#1AA730">&#x2192;</span><span style="color:#D033FF">APRS</span> <span style="color:#888">[SIM ${distKm}km ${bearing}°]</span>`,
+            };
+            setTimeout(() => onPacket(packet), delay);
+            delay += 800; // stagger so animations don't overlap
+        }
+        console.log(`simulateStations: injecting ${simStations.length} stations over ${delay}ms`);
+    }
+    window.simulateStations = simulateStations;
+
 })();
