@@ -65,12 +65,18 @@ class TilesConfig:
 
 
 @dataclass
+class DisplayConfig:
+    show_route_distances: bool = True
+
+
+@dataclass
 class Config:
     station: StationConfig = field(default_factory=StationConfig)
     direwolf: DirewolfConfig = field(default_factory=DirewolfConfig)
     server: ServerConfig = field(default_factory=ServerConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
     tiles: TilesConfig = field(default_factory=TilesConfig)
+    display: DisplayConfig = field(default_factory=DisplayConfig)
 
     def to_dict(self) -> dict:
         """Convert config to a JSON-serializable dict."""
@@ -119,6 +125,7 @@ def _dict_to_config(d: dict) -> Config:
         server=ServerConfig(**d.get("server", {})),
         storage=StorageConfig(**d.get("storage", {})),
         tiles=TilesConfig(**d.get("tiles", {})),
+        display=DisplayConfig(**d.get("display", {})),
     )
 
 

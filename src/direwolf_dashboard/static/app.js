@@ -16,7 +16,7 @@
     let autoScroll = true;
     const MAX_LOG_ROWS = 500;
     let trailHours = 1;  // Current trail duration in hours
-    let showRouteDistances = localStorage.getItem('showRouteDistances') !== 'false'; // default true
+    let showRouteDistances = true; // updated from config on load
 
     // --- Log View State ---
     const LOG_STATES = ['expanded', 'peek', 'hidden'];
@@ -338,6 +338,10 @@
             if (config.version) {
                 const el = document.getElementById('app-version');
                 if (el) el.textContent = config.version;
+            }
+            // Apply display settings
+            if (config.display != null) {
+                showRouteDistances = config.display.show_route_distances !== false;
             }
         } catch (e) {
             console.error('Failed to load config:', e);
@@ -1068,7 +1072,7 @@
         document.getElementById('cfg-tile-mode').value = config.tiles?.cache_mode || 'lazy';
         document.getElementById('cfg-max-cache').value = config.tiles?.max_cache_mb || 500;
 
-        // Map display settings (localStorage)
+        // Map display settings
         document.getElementById('cfg-show-route-distances').checked = showRouteDistances;
 
         // Show/hide preload section
@@ -1105,13 +1109,10 @@
                 cache_mode: document.getElementById('cfg-tile-mode').value,
                 max_cache_mb: parseInt(document.getElementById('cfg-max-cache').value),
             },
+            display: {
+                show_route_distances: document.getElementById('cfg-show-route-distances').checked,
+            },
         };
-
-        // Save client-side map display settings to localStorage
-        const newShowRouteDistances = document.getElementById('cfg-show-route-distances').checked;
-        const displayChanged = newShowRouteDistances !== showRouteDistances;
-        showRouteDistances = newShowRouteDistances;
-        localStorage.setItem('showRouteDistances', showRouteDistances);
 
         const feedback = document.getElementById('settings-feedback');
         try {
@@ -1123,14 +1124,14 @@
             const result = await resp.json();
 
             if (resp.ok) {
-                const saved = [...(result.updated || [])];
-                if (displayChanged) saved.push('map display');
                 feedback.className = result.restart_required ? 'warning' : 'success';
                 feedback.textContent = result.restart_required
                     ? `Saved. Restart required for: ${result.updated.join(', ')}`
-                    : `Saved: ${saved.join(', ') || 'no changes'}`;
+                    : `Saved: ${result.updated.join(', ') || 'no changes'}`;
                 feedback.classList.remove('hidden');
                 config = { ...config, ...updates };
+                // Apply display settings immediately
+                showRouteDistances = updates.display.show_route_distances;
             } else {
                 feedback.className = 'error';
                 feedback.textContent = `Error: ${JSON.stringify(result.detail)}`;
