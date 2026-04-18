@@ -8,8 +8,42 @@ from unittest.mock import AsyncMock, MagicMock
 from fastapi.testclient import TestClient
 
 from direwolf_dashboard.config import Config
-from direwolf_dashboard.server import create_app, state
+from direwolf_dashboard.server import create_app
+from direwolf_dashboard.lifecycle import ServiceContainer, DirewolfServices
 from direwolf_dashboard.storage import Storage
+
+
+# Module-level container reference for test access
+_test_container: ServiceContainer | None = None
+
+
+def _create_test_app(config: Config, config_path: str) -> tuple:
+    """Create app and return (app, container) for test manipulation."""
+    from direwolf_dashboard.lifecycle import ServiceContainer
+    from direwolf_dashboard.routers import create_api_router, create_ws_router, create_index_router
+
+    import os
+    from contextlib import asynccontextmanager
+    from fastapi import FastAPI
+    from fastapi.staticfiles import StaticFiles
+
+    container = ServiceContainer()
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        # Tests populate container.services manually, so lifespan is a no-op
+        yield
+
+    app = FastAPI(title="Direwolf Dashboard", lifespan=lifespan)
+    app.include_router(create_api_router(container), prefix="/api")
+    app.include_router(create_ws_router(container, path="/ws"))
+
+    static_dir = os.path.join(os.path.dirname(__file__), "..", "src", "direwolf_dashboard", "static")
+    if os.path.exists(static_dir):
+        app.mount("/static", StaticFiles(directory=static_dir), name="static")
+    app.include_router(create_index_router(static_dir))
+
+    return app, container
 
 
 @pytest.fixture
@@ -22,24 +56,34 @@ async def test_app(tmp_path):
     config.station.longitude = -77.45
     config_path = str(tmp_path / "config.yaml")
 
-    app = create_app(config, config_path)
+    app, container = _create_test_app(config, config_path)
 
-    # We need to manually init storage for tests since lifespan won't run with TestClient sync
+    # Init real storage for tests
     storage = Storage(config.storage.db_path)
     await storage.init()
-    state.storage = storage
-    state.config = config
-    state.config_path = config_path
-    state.start_time = time.time()
-    state.agw_reader = MagicMock()
-    state.agw_reader.connected = False
-    state.log_tailer = MagicMock()
-    state.log_tailer.active = False
-    state.tile_proxy = MagicMock()
-    state.tile_proxy.get_cache_stats.return_value = {
+
+    # Create a mock DirewolfServices-like object via the container
+    agw_reader = MagicMock()
+    agw_reader.connected = False
+    log_tailer = MagicMock()
+    log_tailer.active = False
+    tile_proxy = MagicMock()
+    tile_proxy.get_cache_stats.return_value = {
         "tile_count": 0,
         "cache_size_mb": 0,
     }
+
+    container.services = DirewolfServices(
+        config=config,
+        config_path=config_path,
+        storage=storage,
+        tile_proxy=tile_proxy,
+        processor=MagicMock(),
+        broadcast_queue=asyncio.Queue(),
+        agw_reader=agw_reader,
+        log_tailer=log_tailer,
+        start_time=time.time(),
+    )
 
     yield app, storage
 
@@ -134,11 +178,7 @@ class TestStationDetailEndpoint:
         t = time.time()
         await storage.upsert_station("WB4BOR", t, 37.75, -77.45)
         for i in range(3):
-            await storage.insert_packet(
-                _make_packet(
-                    from_call="WB4BOR", timestamp=t + i, latitude=37.75 + i * 0.01
-                )
-            )
+            await storage.insert_packet(_make_packet(from_call="WB4BOR", timestamp=t + i, latitude=37.75 + i * 0.01))
 
         with TestClient(app, raise_server_exceptions=False) as client:
             response = client.get("/api/station/WB4BOR")
@@ -265,11 +305,7 @@ class TestMyPositionValidation:
         with TestClient(app, raise_server_exceptions=False) as client:
             response = client.put(
                 "/api/config",
-                json={
-                    "station": {
-                        "my_position": {"type": "station", "callsign": "WB4BOR"}
-                    }
-                },
+                json={"station": {"my_position": {"type": "station", "callsign": "WB4BOR"}}},
             )
             assert response.status_code == 200
 
