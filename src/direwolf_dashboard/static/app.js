@@ -7,6 +7,11 @@
 (function () {
     'use strict';
 
+    // --- Configurable URLs (set by host app, defaults for standalone) ---
+    const API_BASE = window.DIREWOLF_API_BASE || '/api';
+    const WS_URL = window.DIREWOLF_WS_URL ||
+        ((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+
     // --- State ---
     let map = null;
     let ws = null;
@@ -218,7 +223,7 @@
     // --- Config ---
     async function loadConfig() {
         try {
-            const resp = await fetch('/api/config');
+            const resp = await fetch(API_BASE + '/config');
             config = await resp.json();
             if (config.version) {
                 const el = document.getElementById('app-version');
@@ -241,7 +246,7 @@
 
         map = L.map('map').setView([lat, lon], zoom);
 
-        L.tileLayer('/api/tiles/{z}/{x}/{y}.png', {
+        L.tileLayer(API_BASE + '/tiles/{z}/{x}/{y}.png', {
             attribution: '&copy; OpenStreetMap contributors',
             maxZoom: 18,
         }).addTo(map);
@@ -251,7 +256,7 @@
 
     async function loadStations() {
         try {
-            const resp = await fetch('/api/stations');
+            const resp = await fetch(API_BASE + '/stations');
             const stationList = await resp.json();
             for (const s of stationList) {
                 addOrUpdateStation(s);
@@ -263,7 +268,7 @@
 
     async function loadStationPositions() {
         try {
-            const resp = await fetch('/api/stations/positions');
+            const resp = await fetch(API_BASE + '/stations/positions');
             const data = await resp.json();
             const now = Date.now();
             for (const [callsign, pos] of Object.entries(data)) {
@@ -276,7 +281,7 @@
 
     async function loadTracks() {
         try {
-            const resp = await fetch(`/api/stations/tracks?hours=${trailHours}`);
+            const resp = await fetch(`${API_BASE}/stations/tracks?hours=${trailHours}`);
             const tracks = await resp.json();
             // Clear all existing tracks
             for (const cs of Object.keys(stations)) {
@@ -617,10 +622,7 @@
 
     // --- WebSocket ---
     function connectWebSocket() {
-        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const url = `${proto}//${location.host}/ws`;
-
-        ws = new WebSocket(url);
+        ws = new WebSocket(WS_URL);
 
         ws.onopen = () => {
             wsReconnectDelay = 1000;
@@ -991,7 +993,7 @@
 
         const feedback = document.getElementById('settings-feedback');
         try {
-            const resp = await fetch('/api/config', {
+            const resp = await fetch(API_BASE + '/config', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(updates),
@@ -1030,7 +1032,7 @@
         if (!bbox) return;
 
         try {
-            const resp = await fetch('/api/tiles/preload', {
+            const resp = await fetch(API_BASE + '/tiles/preload', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(bbox),
@@ -1052,7 +1054,7 @@
         bbox.confirm = true;
 
         try {
-            await fetch('/api/tiles/preload', {
+            await fetch(API_BASE + '/tiles/preload', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(bbox),
@@ -1067,7 +1069,7 @@
 
     async function cancelPreload() {
         try {
-            await fetch('/api/tiles/preload', { method: 'DELETE' });
+            await fetch(API_BASE + '/tiles/preload', { method: 'DELETE' });
             document.getElementById('btn-cancel-download').classList.add('hidden');
             document.getElementById('preload-progress').classList.add('hidden');
         } catch (e) {
@@ -1387,7 +1389,7 @@
 
     async function saveMyPosition(myPosition) {
         try {
-            const resp = await fetch('/api/config', {
+            const resp = await fetch(API_BASE + '/config', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ station: { my_position: myPosition } }),
