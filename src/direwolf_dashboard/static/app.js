@@ -22,6 +22,7 @@
     const MAX_LOG_ROWS = 500;
     let trailHours = 1;  // Current trail duration in hours
     let showRouteDistances = true; // updated from config on load
+    let gpxLayer = null;    // Current GPX overlay layer (L.GPX instance)
     let waitingForPosition = false;
     let myPositionPinMarker = null;
     let pinModeActive = false;
@@ -199,6 +200,19 @@
             },
         });
         new LegendControl().addTo(map);
+    }
+
+    // --- GPX Overlay ---
+    function gpxCircleIcon(fillColor, radius) {
+        var size = radius * 2 + 4;
+        return L.divIcon({
+            className: 'gpx-marker',
+            iconSize: [size, size],
+            iconAnchor: [size / 2, size / 2],
+            html: '<svg width="' + size + '" height="' + size + '">' +
+                  '<circle cx="' + (size / 2) + '" cy="' + (size / 2) + '" r="' + radius + '" ' +
+                  'fill="' + fillColor + '" stroke="white" stroke-width="1.5"/></svg>'
+        });
     }
 
     // --- Init ---
