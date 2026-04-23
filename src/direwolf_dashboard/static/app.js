@@ -797,10 +797,39 @@
         // Raw log lines (hidden by default)
         const rawDiv = document.createElement('div');
         rawDiv.className = 'log-raw';
+
+        // Show the clean APRS string prominently, then raw log lines below
+        const aprsStr = packet.aprs_string || '';
+        if (aprsStr) {
+            const aprsLine = document.createElement('div');
+            aprsLine.className = 'log-raw-aprs';
+
+            const aprsText = document.createElement('code');
+            aprsText.textContent = aprsStr;
+            aprsLine.appendChild(aprsText);
+
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'log-raw-copy';
+            copyBtn.title = 'Copy APRS packet';
+            copyBtn.innerHTML = '&#x1F4CB;';
+            copyBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                navigator.clipboard.writeText(aprsStr).then(() => {
+                    copyBtn.innerHTML = '&#x2713;';
+                    copyBtn.classList.add('copied');
+                    setTimeout(() => { copyBtn.innerHTML = '&#x1F4CB;'; copyBtn.classList.remove('copied'); }, 1500);
+                });
+            });
+            aprsLine.appendChild(copyBtn);
+            rawDiv.appendChild(aprsLine);
+        }
+
+        // Show additional raw log lines (Direwolf log) if available
         if (packet.raw_log && packet.raw_log.length > 0) {
-            rawDiv.textContent = packet.raw_log.join('\n');
-        } else if (packet.raw_packet) {
-            rawDiv.textContent = packet.raw_packet;
+            const logLines = document.createElement('div');
+            logLines.className = 'log-raw-extra';
+            logLines.textContent = packet.raw_log.join('\n');
+            rawDiv.appendChild(logLines);
         }
 
         // Toggle expand/collapse

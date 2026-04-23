@@ -257,6 +257,50 @@ html, body {
     display: block;
 }
 
+/* Raw APRS string line with copy button */
+.log-raw-aprs {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.log-raw-aprs code {
+    flex: 1;
+    color: var(--accent);
+    word-break: break-all;
+    white-space: pre-wrap;
+}
+
+.log-raw-copy {
+    flex-shrink: 0;
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    padding: 2px 6px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1;
+}
+
+.log-raw-copy:hover {
+    color: var(--text-primary);
+    border-color: var(--accent);
+}
+
+.log-raw-copy.copied {
+    color: var(--success);
+    border-color: var(--success);
+}
+
+.log-raw-extra {
+    color: var(--text-secondary);
+    font-size: 10px;
+    opacity: 0.7;
+    margin-top: 2px;
+}
+
 .log-row.hidden-by-filter {
     display: none;
 }

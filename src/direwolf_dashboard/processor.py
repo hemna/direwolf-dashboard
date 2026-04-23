@@ -222,6 +222,7 @@ def packet_to_dict(
         "audio_level": audio_level,
         "raw_log": raw_log_lines or [],
         "raw_packet": raw_aprs_string,
+        "aprs_string": aprs_string,
     }
 
     if is_third_party:
