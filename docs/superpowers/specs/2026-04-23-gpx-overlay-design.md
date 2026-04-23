@@ -16,7 +16,7 @@ Users want to overlay GPX files (tracks, routes, waypoints) on the Direwolf Dash
 | Storage | Browser localStorage | No server changes, no Pi storage impact, persists per-browser across reloads |
 | File count | Single file at a time | Keeps UI simple; uploading a new file replaces the old one |
 | UI location | Leaflet map control, top-left (below zoom) | Standard Leaflet convention for tool controls |
-| Visual styling | Auto-styled by GPX element type | Distinct from existing APRS overlays (cyan trails, blue routes) |
+| Visual styling | Auto-styled by GPX element type | Distinct from existing APRS overlays (cyan `#00b4d8` trails, dashed blue `#0000ff` packet routes) |
 | Parsing location | Client-side (browser) | Keeps Pi CPU free, works offline |
 
 ## Architecture
@@ -25,10 +25,10 @@ Users want to overlay GPX files (tracks, routes, waypoints) on the Direwolf Dash
 
 | File | Change |
 |------|--------|
-| `static/leaflet/gpx.js` | **New** — vendored leaflet-gpx plugin (~15KB) |
-| `static/index.html` | Add `<script>` tag for `gpx.js` |
-| `static/app.js` | New GPX overlay module within existing IIFE |
-| `static/style.css` | Styles for GPX map control |
+| `src/direwolf_dashboard/static/leaflet/gpx.js` | **New** — vendored leaflet-gpx plugin (~15KB) |
+| `src/direwolf_dashboard/static/index.html` | Add `<script>` tag for `gpx.js` |
+| `src/direwolf_dashboard/static/app.js` | New GPX overlay module within existing IIFE |
+| `src/direwolf_dashboard/static/style.css` | Styles for GPX map control |
 
 No Python/backend changes. No new API endpoints. No database changes.
 
@@ -53,8 +53,7 @@ Key: `gpx_overlay`
 ```json
 {
   "filename": "hike_route.gpx",
-  "data": "<gpx>...raw XML string...</gpx>",
-  "addedAt": "2026-04-23T12:00:00Z"
+  "data": "<gpx>...raw XML string...</gpx>"
 }
 ```
 
@@ -107,41 +106,65 @@ When cleared, this section is removed.
 
 ## Visual Styling
 
-All colors chosen to be distinct from existing APRS overlays (cyan trails, blue packet routes, red TX, green RX).
+All colors chosen to be distinct from existing APRS overlays. The existing map uses cyan (`#00b4d8`) for station movement trails, dashed blue (`#0000ff`) for packet routes, red (`#ff0000`) for TX arcs, and green (`#00cc00`) for RX arcs. The GPX start/end markers use different shades of green (`#22c55e`) and red (`#ef4444`) than the APRS animations, and are circle markers rather than arc SVGs, so visual confusion is unlikely.
 
 | Element | Style | Color |
 |---------|-------|-------|
-| Tracks | Solid polyline, weight 3, round caps | `#ff8c00` (dark orange) |
-| Routes | Dashed polyline, weight 2 | `#ff8c00` (dark orange) |
-| Start marker | `L.circleMarker`, radius 6 | `#22c55e` (green) fill, white stroke |
-| End marker | `L.circleMarker`, radius 6 | `#ef4444` (red) fill, white stroke |
-| Waypoints | `L.circleMarker`, radius 5, with name tooltip | `#a855f7` (purple) fill, white stroke |
+| Tracks | Solid polyline, weight 3, opacity 0.8, round caps | `#ff8c00` (dark orange) |
+| Routes | Dashed polyline (`dashArray: '8,6'`), weight 2, opacity 0.8 | `#ff8c00` (dark orange) |
+| Start marker | `L.divIcon` with inline SVG circle, radius 6 | `#22c55e` (green) fill, white stroke |
+| End marker | `L.divIcon` with inline SVG circle, radius 6 | `#ef4444` (red) fill, white stroke |
+| Waypoints | `L.divIcon` with inline SVG circle, radius 5, with name tooltip | `#a855f7` (purple) fill, white stroke |
 
-No external icon images needed — circle markers avoid file dependencies and render crisp at any zoom.
+No external icon images needed — inline SVG circles avoid file dependencies and render crisp at any zoom.
 
 ### leaflet-gpx Configuration
 
+leaflet-gpx markers expect `L.Icon` or `L.DivIcon` instances (not `L.circleMarker`). We use `L.divIcon` with inline SVG to render colored circles without external image dependencies:
+
 ```javascript
+function gpxCircleIcon(fillColor, radius) {
+    var size = radius * 2 + 4;
+    return L.divIcon({
+        className: 'gpx-marker',
+        iconSize: [size, size],
+        iconAnchor: [size/2, size/2],
+        html: '<svg width="' + size + '" height="' + size + '">' +
+              '<circle cx="' + size/2 + '" cy="' + size/2 + '" r="' + radius + '" ' +
+              'fill="' + fillColor + '" stroke="white" stroke-width="1.5"/></svg>'
+    });
+}
+
 new L.GPX(gpxText, {
     async: true,
     parseElements: ['track', 'route', 'waypoint'],
-    polyline_options: [{
-        color: '#ff8c00',
-        opacity: 0.8,
-        weight: 3,
-        lineCap: 'round',
-        lineJoin: 'round'
-    }],
+    polyline_options: [
+        // Index 0: track style
+        {
+            color: '#ff8c00',
+            opacity: 0.8,
+            weight: 3,
+            lineCap: 'round',
+            lineJoin: 'round'
+        },
+        // Index 1: route style (dashed)
+        {
+            color: '#ff8c00',
+            opacity: 0.8,
+            weight: 2,
+            dashArray: '8,6',
+            lineCap: 'round',
+            lineJoin: 'round'
+        }
+    ],
     markers: {
-        startIcon: L.circleMarker([0,0], { radius: 6, color: 'white', weight: 1.5, fillColor: '#22c55e', fillOpacity: 1 }),
-        endIcon: L.circleMarker([0,0], { radius: 6, color: 'white', weight: 1.5, fillColor: '#ef4444', fillOpacity: 1 }),
-        wptIcons: {},       // default waypoint icon overridden below
+        startIcon: gpxCircleIcon('#22c55e', 6),
+        endIcon: gpxCircleIcon('#ef4444', 6),
+        wptIcons: { '': gpxCircleIcon('#a855f7', 5) },
         wptTypeIcons: {}
     }
 });
 ```
-
-Note: The exact marker configuration may need adjustment based on how leaflet-gpx handles circleMarkers vs. Icons. If `L.circleMarker` isn't supported as a marker icon, we'll create small `L.divIcon` elements with inline SVG circles instead.
 
 ## Error Handling
 
@@ -150,6 +173,7 @@ Note: The exact marker configuration may need adjustment based on how leaflet-gp
 | Malformed XML | leaflet-gpx `'error'` event | Red inline message: "Invalid GPX file" (auto-clears after 5s) |
 | Valid XML, no GPX content | `'loaded'` event + `gpxLayer.getLayers().length === 0` | "No tracks or waypoints found" |
 | File too large | `file.size > 5 * 1024 * 1024` before FileReader | "File too large (max 5MB)" |
+| localStorage quota exceeded | `QuotaExceededError` on `setItem` | "GPX too large to save — overlay shown but won't persist on reload" (overlay still renders, just not persisted) |
 | Partial data (some tracks corrupt) | leaflet-gpx renders what it can | Show stats for successfully parsed content |
 | Empty `<trkseg>` elements | Same as "no content" case | "No tracks or waypoints found" |
 
