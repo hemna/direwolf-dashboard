@@ -433,6 +433,33 @@
         }, 5000);
     }
 
+    function updateLegendGpx(show) {
+        var legend = document.querySelector('.map-legend .legend-body');
+        if (!legend) return;
+        var existing = legend.querySelector('.legend-gpx-section');
+        if (show && !existing) {
+            var section = document.createElement('div');
+            section.className = 'legend-gpx-section';
+            section.innerHTML =
+                '<div class="legend-section-title">GPX Overlay</div>' +
+                '<div class="legend-item">' +
+                    '<div style="width:20px;height:3px;background:#ff8c00;border-radius:2px;"></div>' +
+                    '<span>GPX track</span>' +
+                '</div>' +
+                '<div class="legend-item">' +
+                    '<div style="width:20px;height:0;border-top:3px dashed #ff8c00;opacity:0.8;"></div>' +
+                    '<span>GPX route</span>' +
+                '</div>' +
+                '<div class="legend-item">' +
+                    '<svg width="10" height="10"><circle cx="5" cy="5" r="4" fill="#a855f7" stroke="white" stroke-width="1"/></svg>' +
+                    '<span>GPX waypoint</span>' +
+                '</div>';
+            legend.appendChild(section);
+        } else if (!show && existing) {
+            existing.remove();
+        }
+    }
+
     // --- Init ---
     document.addEventListener('DOMContentLoaded', async () => {
         // Init decode modal immediately (doesn't depend on config/network)
@@ -440,6 +467,7 @@
         await loadConfig();
         initMap();
         initLegend();
+        initGpxOverlay();
         await loadStations();
         loadStationPositions();
         loadTracks();
