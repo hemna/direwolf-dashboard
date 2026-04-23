@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "direwolf-dashboard"
-version = "1.0.1"
+version = "1.0.2"
 description = "Lightweight web-based live display of Direwolf activity for Raspberry Pi"
 readme = "README.md"
 license = {text = "Apache-2.0"}
