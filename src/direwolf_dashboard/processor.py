@@ -184,7 +184,6 @@ def packet_to_dict(
     call_from: str,
     call_to: str,
     audio_level: Optional[int] = None,
-    raw_log_lines: Optional[list[str]] = None,
 ) -> Optional[dict]:
     """Parse a raw APRS string and build a packet dict.
 
@@ -220,7 +219,6 @@ def packet_to_dict(
         "from_call": effective_from or (parsed.get("from") if parsed else ""),
         "to_call": effective_to or (parsed.get("to") if parsed else ""),
         "audio_level": audio_level,
-        "raw_log": raw_log_lines or [],
         "raw_packet": aprs_string,
     }
 
@@ -337,16 +335,14 @@ class PacketProcessor:
         except Exception:
             raw_aprs = ""
 
-        # Check for correlated log data
+        # Check for correlated log data (audio level only)
         audio_level = None
-        raw_log_lines = []
         log_data = self._pending_log_data.pop(call_from, None)
         if (
             log_data
             and (time.time() - log_data["timestamp"]) < self._correlation_window
         ):
             audio_level = log_data.get("audio_level")
-            raw_log_lines = log_data.get("raw_lines", [])
 
         packet = packet_to_dict(
             raw_aprs_string=raw_aprs,
@@ -354,7 +350,6 @@ class PacketProcessor:
             call_from=call_from,
             call_to=call_to,
             audio_level=audio_level,
-            raw_log_lines=raw_log_lines,
         )
 
         if packet:

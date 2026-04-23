@@ -839,14 +839,6 @@
             rawDiv.appendChild(aprsLine);
         }
 
-        // Show additional raw log lines (Direwolf log) if available
-        if (packet.raw_log && packet.raw_log.length > 0) {
-            const logLines = document.createElement('div');
-            logLines.className = 'log-raw-extra';
-            logLines.textContent = packet.raw_log.join('\n');
-            rawDiv.appendChild(logLines);
-        }
-
         // Toggle expand/collapse
         row.addEventListener('click', () => {
             expand.classList.toggle('expanded');
@@ -2004,7 +1996,6 @@
                 comment: `Simulated ${distKm} km @ ${bearing}°`,
                 human_info: '',
                 msg_no: '',
-                raw_log: [],
                 raw_packet: `${call}>APRS:!${lat.toFixed(4)}/${lng.toFixed(4)}>${sym}`,
                 audio_level: null,
                 compact_log: `<span style="color:#1AA730">RX&#x2193;</span> <span style="color:cyan">GPSPacket</span> <span style="color:#C70039">${call}</span><span style="color:#1AA730">&#x2192;</span><span style="color:#D033FF">APRS</span> <span style="color:#888">[SIM ${distKm}km ${bearing}°]</span>`,

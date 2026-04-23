@@ -27,7 +27,6 @@ CREATE TABLE IF NOT EXISTS packets (
     human_info  TEXT,
     comment     TEXT,
     audio_level INTEGER,
-    raw_log     TEXT,
     compact_log TEXT,
     raw_packet  TEXT
 );
@@ -84,14 +83,13 @@ class Storage:
         """Insert a packet record. Returns the inserted row id."""
         # Serialize list fields to JSON strings
         path = json.dumps(packet.get("path")) if packet.get("path") else None
-        raw_log = json.dumps(packet.get("raw_log")) if packet.get("raw_log") else None
 
         cursor = await self._db.execute(
             """INSERT INTO packets
             (timestamp, type, tx, from_call, to_call, path, msg_no,
              latitude, longitude, symbol, symbol_table, human_info,
-             comment, audio_level, raw_log, compact_log, raw_packet)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+             comment, audio_level, compact_log, raw_packet)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 packet.get("timestamp", time.time()),
                 packet.get("type", "Unknown"),
@@ -107,7 +105,6 @@ class Storage:
                 packet.get("human_info"),
                 packet.get("comment"),
                 packet.get("audio_level"),
-                raw_log,
                 packet.get("compact_log"),
                 packet.get("raw_packet"),
             ),
@@ -361,11 +358,5 @@ class Storage:
                 d["path"] = json.loads(d["path"])
             except (json.JSONDecodeError, TypeError):
                 d["path"] = []
-
-        if d.get("raw_log"):
-            try:
-                d["raw_log"] = json.loads(d["raw_log"])
-            except (json.JSONDecodeError, TypeError):
-                d["raw_log"] = []
 
         return d
