@@ -2,11 +2,15 @@
 
 **Date:** 2026-04-23  
 **Status:** Approved  
-**Scope:** Client-side only — zero server changes
+**Scope:** Client-side only — zero server changes — fully offline (no external URLs)
 
 ## Problem
 
 Users want to overlay GPX files (tracks, routes, waypoints) on the Direwolf Dashboard map alongside live APRS station data. Use cases include pre-planned route display during operating sessions, post-activity review against captured APRS positions, and marking areas of interest (event perimeters, SAR zones).
+
+## Constraints
+
+The target platform is DigiPi (Raspberry Pi), which operates fully offline with no internet access. Every asset must be served locally. No external CDN, font, image, or script URLs are permitted anywhere in the implementation.
 
 ## Decisions
 
@@ -25,7 +29,7 @@ Users want to overlay GPX files (tracks, routes, waypoints) on the Direwolf Dash
 
 | File | Change |
 |------|--------|
-| `src/direwolf_dashboard/static/leaflet/gpx.js` | **New** — vendored leaflet-gpx plugin (~15KB) |
+| `src/direwolf_dashboard/static/leaflet/gpx.js` | **New** — vendored leaflet-gpx plugin v2.1.2 UMD build (~25KB). Uses `L.GPX = L.FeatureGroup.extend(...)` format compatible with globally-loaded Leaflet. No ES module imports, no external URLs. |
 | `src/direwolf_dashboard/static/index.html` | Add `<script>` tag for `gpx.js` |
 | `src/direwolf_dashboard/static/app.js` | New GPX overlay module within existing IIFE |
 | `src/direwolf_dashboard/static/style.css` | Styles for GPX map control |
