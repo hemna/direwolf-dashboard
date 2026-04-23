@@ -73,6 +73,11 @@ class DisplayConfig:
 
 
 @dataclass
+class PacketLogConfig:
+    show_timestamps: bool = False
+
+
+@dataclass
 class Config:
     station: StationConfig = field(default_factory=StationConfig)
     direwolf: DirewolfConfig = field(default_factory=DirewolfConfig)
@@ -80,6 +85,7 @@ class Config:
     storage: StorageConfig = field(default_factory=StorageConfig)
     tiles: TilesConfig = field(default_factory=TilesConfig)
     display: DisplayConfig = field(default_factory=DisplayConfig)
+    packet_log: PacketLogConfig = field(default_factory=PacketLogConfig)
 
     def to_dict(self) -> dict:
         """Convert config to a JSON-serializable dict."""
@@ -139,6 +145,7 @@ def _dict_to_config(d: dict) -> Config:
         storage=StorageConfig(**d.get("storage", {})),
         tiles=TilesConfig(**d.get("tiles", {})),
         display=DisplayConfig(**d.get("display", {})),
+        packet_log=PacketLogConfig(**d.get("packet_log", {})),
     )
 
 

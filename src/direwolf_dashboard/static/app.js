@@ -23,6 +23,7 @@
     let trailHours = 1;  // Current trail duration in hours
     let showRouteDistances = true; // updated from config on load
     let showGpxOverlay = true;     // updated from config on load
+    let showTimestamps = false;    // updated from config on load
     let gpxLayer = null;    // Current GPX overlay layer (L.GPX instance)
     let gpxControlEl = null; // Reference to the GPX control DOM element
     let waitingForPosition = false;
@@ -503,6 +504,9 @@
             if (config.display != null) {
                 showRouteDistances = config.display.show_route_distances !== false;
                 showGpxOverlay = config.display.show_gpx_overlay !== false;
+            }
+            if (config.packet_log != null) {
+                showTimestamps = config.packet_log.show_timestamps === true;
             }
         } catch (e) {
             console.error('Failed to load config:', e);
@@ -1060,7 +1064,17 @@
         content.className = 'log-content';
         content.innerHTML = packet.compact_log || `${packet.from_call} > ${packet.to_call}`;
 
+        // Timestamp (hidden by default, toggled via settings)
+        const ts = document.createElement('span');
+        ts.className = 'log-timestamp';
+        if (packet.timestamp) {
+            const d = new Date(packet.timestamp * 1000);
+            ts.textContent = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+        }
+        if (!showTimestamps) ts.style.display = 'none';
+
         row.appendChild(expand);
+        row.appendChild(ts);
         row.appendChild(content);
 
         // Raw log lines (hidden by default)
@@ -1266,6 +1280,9 @@
         document.getElementById('cfg-show-route-distances').checked = showRouteDistances;
         document.getElementById('cfg-show-gpx-overlay').checked = showGpxOverlay;
 
+        // Packet log settings
+        document.getElementById('cfg-show-timestamps').checked = showTimestamps;
+
         // Show/hide preload section
         if (config.tiles?.cache_mode === 'preload') {
             document.getElementById('preload-section').classList.remove('hidden');
@@ -1298,6 +1315,9 @@
                 show_route_distances: document.getElementById('cfg-show-route-distances').checked,
                 show_gpx_overlay: document.getElementById('cfg-show-gpx-overlay').checked,
             },
+            packet_log: {
+                show_timestamps: document.getElementById('cfg-show-timestamps').checked,
+            },
         };
 
         const feedback = document.getElementById('settings-feedback');
@@ -1322,6 +1342,11 @@
                 if (gpxControlEl) {
                     gpxControlEl.style.display = showGpxOverlay ? '' : 'none';
                 }
+                // Apply packet log settings immediately
+                showTimestamps = updates.packet_log.show_timestamps;
+                document.querySelectorAll('.log-timestamp').forEach(function (el) {
+                    el.style.display = showTimestamps ? '' : 'none';
+                });
                 // Close settings modal
                 document.getElementById('settings-modal').classList.add('hidden');
                 feedback.classList.add('hidden');

@@ -242,6 +242,14 @@ html, body {
     text-overflow: ellipsis;
 }
 
+.log-timestamp {
+    color: #666;
+    font-size: 11px;
+    margin-right: 6px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
 .log-raw {
     display: none;
     background: var(--bg-secondary);
