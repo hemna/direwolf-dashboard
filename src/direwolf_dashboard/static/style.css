@@ -242,6 +242,38 @@ html, body {
     text-overflow: ellipsis;
 }
 
+.log-row-actions {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+    align-items: center;
+}
+
+.log-row-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    padding: 1px 4px;
+    cursor: pointer;
+    font-size: 11px;
+    line-height: 1;
+    opacity: 0.5;
+    transition: opacity 0.15s;
+}
+
+.log-row:hover .log-row-btn {
+    opacity: 1;
+}
+
+.log-row-btn:hover {
+    color: var(--accent);
+}
+
+.log-row-btn.copied {
+    color: var(--success);
+    opacity: 1;
+}
+
 .log-timestamp {
     color: #666;
     font-size: 11px;

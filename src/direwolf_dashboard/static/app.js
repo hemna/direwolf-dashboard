@@ -1077,22 +1077,14 @@
         row.appendChild(ts);
         row.appendChild(content);
 
-        // Raw log lines (hidden by default)
-        const rawDiv = document.createElement('div');
-        rawDiv.className = 'log-raw';
-
-        // Show the clean APRS string prominently, then raw log lines below
+        // Row action buttons (copy + decode)
         const aprsStr = packet.raw_packet || '';
+        const rowActions = document.createElement('span');
+        rowActions.className = 'log-row-actions';
+
         if (aprsStr) {
-            const aprsLine = document.createElement('div');
-            aprsLine.className = 'log-raw-aprs';
-
-            const aprsText = document.createElement('code');
-            aprsText.textContent = aprsStr;
-            aprsLine.appendChild(aprsText);
-
             const copyBtn = document.createElement('button');
-            copyBtn.className = 'log-raw-copy';
+            copyBtn.className = 'log-row-btn';
             copyBtn.title = 'Copy APRS packet';
             copyBtn.innerHTML = '&#x1F4CB;';
             copyBtn.addEventListener('click', (e) => {
@@ -1103,10 +1095,10 @@
                     setTimeout(() => { copyBtn.innerHTML = '&#x1F4CB;'; copyBtn.classList.remove('copied'); }, 1500);
                 });
             });
-            aprsLine.appendChild(copyBtn);
+            rowActions.appendChild(copyBtn);
 
             const decodeBtn = document.createElement('button');
-            decodeBtn.className = 'log-raw-copy';
+            decodeBtn.className = 'log-row-btn';
             decodeBtn.title = 'Decode this packet';
             decodeBtn.innerHTML = '&#x1F4E1;';
             decodeBtn.addEventListener('click', (e) => {
@@ -1117,7 +1109,23 @@
                 input.dispatchEvent(new Event('input'));
                 submitDecode();
             });
-            aprsLine.appendChild(decodeBtn);
+            rowActions.appendChild(decodeBtn);
+        }
+
+        row.appendChild(rowActions);
+
+        // Raw log lines (hidden by default)
+        const rawDiv = document.createElement('div');
+        rawDiv.className = 'log-raw';
+
+        // Show the clean APRS string prominently
+        if (aprsStr) {
+            const aprsLine = document.createElement('div');
+            aprsLine.className = 'log-raw-aprs';
+
+            const aprsText = document.createElement('code');
+            aprsText.textContent = aprsStr;
+            aprsLine.appendChild(aprsText);
 
             rawDiv.appendChild(aprsLine);
         }
