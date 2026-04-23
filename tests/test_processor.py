@@ -218,13 +218,14 @@ class TestPacketToDict:
         assert result["audio_level"] == 42
 
     def test_with_raw_log_lines(self):
+        """raw_log_lines param was removed — verify audio_level still works."""
         raw = "WB4BOR>APRS:!3745.00N/07730.00W>"
-        lines = ["[0 L>R] WB4BOR>APRS", "audio level = 42"]
         result = packet_to_dict(
-            raw, tx=False, call_from="WB4BOR", call_to="APRS", raw_log_lines=lines
+            raw, tx=False, call_from="WB4BOR", call_to="APRS", audio_level=99
         )
 
-        assert result["raw_log"] == lines
+        assert result["audio_level"] == 99
+        assert "raw_log" not in result
 
     def test_bearing_not_computed_in_packet_to_dict(self):
         """Bearing/distance is now computed in broadcast consumer, not packet_to_dict."""
@@ -301,4 +302,3 @@ class TestPacketProcessor:
 
         packet = queue.get_nowait()
         assert packet["audio_level"] == 42
-        assert len(packet["raw_log"]) == 2

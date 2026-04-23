@@ -96,14 +96,6 @@ class TestPacketCRUD:
         results = await storage.query_packets(limit=10)
         assert results[0]["path"] == ["WIDE1-1", "WIDE2-1"]
 
-    async def test_raw_log_serialization(self, storage):
-        raw_log = ["[0 L>R] line1", "audio level = 42"]
-        packet = _make_packet(raw_log=raw_log)
-        await storage.insert_packet(packet)
-
-        results = await storage.query_packets(limit=10)
-        assert results[0]["raw_log"] == raw_log
-
     async def test_query_packets_by_time(self, storage):
         old_time = time.time() - 3600
         new_time = time.time()

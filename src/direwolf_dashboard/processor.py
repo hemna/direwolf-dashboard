@@ -164,6 +164,7 @@ def _extract_aprs_for_parsing(
 
     Third-party packets start with '}' and contain a full embedded APRS packet.
     Normal packets are just the info field and need from>to: prepended.
+    If the payload is already a full APRS string (FROM>TO:data), return it as-is.
     If via_path is provided, it's included in the header so aprslib can parse
     the digipeater path.
 
@@ -172,6 +173,11 @@ def _extract_aprs_for_parsing(
     if payload.startswith("}"):
         # Third-party packet — the part after '}' is a full APRS packet
         return payload[1:]
+    # If payload already looks like a full APRS string (has > before :), return as-is
+    gt_pos = payload.find(">")
+    colon_pos = payload.find(":")
+    if gt_pos > 0 and colon_pos > gt_pos:
+        return payload
     if via_path:
         return f"{call_from}>{call_to},{via_path}:{payload}"
     # Build standard APRS format: FROM>TO:payload
