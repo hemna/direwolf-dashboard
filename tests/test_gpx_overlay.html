@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>GPX Overlay Test</title>
+    <style>body { font-family: monospace; padding: 20px; }</style>
+</head>
+<body>
+    <h1>GPX Overlay Manual Test</h1>
+    <h2>Sample GPX Files for Testing</h2>
+
+    <h3>1. Valid GPX with track + waypoints</h3>
+    <p>Save as <code>test_track.gpx</code>:</p>
+    <textarea rows="20" cols="80" readonly>&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;gpx version="1.1" creator="test"
+     xmlns="http://www.topografix.com/GPX/1/1"&gt;
+  &lt;wpt lat="38.8977" lon="-77.0365"&gt;
+    &lt;name&gt;Start Point&lt;/name&gt;
+  &lt;/wpt&gt;
+  &lt;wpt lat="38.8895" lon="-77.0353"&gt;
+    &lt;name&gt;Waypoint 2&lt;/name&gt;
+  &lt;/wpt&gt;
+  &lt;trk&gt;
+    &lt;name&gt;Test Track&lt;/name&gt;
+    &lt;trkseg&gt;
+      &lt;trkpt lat="38.8977" lon="-77.0365"&gt;&lt;/trkpt&gt;
+      &lt;trkpt lat="38.8960" lon="-77.0360"&gt;&lt;/trkpt&gt;
+      &lt;trkpt lat="38.8940" lon="-77.0355"&gt;&lt;/trkpt&gt;
+      &lt;trkpt lat="38.8920" lon="-77.0350"&gt;&lt;/trkpt&gt;
+      &lt;trkpt lat="38.8895" lon="-77.0353"&gt;&lt;/trkpt&gt;
+    &lt;/trkseg&gt;
+  &lt;/trk&gt;
+&lt;/gpx&gt;</textarea>
+
+    <h3>2. Valid GPX with route</h3>
+    <p>Save as <code>test_route.gpx</code>:</p>
+    <textarea rows="15" cols="80" readonly>&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;gpx version="1.1" creator="test"
+     xmlns="http://www.topografix.com/GPX/1/1"&gt;
+  &lt;rte&gt;
+    &lt;name&gt;Test Route&lt;/name&gt;
+    &lt;rtept lat="40.7128" lon="-74.0060"&gt;&lt;name&gt;NYC&lt;/name&gt;&lt;/rtept&gt;
+    &lt;rtept lat="40.7580" lon="-73.9855"&gt;&lt;name&gt;Times Square&lt;/name&gt;&lt;/rtept&gt;
+    &lt;rtept lat="40.7484" lon="-73.9857"&gt;&lt;name&gt;Empire State&lt;/name&gt;&lt;/rtept&gt;
+  &lt;/rte&gt;
+&lt;/gpx&gt;</textarea>
+
+    <h3>3. Empty GPX (should show error)</h3>
+    <p>Save as <code>test_empty.gpx</code>:</p>
+    <textarea rows="5" cols="80" readonly>&lt;?xml version="1.0"?&gt;
+&lt;gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1"&gt;
+&lt;/gpx&gt;</textarea>
+
+    <h3>4. Invalid XML (should show error)</h3>
+    <p>Save as <code>test_invalid.gpx</code>:</p>
+    <textarea rows="3" cols="80" readonly>this is not xml at all &lt;broken</textarea>
+
+    <h2>Test Checklist</h2>
+    <ul>
+        <li>[ ] Load test_track.gpx — orange track line with green start / red end markers, purple waypoints</li>
+        <li>[ ] Load test_route.gpx — dashed orange route line</li>
+        <li>[ ] Load test_empty.gpx — "No tracks or waypoints found" error message</li>
+        <li>[ ] Load test_invalid.gpx — "Invalid GPX file" error message</li>
+        <li>[ ] "Fit Map" button zooms to GPX bounds</li>
+        <li>[ ] "Clear" button removes overlay and reverts to "Load GPX" button</li>
+        <li>[ ] Legend shows "GPX Overlay" section when loaded, hides when cleared</li>
+        <li>[ ] Reload page — GPX overlay persists from localStorage</li>
+        <li>[ ] Clear, reload page — no overlay shown</li>
+        <li>[ ] Load a new file while one is already loaded — old one replaced</li>
+        <li>[ ] Collapse/expand the GPX control header</li>
+        <li>[ ] APRS station markers still render correctly on top of GPX overlay</li>
+    </ul>
+</body>
+</html>
