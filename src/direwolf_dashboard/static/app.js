@@ -151,7 +151,7 @@
 
     function initLegend() {
         const LegendControl = L.Control.extend({
-            options: { position: 'bottomright' },
+            options: { position: 'bottomleft' },
             onAdd: function () {
                 const container = L.DomUtil.create('div', 'map-legend');
                 container.innerHTML = `
