@@ -814,7 +814,7 @@
             copyBtn.innerHTML = '&#x1F4CB;';
             copyBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
-                navigator.clipboard.writeText(aprsStr).then(() => {
+                copyToClipboard(aprsStr).then(() => {
                     copyBtn.innerHTML = '&#x2713;';
                     copyBtn.classList.add('copied');
                     setTimeout(() => { copyBtn.innerHTML = '&#x1F4CB;'; copyBtn.classList.remove('copied'); }, 1500);
@@ -1839,7 +1839,7 @@
         if (copyBtn) {
             copyBtn.addEventListener('click', () => {
                 const rawText = document.getElementById('decode-input').value;
-                navigator.clipboard.writeText(rawText).then(() => {
+                copyToClipboard(rawText).then(() => {
                     copyBtn.textContent = 'Copied!';
                     setTimeout(() => { copyBtn.textContent = 'Copy Raw'; }, 1500);
                 });
@@ -1940,6 +1940,22 @@
     function escapeHtml(str) {
         if (!str) return '';
         return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function copyToClipboard(text) {
+        if (navigator.clipboard && window.isSecureContext) {
+            return navigator.clipboard.writeText(text);
+        }
+        // Fallback for non-HTTPS (e.g. http://pi:8080)
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch (e) { /* ignore */ }
+        document.body.removeChild(ta);
+        return Promise.resolve();
     }
 
     // --- Debug: Simulate stations at various angles/distances from home ---
