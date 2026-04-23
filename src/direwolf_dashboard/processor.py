@@ -221,8 +221,7 @@ def packet_to_dict(
         "to_call": effective_to or (parsed.get("to") if parsed else ""),
         "audio_level": audio_level,
         "raw_log": raw_log_lines or [],
-        "raw_packet": raw_aprs_string,
-        "aprs_string": aprs_string,
+        "raw_packet": aprs_string,
     }
 
     if is_third_party:

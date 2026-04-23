@@ -799,7 +799,7 @@
         rawDiv.className = 'log-raw';
 
         // Show the clean APRS string prominently, then raw log lines below
-        const aprsStr = packet.aprs_string || '';
+        const aprsStr = packet.raw_packet || '';
         if (aprsStr) {
             const aprsLine = document.createElement('div');
             aprsLine.className = 'log-raw-aprs';
