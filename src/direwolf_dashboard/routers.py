@@ -10,6 +10,7 @@ from typing import Optional
 from dataclasses import asdict
 from fastapi import APIRouter, HTTPException, Query, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
 
 from direwolf_dashboard.config import update_config
 from direwolf_dashboard.lifecycle import (
@@ -208,6 +209,50 @@ def create_api_router(container: ServiceContainer) -> APIRouter:
         if services.tile_proxy:
             services.tile_proxy.cancel_preload()
         return {"status": "cancelled"}
+
+    # --- Decode Endpoint ---
+
+    class DecodeRequest(BaseModel):
+        raw_packet: str
+
+    @router.post("/decode")
+    async def decode_packet(req: DecodeRequest):
+        """Decode a raw APRS packet and return structured JSON result."""
+        import re
+        from direwolf_dashboard.decoder import decode_packet as _decode
+
+        services = container.services
+        assert services is not None, "Services not initialized"
+
+        result = _decode(req.raw_packet)
+
+        if not result["success"]:
+            return result
+
+        # Look up path station positions from DB
+        path_stations = {}
+        path_list = result["sections"].get("station", {}).get("path", [])
+        if path_list:
+            generic_pattern = re.compile(
+                r"^(WIDE\d?|RELAY|TRACE\d?|qA.|TCPIP|TCPXX|RFONLY|NOGATE)",
+                re.IGNORECASE,
+            )
+            real_calls = []
+            for call in path_list:
+                clean = call.rstrip("*").strip().upper()
+                if clean and not generic_pattern.match(clean):
+                    real_calls.append(clean)
+
+            if real_calls:
+                try:
+                    path_stations = (
+                        await services.storage.get_stations_by_callsigns(real_calls)
+                    )
+                except Exception:
+                    LOG.exception("Failed to look up path station positions")
+
+        result["path_stations"] = path_stations
+        return result
 
     return router
 

@@ -218,6 +218,7 @@
         initMapResize();
         initLogToggle();
         initMobileMenu();
+        initDecode();
     });
 
     // --- Config ---
@@ -1497,6 +1498,412 @@
         map.closePopup();
         dropPinAt(lat, lng);
     };
+
+    // --- Decode APRS Packet ---
+
+    let decodeMiniMap = null;
+
+    function initDecode() {
+        const btn = document.getElementById('btn-decode');
+        const modal = document.getElementById('decode-modal');
+        const closeBtn = document.getElementById('btn-close-decode');
+        const input = document.getElementById('decode-input');
+        const submitBtn = document.getElementById('decode-submit-btn');
+        const clearBtn = document.getElementById('decode-clear-btn');
+
+        if (!btn || !modal) return;
+
+        btn.addEventListener('click', openDecodeModal);
+        closeBtn.addEventListener('click', closeDecodeModal);
+
+        // Close on backdrop click
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) closeDecodeModal();
+        });
+
+        // Close on Escape
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && !modal.classList.contains('hidden')) {
+                closeDecodeModal();
+            }
+        });
+
+        // Ctrl+K / Cmd+K shortcut
+        document.addEventListener('keydown', (e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+                e.preventDefault();
+                openDecodeModal();
+            }
+        });
+
+        // Input events
+        input.addEventListener('input', () => {
+            const hasValue = input.value.trim().length > 0;
+            submitBtn.disabled = !hasValue;
+            clearBtn.classList.toggle('hidden', !hasValue);
+        });
+
+        // Clear button
+        clearBtn.addEventListener('click', () => {
+            input.value = '';
+            submitBtn.disabled = true;
+            clearBtn.classList.add('hidden');
+            document.getElementById('decode-results').innerHTML = '';
+            input.focus();
+        });
+
+        // Submit
+        submitBtn.addEventListener('click', submitDecode);
+
+        // Enter key submits (Shift+Enter for newline)
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if (!submitBtn.disabled) submitDecode();
+            }
+        });
+    }
+
+    function openDecodeModal() {
+        const modal = document.getElementById('decode-modal');
+        modal.classList.remove('hidden');
+        document.getElementById('decode-input').focus();
+        document.getElementById('decode-results').innerHTML = '';
+    }
+
+    function closeDecodeModal() {
+        document.getElementById('decode-modal').classList.add('hidden');
+        if (decodeMiniMap) {
+            decodeMiniMap.remove();
+            decodeMiniMap = null;
+        }
+    }
+
+    async function submitDecode() {
+        const input = document.getElementById('decode-input');
+        const rawPacket = input.value.trim();
+        if (!rawPacket) return;
+
+        const resultsDiv = document.getElementById('decode-results');
+        resultsDiv.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:20px;">Decoding...</div>';
+
+        try {
+            const resp = await fetch('/api/decode', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ raw_packet: rawPacket }),
+            });
+            const data = await resp.json();
+            renderDecodeResult(data);
+        } catch (err) {
+            resultsDiv.innerHTML = renderDecodeError('Network error: ' + err.message);
+        }
+    }
+
+    function renderDecodeResult(data) {
+        const resultsDiv = document.getElementById('decode-results');
+
+        if (!data.success) {
+            resultsDiv.innerHTML = renderDecodeError(data.error);
+            return;
+        }
+
+        const sections = data.sections;
+        const annotations = data.annotations;
+        const raw = data.raw;
+        const pathStations = data.path_stations || {};
+        let html = '';
+
+        // Packet type badge
+        if (sections.station && sections.station.format) {
+            const fmt = sections.station.format.replace(/-/g, '_').replace(/ /g, '_').toLowerCase();
+            html += `<div class="decode-packet-type"><span class="packet-type-badge packet-type-${fmt}">${sections.station.format.toUpperCase()}</span></div>`;
+        }
+
+        // Annotated raw packet
+        html += '<div class="decode-annotated-section">';
+        html += '<div class="decode-section-header">Raw Packet (color-coded)</div>';
+        html += '<div class="packet-annotated">';
+        let lastEnd = 0;
+        for (const ann of annotations) {
+            if (ann.start > lastEnd) {
+                html += `<span class="packet-segment-plain">${escapeHtml(raw.substring(lastEnd, ann.start))}</span>`;
+            }
+            html += `<span class="packet-segment packet-segment-${ann.color}" title="${ann.field}">${escapeHtml(raw.substring(ann.start, ann.end))}</span>`;
+            lastEnd = ann.end;
+        }
+        if (lastEnd < raw.length) {
+            html += `<span class="packet-segment-plain">${escapeHtml(raw.substring(lastEnd))}</span>`;
+        }
+        html += '</div>';
+        html += '<div class="packet-legend">';
+        html += '<span class="decode-legend-item"><span class="decode-legend-color legend-source"></span> Source</span>';
+        html += '<span class="decode-legend-item"><span class="decode-legend-color legend-destination"></span> Destination</span>';
+        html += '<span class="decode-legend-item"><span class="decode-legend-color legend-path"></span> Path</span>';
+        html += '<span class="decode-legend-item"><span class="decode-legend-color legend-datatype"></span> Data Type</span>';
+        html += '</div></div>';
+
+        // Structured tables
+        html += '<div class="decode-tables">';
+
+        // Station section
+        if (sections.station) {
+            html += '<div class="decode-section">';
+            html += '<div class="decode-section-header" style="color:#58a6ff;">Station</div>';
+            html += '<table class="decode-table">';
+            html += `<tr><td class="decode-label">From</td><td class="decode-value"><code>${escapeHtml(sections.station.from)}</code></td></tr>`;
+            html += `<tr><td class="decode-label">To</td><td class="decode-value"><code>${escapeHtml(sections.station.to)}</code></td></tr>`;
+            if (sections.station.path && sections.station.path.length > 0) {
+                html += '<tr><td class="decode-label">Path</td><td class="decode-value">';
+                html += '<div class="decode-path-chain">';
+                const genericRe = /^(WIDE\d?|RELAY|TRACE\d?|qA.|TCPIP|TCPXX|RFONLY|NOGATE)/i;
+                for (let i = 0; i < sections.station.path.length; i++) {
+                    const hop = sections.station.path[i];
+                    const cleanCall = hop.replace('*', '').trim().toUpperCase();
+                    const isUsed = hop.endsWith('*');
+                    const isGeneric = genericRe.test(cleanCall);
+                    const hasLocation = cleanCall in pathStations;
+                    if (i > 0) html += '<span class="decode-path-arrow">&rarr;</span>';
+                    html += `<span class="decode-path-hop${isUsed ? ' decode-path-used' : ''}">`;
+                    html += `<code>${escapeHtml(hop)}</code>`;
+                    if (hasLocation) html += '<span class="decode-path-loc-dot" title="Location known"></span>';
+                    html += '</span>';
+                }
+                html += '</div></td></tr>';
+            }
+            html += '</table></div>';
+        }
+
+        // Position section
+        if (sections.position) {
+            html += '<div class="decode-section">';
+            html += '<div class="decode-section-header" style="color:#ff7b72;">Position</div>';
+            html += '<table class="decode-table">';
+            if (sections.position.latitude != null) {
+                html += `<tr><td class="decode-label">Latitude</td><td class="decode-value">${sections.position.latitude.toFixed(5)}&deg;</td></tr>`;
+            }
+            if (sections.position.longitude != null) {
+                html += `<tr><td class="decode-label">Longitude</td><td class="decode-value">${sections.position.longitude.toFixed(5)}&deg;</td></tr>`;
+            }
+            if (sections.position.timestamp) {
+                html += `<tr><td class="decode-label">Timestamp</td><td class="decode-value">${sections.position.timestamp}</td></tr>`;
+            }
+            if (sections.position.symbol) {
+                const symTable = sections.position.symbol_table || '/';
+                const symChar = sections.position.symbol || '>';
+                const symPos = getSymbolSpritePosition(symChar);
+                const symInfo = parseSymbolTable(symTable);
+                const symName = getSymbolName(symTable, symChar);
+                html += '<tr><td class="decode-label">Symbol</td><td class="decode-value decode-symbol-cell">';
+                html += `<span class="decode-symbol-icon" style="background-image:url('${symInfo.spriteUrl}');background-position:${symPos.x}px ${symPos.y}px;"></span>`;
+                html += `<code>${escapeHtml(symTable + symChar)}</code>`;
+                if (symName) html += `<span class="decode-symbol-name">${escapeHtml(symName)}</span>`;
+                html += '</td></tr>';
+            }
+            if (sections.position.altitude != null) {
+                html += `<tr><td class="decode-label">Altitude</td><td class="decode-value">${sections.position.altitude} m</td></tr>`;
+            }
+            if (sections.position.speed != null) {
+                html += `<tr><td class="decode-label">Speed</td><td class="decode-value">${sections.position.speed.toFixed(1)} km/h</td></tr>`;
+            }
+            if (sections.position.course != null) {
+                const c = sections.position.course;
+                let cardinal = '';
+                if (c >= 337.5 || c < 22.5) cardinal = 'N';
+                else if (c < 67.5) cardinal = 'NE';
+                else if (c < 112.5) cardinal = 'E';
+                else if (c < 157.5) cardinal = 'SE';
+                else if (c < 202.5) cardinal = 'S';
+                else if (c < 247.5) cardinal = 'SW';
+                else if (c < 292.5) cardinal = 'W';
+                else cardinal = 'NW';
+                html += `<tr><td class="decode-label">Course</td><td class="decode-value">`;
+                html += `<span class="decode-course-arrow" style="transform:rotate(${c}deg);">&#x2191;</span>`;
+                html += `${c}&deg; <span class="decode-course-cardinal">${cardinal}</span>`;
+                html += '</td></tr>';
+            }
+            html += '</table></div>';
+        }
+
+        // Weather section
+        if (sections.weather) {
+            html += '<div class="decode-section decode-section-wide">';
+            html += '<div class="decode-section-header" style="color:#79c0ff;">Weather</div>';
+            html += '<div class="decode-weather-grid">';
+            const wxFields = [
+                ['wind_direction', 'Wind Dir', (v) => v + '\u00B0'],
+                ['wind_speed', 'Wind Spd', (v) => v.toFixed(1) + ' m/s'],
+                ['wind_gust', 'Gust', (v) => v.toFixed(1) + ' m/s'],
+                ['temperature', 'Temp', (v) => v.toFixed(1) + '\u00B0C'],
+                ['humidity', 'Humidity', (v) => v + '%'],
+                ['pressure', 'Pressure', (v) => v.toFixed(1) + ' hPa'],
+                ['rain_1h', 'Rain 1h', (v) => v.toFixed(1) + ' mm'],
+                ['rain_24h', 'Rain 24h', (v) => v.toFixed(1) + ' mm'],
+            ];
+            for (const [key, label, fmt] of wxFields) {
+                if (sections.weather[key] != null) {
+                    html += `<div class="decode-weather-item"><span class="decode-weather-label">${label}</span><span class="decode-weather-value">${fmt(sections.weather[key])}</span></div>`;
+                }
+            }
+            html += '</div></div>';
+        }
+
+        // Message section
+        if (sections.message) {
+            html += '<div class="decode-section decode-section-wide">';
+            html += '<div class="decode-section-header" style="color:#d29922;">Message</div>';
+            html += '<table class="decode-table">';
+            html += `<tr><td class="decode-label">To</td><td class="decode-value"><code>${escapeHtml(sections.message.addressee)}</code></td></tr>`;
+            html += `<tr><td class="decode-label">Message</td><td class="decode-value">${escapeHtml(sections.message.message_text)}</td></tr>`;
+            if (sections.message.msgNo) {
+                html += `<tr><td class="decode-label">Msg #</td><td class="decode-value">${escapeHtml(sections.message.msgNo)}</td></tr>`;
+            }
+            html += '</table></div>';
+        }
+
+        // Telemetry section
+        if (sections.telemetry) {
+            html += '<div class="decode-section decode-section-wide">';
+            html += '<div class="decode-section-header" style="color:#bc8cff;">Telemetry</div>';
+            html += '<table class="decode-table">';
+            for (const [key, value] of Object.entries(sections.telemetry)) {
+                html += `<tr><td class="decode-label">${escapeHtml(key)}</td><td class="decode-value">${escapeHtml(String(value))}</td></tr>`;
+            }
+            html += '</table></div>';
+        }
+
+        // Comment section
+        if (sections.comment) {
+            html += '<div class="decode-section decode-section-wide">';
+            html += '<div class="decode-section-header" style="color:#8b949e;">Comment</div>';
+            html += `<div class="decode-comment">${escapeHtml(sections.comment.text)}</div>`;
+            html += '</div>';
+        }
+
+        html += '</div>'; // close decode-tables
+
+        // Mini map placeholder
+        if (sections.position && sections.position.latitude != null && sections.position.longitude != null) {
+            html += '<div class="decode-section decode-section-wide" style="margin-top:12px;">';
+            html += '<div class="decode-section-header" style="color:#ff7b72;">Location</div>';
+            html += '<div id="decode-mini-map"></div>';
+            html += '</div>';
+        }
+
+        // Action buttons
+        html += '<div class="decode-actions">';
+        html += '<button class="decode-btn decode-btn-secondary" id="decode-copy-btn">Copy Raw</button>';
+        html += '</div>';
+
+        resultsDiv.innerHTML = html;
+
+        // Bind copy button
+        const copyBtn = document.getElementById('decode-copy-btn');
+        if (copyBtn) {
+            copyBtn.addEventListener('click', () => {
+                const rawText = document.getElementById('decode-input').value;
+                navigator.clipboard.writeText(rawText).then(() => {
+                    copyBtn.textContent = 'Copied!';
+                    setTimeout(() => { copyBtn.textContent = 'Copy Raw'; }, 1500);
+                });
+            });
+        }
+
+        // Init mini map if position data present
+        if (sections.position && sections.position.latitude != null && sections.position.longitude != null) {
+            initDecodeMiniMap(sections, pathStations);
+        }
+    }
+
+    function initDecodeMiniMap(sections, pathStations) {
+        const container = document.getElementById('decode-mini-map');
+        if (!container) return;
+
+        // Clean up previous map
+        if (decodeMiniMap) {
+            decodeMiniMap.remove();
+            decodeMiniMap = null;
+        }
+
+        const stationLat = sections.position.latitude;
+        const stationLon = sections.position.longitude;
+        const symbolTable = sections.position.symbol_table || '/';
+        const symbolChar = sections.position.symbol || '>';
+        const stationCall = sections.station.from || '';
+        const pathOrder = sections.station.path || [];
+
+        // Create the mini map using our local tile proxy
+        decodeMiniMap = L.map('decode-mini-map', {
+            zoomControl: true,
+            attributionControl: true,
+            scrollWheelZoom: true,
+            dragging: true,
+        });
+
+        L.tileLayer('/api/tiles/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>',
+            maxZoom: 19,
+        }).addTo(decodeMiniMap);
+
+        // Collect all points for bounds fitting
+        const allPoints = [[stationLat, stationLon]];
+
+        // Add station marker with APRS symbol icon
+        const stationIcon = createSymbolIcon(symbolTable, symbolChar, stationCall);
+        const stationMarker = L.marker([stationLat, stationLon], { icon: stationIcon }).addTo(decodeMiniMap);
+        stationMarker.bindPopup('<strong>' + escapeHtml(stationCall) + '</strong>');
+
+        // Add path station markers and build polyline
+        const linePoints = [[stationLat, stationLon]];
+
+        for (const hop of pathOrder) {
+            const clean = hop.replace('*', '').trim().toUpperCase();
+            if (pathStations[clean]) {
+                const pos = pathStations[clean];
+                allPoints.push([pos.latitude, pos.longitude]);
+                linePoints.push([pos.latitude, pos.longitude]);
+
+                const pathIcon = createSymbolIcon(
+                    pos.symbol_table || '/',
+                    pos.symbol || '>',
+                    clean
+                );
+                const pathMarker = L.marker([pos.latitude, pos.longitude], { icon: pathIcon }).addTo(decodeMiniMap);
+                pathMarker.bindPopup('<strong>' + escapeHtml(clean) + '</strong>');
+            }
+        }
+
+        // Draw path polyline
+        if (linePoints.length > 1) {
+            L.polyline(linePoints, {
+                color: '#58a6ff',
+                weight: 2,
+                dashArray: '6, 8',
+                opacity: 0.7,
+            }).addTo(decodeMiniMap);
+        }
+
+        // Fit bounds or set view
+        if (allPoints.length > 1) {
+            decodeMiniMap.fitBounds(allPoints, { padding: [40, 40], maxZoom: 14 });
+        } else {
+            decodeMiniMap.setView([stationLat, stationLon], 13);
+        }
+    }
+
+    function renderDecodeError(message) {
+        return `<div class="decode-error">
+            <div class="decode-error-icon">!</div>
+            <div class="decode-error-message">${escapeHtml(message)}</div>
+            <div class="decode-error-hint">Check that the packet follows APRS format, e.g.:<br>
+            <code>CALLSIGN&gt;DEST,PATH:data</code></div>
+        </div>`;
+    }
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
 
     // --- Debug: Simulate stations at various angles/distances from home ---
     function simulateStations() {

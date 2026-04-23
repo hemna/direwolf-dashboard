@@ -42,6 +42,7 @@
                 </select>
             </div>
             <button id="btn-drop-pin" title="Drop Pin - set my position">&#x1F4CC;</button>
+            <button id="btn-decode" title="Decode APRS Packet (Ctrl+K)">&#x1F4E1;</button>
             <button id="btn-toggle-log" title="Toggle packet log">&#9776;</button>
             <button id="btn-settings" title="Settings">&#9881;</button>
             <button id="btn-mobile-menu" title="Menu" class="mobile-only">&#8942;</button>
@@ -202,6 +203,32 @@
         </div>
     </div>
     <div id="waiting-toast" class="toast hidden">Waiting for first position packet...</div>
+
+    <!-- Decode APRS Packet Modal -->
+    <div id="decode-modal" class="modal hidden">
+        <div class="modal-content decode-modal-content">
+            <div class="modal-header">
+                <h2>&#x1F4E1; Decode APRS Packet</h2>
+                <button id="btn-close-decode">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="decode-input-section">
+                    <div class="decode-textarea-container">
+                        <textarea
+                            id="decode-input"
+                            class="decode-textarea"
+                            placeholder="Paste raw APRS packet here, e.g.:&#10;W3ADO-1>APRS,WIDE1-1:@092345z3955.00N/07520.00W_090/005g010t072"
+                        ></textarea>
+                        <button id="decode-clear-btn" class="decode-clear-btn hidden" title="Clear input">&times;</button>
+                    </div>
+                    <div class="decode-submit-row">
+                        <button id="decode-submit-btn" class="decode-submit-btn" disabled>Decode</button>
+                    </div>
+                </div>
+                <div id="decode-results"></div>
+            </div>
+        </div>
+    </div>
 
     <script src="/static/leaflet/leaflet.js"></script>
     <script src="/static/app.js"></script>

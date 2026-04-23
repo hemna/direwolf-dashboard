@@ -274,6 +274,36 @@ class Storage:
                 tracks[cs].append(r)
         return tracks
 
+    async def get_stations_by_callsigns(
+        self, callsigns: list[str]
+    ) -> dict[str, dict]:
+        """Return station info for a list of callsigns (with known positions).
+
+        Returns dict of callsign -> {latitude, longitude, symbol, symbol_table}.
+        """
+        if not callsigns:
+            return {}
+
+        placeholders = ",".join("?" for _ in callsigns)
+        cursor = await self._db.execute(
+            f"""SELECT callsign, latitude, longitude, symbol, symbol_table
+            FROM stations
+            WHERE callsign IN ({placeholders})
+              AND latitude IS NOT NULL
+              AND longitude IS NOT NULL""",
+            callsigns,
+        )
+        rows = await cursor.fetchall()
+        return {
+            row["callsign"]: {
+                "latitude": row["latitude"],
+                "longitude": row["longitude"],
+                "symbol": row["symbol"] or ">",
+                "symbol_table": row["symbol_table"] or "/",
+            }
+            for row in rows
+        }
+
     async def get_stats(self) -> dict:
         """Return storage statistics."""
         cursor = await self._db.execute("SELECT COUNT(*) as cnt FROM packets")
