@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="direwolf-dashboard-test"
+     xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata>
+    <name>Test Track with Waypoints</name>
+    <desc>Sample GPX for testing the dashboard overlay — Washington DC area</desc>
+  </metadata>
+  <wpt lat="38.8977" lon="-77.0365">
+    <name>White House</name>
+  </wpt>
+  <wpt lat="38.8895" lon="-77.0353">
+    <name>Washington Monument</name>
+  </wpt>
+  <wpt lat="38.8893" lon="-77.0502">
+    <name>Lincoln Memorial</name>
+  </wpt>
+  <trk>
+    <name>National Mall Walk</name>
+    <trkseg>
+      <trkpt lat="38.8977" lon="-77.0365"></trkpt>
+      <trkpt lat="38.8968" lon="-77.0363"></trkpt>
+      <trkpt lat="38.8955" lon="-77.0360"></trkpt>
+      <trkpt lat="38.8940" lon="-77.0358"></trkpt>
+      <trkpt lat="38.8925" lon="-77.0355"></trkpt>
+      <trkpt lat="38.8910" lon="-77.0353"></trkpt>
+      <trkpt lat="38.8895" lon="-77.0353"></trkpt>
+      <trkpt lat="38.8893" lon="-77.0370"></trkpt>
+      <trkpt lat="38.8892" lon="-77.0390"></trkpt>
+      <trkpt lat="38.8891" lon="-77.0410"></trkpt>
+      <trkpt lat="38.8890" lon="-77.0430"></trkpt>
+      <trkpt lat="38.8891" lon="-77.0450"></trkpt>
+      <trkpt lat="38.8892" lon="-77.0470"></trkpt>
+      <trkpt lat="38.8893" lon="-77.0490"></trkpt>
+      <trkpt lat="38.8893" lon="-77.0502"></trkpt>
+    </trkseg>
+  </trk>
+</gpx>

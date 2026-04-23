@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="direwolf-dashboard-test"
+     xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata>
+    <name>Appalachian Trail Overview</name>
+    <desc>Simplified route following the Appalachian Trail from Springer Mountain, GA to Mount Katahdin, ME — ~2,190 miles through 14 states</desc>
+  </metadata>
+  <!-- Major landmarks as waypoints -->
+  <wpt lat="34.6269" lon="-84.1939">
+    <name>Springer Mountain, GA (Southern Terminus)</name>
+    <ele>1153</ele>
+  </wpt>
+  <wpt lat="34.7405" lon="-83.9124">
+    <name>Blood Mountain, GA (4,461 ft)</name>
+    <ele>1360</ele>
+  </wpt>
+  <wpt lat="35.2117" lon="-83.7133">
+    <name>Fontana Dam, NC</name>
+    <ele>503</ele>
+  </wpt>
+  <wpt lat="35.5630" lon="-83.4985">
+    <name>Kuwohi (Clingmans Dome) — AT High Point (6,643 ft)</name>
+    <ele>2025</ele>
+  </wpt>
+  <wpt lat="35.7960" lon="-83.1526">
+    <name>Gatlinburg / Great Smoky Mountains NP</name>
+    <ele>455</ele>
+  </wpt>
+  <wpt lat="35.8963" lon="-82.8293">
+    <name>Hot Springs, NC</name>
+    <ele>427</ele>
+  </wpt>
+  <wpt lat="36.0990" lon="-82.3790">
+    <name>Roan Mountain, TN/NC (6,285 ft)</name>
+    <ele>1916</ele>
+  </wpt>
+  <wpt lat="36.6356" lon="-81.5197">
+    <name>Damascus, VA (Trail Town)</name>
+    <ele>580</ele>
+  </wpt>
+  <wpt lat="37.3750" lon="-80.0847">
+    <name>McAfee Knob, VA</name>
+    <ele>1067</ele>
+  </wpt>
+  <wpt lat="38.7303" lon="-78.2955">
+    <name>Shenandoah National Park, VA</name>
+    <ele>1055</ele>
+  </wpt>
+  <wpt lat="39.3268" lon="-77.7200">
+    <name>Harpers Ferry, WV (ATC Headquarters)</name>
+    <ele>117</ele>
+  </wpt>
+  <wpt lat="40.0978" lon="-76.8800">
+    <name>Duncannon, PA</name>
+    <ele>110</ele>
+  </wpt>
+  <wpt lat="40.9670" lon="-75.1280">
+    <name>Delaware Water Gap, PA/NJ</name>
+    <ele>90</ele>
+  </wpt>
+  <wpt lat="41.3226" lon="-74.1385">
+    <name>Bear Mountain, NY (AT Low Point — 124 ft)</name>
+    <ele>38</ele>
+  </wpt>
+  <wpt lat="42.0531" lon="-73.1554">
+    <name>Mount Greylock, MA (3,491 ft)</name>
+    <ele>1064</ele>
+  </wpt>
+  <wpt lat="43.1875" lon="-72.5301">
+    <name>Killington Peak, VT</name>
+    <ele>1291</ele>
+  </wpt>
+  <wpt lat="43.7420" lon="-72.0900">
+    <name>Hanover, NH (Dartmouth College)</name>
+    <ele>161</ele>
+  </wpt>
+  <wpt lat="44.1603" lon="-71.6804">
+    <name>Franconia Ridge, NH</name>
+    <ele>1580</ele>
+  </wpt>
+  <wpt lat="44.2706" lon="-71.3033">
+    <name>Mount Washington, NH (6,288 ft)</name>
+    <ele>1917</ele>
+  </wpt>
+  <wpt lat="44.3951" lon="-71.1020">
+    <name>Pinkham Notch, NH</name>
+    <ele>610</ele>
+  </wpt>
+  <wpt lat="45.9044" lon="-68.9213">
+    <name>Mount Katahdin, ME (Northern Terminus — 5,267 ft)</name>
+    <ele>1606</ele>
+  </wpt>
+  <!-- Simplified route following the AT corridor -->
+  <rte>
+    <name>Appalachian Trail — Springer Mtn to Katahdin</name>
+    <!-- Georgia -->
+    <rtept lat="34.6269" lon="-84.1939"><name>Springer Mountain, GA</name><ele>1153</ele></rtept>
+    <rtept lat="34.6580" lon="-84.1410"><name>Three Forks</name></rtept>
+    <rtept lat="34.6870" lon="-84.0730"><name>Hawk Mountain</name></rtept>
+    <rtept lat="34.7120" lon="-83.9850"><name>Woody Gap</name></rtept>
+    <rtept lat="34.7405" lon="-83.9124"><name>Blood Mountain</name><ele>1360</ele></rtept>
+    <rtept lat="34.7700" lon="-83.8500"><name>Neels Gap</name></rtept>
+    <rtept lat="34.8750" lon="-83.6250"><name>Tray Mountain</name></rtept>
+    <rtept lat="34.9920" lon="-83.5600"><name>Bly Gap (GA/NC border)</name></rtept>
+    <!-- North Carolina / Tennessee -->
+    <rtept lat="35.0700" lon="-83.5590"><name>Standing Indian Mtn, NC</name></rtept>
+    <rtept lat="35.1650" lon="-83.5370"><name>Wayah Bald, NC</name></rtept>
+    <rtept lat="35.2117" lon="-83.7133"><name>Fontana Dam, NC</name><ele>503</ele></rtept>
+    <rtept lat="35.4340" lon="-83.6200"><name>Clingmans Dome approach</name></rtept>
+    <rtept lat="35.5630" lon="-83.4985"><name>Kuwohi (Clingmans Dome)</name><ele>2025</ele></rtept>
+    <rtept lat="35.6800" lon="-83.3200"><name>Newfound Gap</name></rtept>
+    <rtept lat="35.7350" lon="-83.2100"><name>Cosby Knob</name></rtept>
+    <rtept lat="35.7600" lon="-83.1000"><name>Max Patch</name></rtept>
+    <rtept lat="35.8963" lon="-82.8293"><name>Hot Springs, NC</name><ele>427</ele></rtept>
+    <rtept lat="35.9800" lon="-82.6300"><name>Sam's Gap</name></rtept>
+    <rtept lat="36.0990" lon="-82.3790"><name>Roan Mountain</name><ele>1916</ele></rtept>
+    <rtept lat="36.2200" lon="-82.1500"><name>Laurel Fork Gorge</name></rtept>
+    <rtept lat="36.3400" lon="-81.9800"><name>Watauga Lake, TN</name></rtept>
+    <rtept lat="36.4800" lon="-81.7700"><name>Iron Mountain</name></rtept>
+    <!-- Virginia -->
+    <rtept lat="36.6356" lon="-81.5197"><name>Damascus, VA</name><ele>580</ele></rtept>
+    <rtept lat="36.7500" lon="-81.4200"><name>Whitetop Mountain area</name></rtept>
+    <rtept lat="36.9000" lon="-81.2800"><name>Grayson Highlands</name></rtept>
+    <rtept lat="37.0500" lon="-81.0800"><name>Bland, VA</name></rtept>
+    <rtept lat="37.2000" lon="-80.5500"><name>Pearisburg, VA</name></rtept>
+    <rtept lat="37.3750" lon="-80.0847"><name>McAfee Knob, VA</name><ele>1067</ele></rtept>
+    <rtept lat="37.4100" lon="-79.9500"><name>Tinker Cliffs</name></rtept>
+    <rtept lat="37.5200" lon="-79.6200"><name>Blue Ridge Parkway crossing</name></rtept>
+    <rtept lat="37.7500" lon="-79.3400"><name>Buena Vista, VA</name></rtept>
+    <rtept lat="37.9500" lon="-79.0800"><name>Rockfish Gap / I-64</name></rtept>
+    <rtept lat="38.2900" lon="-78.6800"><name>Big Meadows, Shenandoah NP</name></rtept>
+    <rtept lat="38.5200" lon="-78.4400"><name>Thornton Gap</name></rtept>
+    <rtept lat="38.7303" lon="-78.2955"><name>Shenandoah NP north</name><ele>1055</ele></rtept>
+    <rtept lat="38.9500" lon="-78.0600"><name>Front Royal, VA</name></rtept>
+    <!-- West Virginia / Maryland -->
+    <rtept lat="39.1500" lon="-77.8500"><name>Snickers Gap</name></rtept>
+    <rtept lat="39.3268" lon="-77.7200"><name>Harpers Ferry, WV</name><ele>117</ele></rtept>
+    <rtept lat="39.5400" lon="-77.6000"><name>South Mountain, MD</name></rtept>
+    <rtept lat="39.7300" lon="-77.5000"><name>Pen Mar Park (MD/PA border)</name></rtept>
+    <!-- Pennsylvania -->
+    <rtept lat="39.9200" lon="-77.4500"><name>Caledonia State Park, PA</name></rtept>
+    <rtept lat="40.0978" lon="-76.8800"><name>Duncannon, PA</name><ele>110</ele></rtept>
+    <rtept lat="40.3500" lon="-76.4500"><name>Swatara Gap</name></rtept>
+    <rtept lat="40.5800" lon="-76.0200"><name>Port Clinton, PA</name></rtept>
+    <rtept lat="40.7500" lon="-75.5300"><name>Lehigh Gap</name></rtept>
+    <rtept lat="40.8800" lon="-75.2800"><name>Wind Gap, PA</name></rtept>
+    <rtept lat="40.9670" lon="-75.1280"><name>Delaware Water Gap</name><ele>90</ele></rtept>
+    <!-- New Jersey / New York -->
+    <rtept lat="41.0700" lon="-74.8800"><name>Stokes State Forest, NJ</name></rtept>
+    <rtept lat="41.1700" lon="-74.5500"><name>Vernon, NJ</name></rtept>
+    <rtept lat="41.2400" lon="-74.3500"><name>Greenwood Lake, NY</name></rtept>
+    <rtept lat="41.3226" lon="-74.1385"><name>Bear Mountain, NY</name><ele>38</ele></rtept>
+    <rtept lat="41.4200" lon="-73.9600"><name>Hudson River crossing</name></rtept>
+    <rtept lat="41.5200" lon="-73.6500"><name>Fahnestock State Park</name></rtept>
+    <!-- Connecticut / Massachusetts -->
+    <rtept lat="41.7200" lon="-73.4800"><name>Kent, CT</name></rtept>
+    <rtept lat="41.9500" lon="-73.3200"><name>Salisbury, CT</name></rtept>
+    <rtept lat="42.1300" lon="-73.2100"><name>Mount Everett, MA</name></rtept>
+    <rtept lat="42.0531" lon="-73.1554"><name>Mount Greylock, MA</name><ele>1064</ele></rtept>
+    <!-- Vermont -->
+    <rtept lat="42.7200" lon="-73.0800"><name>Bennington, VT area</name></rtept>
+    <rtept lat="42.9500" lon="-72.8200"><name>Stratton Mountain, VT</name></rtept>
+    <rtept lat="43.1875" lon="-72.5301"><name>Killington Peak, VT</name><ele>1291</ele></rtept>
+    <rtept lat="43.4800" lon="-72.3200"><name>Woodstock, VT area</name></rtept>
+    <!-- New Hampshire -->
+    <rtept lat="43.7420" lon="-72.0900"><name>Hanover, NH</name><ele>161</ele></rtept>
+    <rtept lat="43.8500" lon="-71.9200"><name>Smarts Mountain</name></rtept>
+    <rtept lat="44.0200" lon="-71.8000"><name>Mount Moosilauke</name></rtept>
+    <rtept lat="44.1603" lon="-71.6804"><name>Franconia Ridge</name><ele>1580</ele></rtept>
+    <rtept lat="44.1900" lon="-71.5500"><name>Garfield Ridge</name></rtept>
+    <rtept lat="44.2600" lon="-71.4200"><name>Zealand Falls</name></rtept>
+    <rtept lat="44.2706" lon="-71.3033"><name>Mount Washington</name><ele>1917</ele></rtept>
+    <rtept lat="44.3951" lon="-71.1020"><name>Pinkham Notch</name><ele>610</ele></rtept>
+    <rtept lat="44.4800" lon="-71.0200"><name>Carter Range</name></rtept>
+    <rtept lat="44.5400" lon="-70.9800"><name>Gorham, NH</name></rtept>
+    <!-- Maine -->
+    <rtept lat="44.6200" lon="-70.8500"><name>Mahoosuc Range, ME</name></rtept>
+    <rtept lat="44.6800" lon="-70.7900"><name>Mahoosuc Notch (Hardest Mile)</name></rtept>
+    <rtept lat="44.8100" lon="-70.5500"><name>Rangeley, ME area</name></rtept>
+    <rtept lat="44.9600" lon="-70.2500"><name>Bigelow Mountain</name></rtept>
+    <rtept lat="45.1500" lon="-69.9500"><name>Monson, ME (100-Mile Wilderness start)</name></rtept>
+    <rtept lat="45.3200" lon="-69.5500"><name>White Cap Mountain</name></rtept>
+    <rtept lat="45.5500" lon="-69.2500"><name>Nahmakanta Lake</name></rtept>
+    <rtept lat="45.7500" lon="-69.1000"><name>Abol Bridge</name></rtept>
+    <rtept lat="45.9044" lon="-68.9213"><name>Mount Katahdin (Baxter Peak)</name><ele>1606</ele></rtept>
+  </rte>
+</gpx>
