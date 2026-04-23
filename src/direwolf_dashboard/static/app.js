@@ -215,6 +215,224 @@
         });
     }
 
+    function initGpxOverlay() {
+        var gpxFileInput = document.createElement('input');
+        gpxFileInput.type = 'file';
+        gpxFileInput.accept = '.gpx,.xml';
+        gpxFileInput.style.display = 'none';
+        document.body.appendChild(gpxFileInput);
+
+        var GpxControl = L.Control.extend({
+            options: { position: 'topleft' },
+            onAdd: function () {
+                var container = L.DomUtil.create('div', 'gpx-control');
+                container.innerHTML =
+                    '<div class="gpx-control-header">' +
+                        '<span>\u{1F4CD}</span>' +
+                        '<span>GPX Overlay</span>' +
+                        '<span class="gpx-collapse-icon">\u25B2</span>' +
+                    '</div>' +
+                    '<div class="gpx-control-body">' +
+                        '<div class="gpx-empty">' +
+                            '<button class="gpx-btn-load">Load GPX</button>' +
+                        '</div>' +
+                        '<div class="gpx-loaded" style="display:none;">' +
+                            '<div class="gpx-stats">' +
+                                '<div class="gpx-filename"></div>' +
+                                '<div class="gpx-info"></div>' +
+                            '</div>' +
+                            '<div class="gpx-actions">' +
+                                '<button class="gpx-btn-fit">Fit Map</button>' +
+                                '<button class="gpx-btn-clear">Clear</button>' +
+                            '</div>' +
+                        '</div>' +
+                        '<div class="gpx-error" style="display:none;"></div>' +
+                    '</div>';
+
+                var header = container.querySelector('.gpx-control-header');
+                var collapseIcon = container.querySelector('.gpx-collapse-icon');
+                header.addEventListener('click', function () {
+                    container.classList.toggle('collapsed');
+                    collapseIcon.textContent = container.classList.contains('collapsed') ? '\u25BC' : '\u25B2';
+                });
+
+                container.querySelector('.gpx-btn-load').addEventListener('click', function () {
+                    gpxFileInput.click();
+                });
+
+                container.querySelector('.gpx-btn-fit').addEventListener('click', function () {
+                    if (gpxLayer) {
+                        map.fitBounds(gpxLayer.getBounds());
+                    }
+                });
+
+                container.querySelector('.gpx-btn-clear').addEventListener('click', function () {
+                    clearGpxOverlay(container);
+                });
+
+                L.DomEvent.disableClickPropagation(container);
+                L.DomEvent.disableScrollPropagation(container);
+
+                this._container = container;
+                return container;
+            }
+        });
+
+        var gpxControl = new GpxControl();
+        gpxControl.addTo(map);
+        var controlEl = gpxControl._container;
+
+        gpxFileInput.addEventListener('change', function () {
+            if (!gpxFileInput.files || !gpxFileInput.files[0]) return;
+            var file = gpxFileInput.files[0];
+
+            // Size check
+            if (file.size > 5 * 1024 * 1024) {
+                showGpxError(controlEl, 'File too large (max 5MB)');
+                gpxFileInput.value = '';
+                return;
+            }
+
+            var reader = new FileReader();
+            reader.onload = function (e) {
+                loadGpxData(controlEl, e.target.result, file.name);
+            };
+            reader.readAsText(file);
+            gpxFileInput.value = '';
+        });
+
+        // Restore from localStorage on init
+        try {
+            var saved = localStorage.getItem('gpx_overlay');
+            if (saved) {
+                var parsed = JSON.parse(saved);
+                if (parsed && parsed.data) {
+                    loadGpxData(controlEl, parsed.data, parsed.filename || 'saved.gpx');
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to restore GPX overlay:', e);
+        }
+    }
+
+    function loadGpxData(controlEl, gpxText, filename) {
+        // Remove existing layer
+        if (gpxLayer) {
+            map.removeLayer(gpxLayer);
+            gpxLayer = null;
+        }
+
+        var errorEl = controlEl.querySelector('.gpx-error');
+        errorEl.style.display = 'none';
+
+        try {
+            gpxLayer = new L.GPX(gpxText, {
+                async: true,
+                parseElements: ['track', 'route', 'waypoint'],
+                polyline_options: [
+                    {
+                        color: '#ff8c00',
+                        opacity: 0.8,
+                        weight: 3,
+                        lineCap: 'round',
+                        lineJoin: 'round'
+                    },
+                    {
+                        color: '#ff8c00',
+                        opacity: 0.8,
+                        weight: 2,
+                        dashArray: '8,6',
+                        lineCap: 'round',
+                        lineJoin: 'round'
+                    }
+                ],
+                markers: {
+                    startIcon: gpxCircleIcon('#22c55e', 6),
+                    endIcon: gpxCircleIcon('#ef4444', 6),
+                    wptIcons: { '': gpxCircleIcon('#a855f7', 5) },
+                    wptTypeIcons: {}
+                }
+            }).on('loaded', function (e) {
+                var gpx = e.target;
+                var layers = gpx.getLayers();
+                if (!layers || layers.length === 0) {
+                    showGpxError(controlEl, 'No tracks or waypoints found');
+                    map.removeLayer(gpxLayer);
+                    gpxLayer = null;
+                    return;
+                }
+
+                // Show loaded state
+                var truncName = filename.length > 20 ? filename.substring(0, 17) + '...' : filename;
+                controlEl.querySelector('.gpx-filename').textContent = truncName;
+                controlEl.querySelector('.gpx-filename').title = filename;
+
+                var distKm = (gpx.get_distance() / 1000).toFixed(1);
+                var parts = [distKm + ' km'];
+                // Count tracks and waypoints from the GPX layers
+                var nTrk = 0, nWpt = 0;
+                gpx.getLayers().forEach(function (layer) {
+                    if (layer instanceof L.Polyline) nTrk++;
+                    else if (layer instanceof L.Marker) nWpt++;
+                });
+                // Subtract start/end markers from waypoint count
+                if (nWpt >= 2) { nWpt -= 2; nTrk = Math.max(nTrk, 1); }
+                if (nTrk > 0) parts.push(nTrk + ' trk');
+                if (nWpt > 0) parts.push(nWpt + ' wpt');
+                controlEl.querySelector('.gpx-info').textContent = parts.join(' \u00B7 ');
+
+                controlEl.querySelector('.gpx-empty').style.display = 'none';
+                controlEl.querySelector('.gpx-loaded').style.display = '';
+
+                // Update legend
+                updateLegendGpx(true);
+
+                // Save to localStorage
+                try {
+                    localStorage.setItem('gpx_overlay', JSON.stringify({
+                        filename: filename,
+                        data: gpxText
+                    }));
+                } catch (e) {
+                    if (e.name === 'QuotaExceededError') {
+                        showGpxError(controlEl, 'Too large to save \u2014 won\u2019t persist on reload');
+                    }
+                }
+
+                map.fitBounds(gpx.getBounds());
+            }).on('error', function (e) {
+                showGpxError(controlEl, 'Invalid GPX file');
+                gpxLayer = null;
+            }).addTo(map);
+        } catch (e) {
+            showGpxError(controlEl, 'Failed to parse GPX file');
+            gpxLayer = null;
+        }
+    }
+
+    function clearGpxOverlay(controlEl) {
+        if (gpxLayer) {
+            map.removeLayer(gpxLayer);
+            gpxLayer = null;
+        }
+        controlEl.querySelector('.gpx-empty').style.display = '';
+        controlEl.querySelector('.gpx-loaded').style.display = 'none';
+        controlEl.querySelector('.gpx-error').style.display = 'none';
+        updateLegendGpx(false);
+        try {
+            localStorage.removeItem('gpx_overlay');
+        } catch (e) { /* ignore */ }
+    }
+
+    function showGpxError(controlEl, message) {
+        var errorEl = controlEl.querySelector('.gpx-error');
+        errorEl.textContent = message;
+        errorEl.style.display = '';
+        setTimeout(function () {
+            errorEl.style.display = 'none';
+        }, 5000);
+    }
+
     // --- Init ---
     document.addEventListener('DOMContentLoaded', async () => {
         // Init decode modal immediately (doesn't depend on config/network)
