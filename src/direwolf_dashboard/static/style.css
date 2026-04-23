@@ -475,6 +475,11 @@ body.log-hidden #map-resize-handle {
     flex: 1;
 }
 
+.modal-body input[type="checkbox"] {
+    flex: 0 0 auto;
+    width: auto;
+}
+
 .modal-body .hint {
     font-size: 10px;
     color: var(--warning);
