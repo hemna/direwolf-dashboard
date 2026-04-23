@@ -29,3 +29,6 @@ Thumbs.db
 
 # Tile cache (runtime data)
 tiles/
+
+# Brainstorm sessions
+.superpowers/
