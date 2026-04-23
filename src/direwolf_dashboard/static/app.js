@@ -821,6 +821,21 @@
                 });
             });
             aprsLine.appendChild(copyBtn);
+
+            const decodeBtn = document.createElement('button');
+            decodeBtn.className = 'log-raw-copy';
+            decodeBtn.title = 'Decode this packet';
+            decodeBtn.innerHTML = '&#x1F4E1;';
+            decodeBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                openDecodeModal();
+                const input = document.getElementById('decode-input');
+                input.value = aprsStr;
+                input.dispatchEvent(new Event('input'));
+                submitDecode();
+            });
+            aprsLine.appendChild(decodeBtn);
+
             rawDiv.appendChild(aprsLine);
         }
 
