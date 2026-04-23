@@ -641,6 +641,114 @@ button.secondary:hover {
     margin-bottom: 0;
 }
 
+/* --- GPX Overlay Control --- */
+.gpx-control {
+    background: rgba(30, 30, 30, 0.92);
+    border-radius: 6px;
+    padding: 0;
+    font-size: 11px;
+    color: #ccc;
+    border: 1px solid #444;
+    pointer-events: auto;
+    max-width: 170px;
+    overflow: hidden;
+}
+.gpx-control-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 10px;
+    cursor: pointer;
+    font-size: 10px;
+    color: #ff8c00;
+    border-bottom: 1px solid #444;
+    user-select: none;
+}
+.gpx-control-header:hover {
+    color: #ffaa33;
+}
+.gpx-control-header .gpx-collapse-icon {
+    margin-left: auto;
+    font-size: 8px;
+    color: #666;
+}
+.gpx-control.collapsed .gpx-control-body {
+    display: none;
+}
+.gpx-control.collapsed .gpx-control-header {
+    border-bottom: none;
+}
+.gpx-control-body {
+    padding: 8px 10px;
+}
+.gpx-control .gpx-stats {
+    font-size: 9px;
+    color: #aaa;
+    margin-bottom: 6px;
+}
+.gpx-control .gpx-stats .gpx-filename {
+    color: #ccc;
+    font-weight: bold;
+    margin-bottom: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 140px;
+}
+.gpx-control .gpx-actions {
+    display: flex;
+    gap: 6px;
+}
+.gpx-control .gpx-actions button {
+    flex: 1;
+    padding: 3px 0;
+    text-align: center;
+    border: none;
+    border-radius: 3px;
+    font-size: 9px;
+    font-family: inherit;
+    cursor: pointer;
+}
+.gpx-control .gpx-btn-fit {
+    background: #ff8c00;
+    color: #000;
+    font-weight: bold;
+}
+.gpx-control .gpx-btn-fit:hover {
+    background: #ffaa33;
+}
+.gpx-control .gpx-btn-clear {
+    background: #444;
+    color: #ccc;
+}
+.gpx-control .gpx-btn-clear:hover {
+    background: #555;
+}
+.gpx-control .gpx-btn-load {
+    width: 100%;
+    padding: 4px 0;
+    background: #ff8c00;
+    color: #000;
+    font-weight: bold;
+    border: none;
+    border-radius: 3px;
+    font-size: 10px;
+    font-family: inherit;
+    cursor: pointer;
+}
+.gpx-control .gpx-btn-load:hover {
+    background: #ffaa33;
+}
+.gpx-control .gpx-error {
+    font-size: 9px;
+    color: #e74c3c;
+    margin-top: 4px;
+}
+.gpx-marker {
+    background: none !important;
+    border: none !important;
+}
+
 /* --- Mobile menu --- */
 .mobile-only {
     display: none;
