@@ -69,6 +69,7 @@ class TilesConfig:
 @dataclass
 class DisplayConfig:
     show_route_distances: bool = True
+    show_gpx_overlay: bool = True
 
 
 @dataclass

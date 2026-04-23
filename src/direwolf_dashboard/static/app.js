@@ -22,7 +22,9 @@
     const MAX_LOG_ROWS = 500;
     let trailHours = 1;  // Current trail duration in hours
     let showRouteDistances = true; // updated from config on load
+    let showGpxOverlay = true;     // updated from config on load
     let gpxLayer = null;    // Current GPX overlay layer (L.GPX instance)
+    let gpxControlEl = null; // Reference to the GPX control DOM element
     let waitingForPosition = false;
     let myPositionPinMarker = null;
     let pinModeActive = false;
@@ -281,6 +283,12 @@
         var gpxControl = new GpxControl();
         gpxControl.addTo(map);
         var controlEl = gpxControl._container;
+        gpxControlEl = controlEl;
+
+        // Apply initial visibility from config
+        if (!showGpxOverlay) {
+            controlEl.style.display = 'none';
+        }
 
         gpxFileInput.addEventListener('change', function () {
             if (!gpxFileInput.files || !gpxFileInput.files[0]) return;
@@ -494,6 +502,7 @@
             // Apply display settings
             if (config.display != null) {
                 showRouteDistances = config.display.show_route_distances !== false;
+                showGpxOverlay = config.display.show_gpx_overlay !== false;
             }
         } catch (e) {
             console.error('Failed to load config:', e);
@@ -1255,6 +1264,7 @@
 
         // Map display settings
         document.getElementById('cfg-show-route-distances').checked = showRouteDistances;
+        document.getElementById('cfg-show-gpx-overlay').checked = showGpxOverlay;
 
         // Show/hide preload section
         if (config.tiles?.cache_mode === 'preload') {
@@ -1286,6 +1296,7 @@
             },
             display: {
                 show_route_distances: document.getElementById('cfg-show-route-distances').checked,
+                show_gpx_overlay: document.getElementById('cfg-show-gpx-overlay').checked,
             },
         };
 
@@ -1307,6 +1318,10 @@
                 config = { ...config, ...updates };
                 // Apply display settings immediately
                 showRouteDistances = updates.display.show_route_distances;
+                showGpxOverlay = updates.display.show_gpx_overlay;
+                if (gpxControlEl) {
+                    gpxControlEl.style.display = showGpxOverlay ? '' : 'none';
+                }
                 // Auto-close settings modal after a short delay
                 setTimeout(() => {
                     document.getElementById('settings-modal').classList.add('hidden');
