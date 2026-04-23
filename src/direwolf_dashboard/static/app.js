@@ -1322,11 +1322,9 @@
                 if (gpxControlEl) {
                     gpxControlEl.style.display = showGpxOverlay ? '' : 'none';
                 }
-                // Auto-close settings modal after a short delay
-                setTimeout(() => {
-                    document.getElementById('settings-modal').classList.add('hidden');
-                    feedback.classList.add('hidden');
-                }, 1500);
+                // Close settings modal
+                document.getElementById('settings-modal').classList.add('hidden');
+                feedback.classList.add('hidden');
             } else {
                 feedback.className = 'error';
                 feedback.textContent = `Error: ${JSON.stringify(result.detail)}`;
