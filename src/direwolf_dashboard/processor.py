@@ -196,6 +196,8 @@ def packet_to_dict(
     payload, via_path = _strip_agw_header(raw_aprs_string)
     is_third_party = payload.startswith("}")
     aprs_string = _extract_aprs_for_parsing(payload, call_from, call_to, via_path)
+    # Strip trailing nulls and carriage returns left over from AGW frames
+    aprs_string = aprs_string.rstrip("\r\n\x00")
 
     try:
         import aprslib
