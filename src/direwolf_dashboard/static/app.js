@@ -203,6 +203,8 @@
 
     // --- Init ---
     document.addEventListener('DOMContentLoaded', async () => {
+        // Init decode modal immediately (doesn't depend on config/network)
+        initDecode();
         await loadConfig();
         initMap();
         initLegend();
@@ -218,7 +220,6 @@
         initMapResize();
         initLogToggle();
         initMobileMenu();
-        initDecode();
     });
 
     // --- Config ---
