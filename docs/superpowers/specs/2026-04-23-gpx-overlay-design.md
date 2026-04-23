@@ -86,10 +86,11 @@ Two states:
 └──────────────────┘
 ```
 
-- Filename displayed (truncated if long)
+- Filename displayed (truncated to 20 characters if long)
 - Stats from leaflet-gpx: distance, track count, waypoint count
 - "Fit Map" — calls `map.fitBounds(gpxLayer.getBounds())`
 - "Clear" — removes layer from map, deletes from localStorage, reverts to empty state
+- Control starts expanded when a GPX file is loaded (including on page reload from localStorage)
 
 ### Legend Updates
 
