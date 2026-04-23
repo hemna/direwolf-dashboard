@@ -1,9 +1,22 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Direwolf Dashboard</title>
+    <!-- FOUC prevention: apply theme before any rendering -->
+    <script>
+    (function() {
+        var params = new URLSearchParams(window.location.search);
+        var paramTheme = params.get('theme');
+        var embedded = window !== window.parent;
+        var theme = paramTheme || localStorage.getItem('dw-theme') || 'dark';
+        if (theme !== 'light' && theme !== 'dark') theme = 'dark';
+        document.documentElement.setAttribute('data-theme', theme);
+        window.__dwTheme = theme;
+        window.__dwEmbedded = embedded || !!paramTheme;
+    })();
+    </script>
     <link rel="stylesheet" href="/static/leaflet/leaflet.css">
     <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -43,6 +56,10 @@
             </div>
             <button id="btn-drop-pin" title="Drop Pin - set my position">&#x1F4CC;</button>
             <button id="btn-decode" title="Decode APRS Packet (Ctrl+K)">&#x1F4E1;</button>
+            <button id="btn-theme" title="Toggle theme">
+                <span class="icon-sun" style="display:none;">&#9728;&#65039;</span>
+                <span class="icon-moon" style="display:none;">&#127769;</span>
+            </button>
             <button id="btn-toggle-log" title="Toggle packet log">&#9776;</button>
             <button id="btn-settings" title="Settings">&#9881;</button>
             <button id="btn-mobile-menu" title="Menu" class="mobile-only">&#8942;</button>

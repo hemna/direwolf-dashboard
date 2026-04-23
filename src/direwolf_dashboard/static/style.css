@@ -1,6 +1,8 @@
-/* Direwolf Dashboard — Dark theme for radio monitoring */
+/* Direwolf Dashboard — Light/Dark theme for radio monitoring */
 
-:root {
+/* ── Theme: Dark (default) ──────────────────────────────────── */
+:root,
+[data-theme="dark"] {
     --bg-primary: #1a1a2e;
     --bg-secondary: #16213e;
     --bg-tertiary: #0f3460;
@@ -15,6 +17,245 @@
     --log-bg: #0d1117;
     --log-row-hover: #1a1a3e;
     --modal-bg: #16213e;
+
+    /* Extended palette — overlays, panels, semantic accents */
+    --overlay-bg: rgba(30, 30, 30, 0.92);
+    --overlay-border: #444;
+    --overlay-text: #ccc;
+    --overlay-text-muted: #888;
+    --overlay-text-dim: #666;
+    --overlay-divider: #333;
+    --modal-backdrop: rgba(0, 0, 0, 0.7);
+    --shadow-toast: rgba(0, 0, 0, 0.5);
+    --btn-on-accent: #fff;
+    --btn-surface: #444;
+    --btn-surface-hover: #555;
+    --btn-surface-text: #ccc;
+
+    /* GPX accent */
+    --gpx-accent: #ff8c00;
+    --gpx-accent-hover: #ffaa33;
+    --gpx-btn-text: #000;
+
+    /* Popup / contextual buttons */
+    --popup-set: #1a6b3c;
+    --popup-set-hover: #228b4a;
+    --popup-remove: #6b1a1a;
+    --popup-remove-hover: #8b2222;
+
+    /* Semantic station glow */
+    --my-station-glow: #00aaff;
+
+    /* Map & decode labels */
+    --label-shadow: #000;
+    --route-label-text: #000000;
+    --decode-mini-map-bg: #0d1117;
+    --decode-map-attr-bg: rgba(13, 17, 23, 0.7);
+    --decode-map-unavailable-text: #555;
+
+    /* Decode badge base (fallback) */
+    --badge-default-bg: rgba(139, 148, 158, 0.2);
+    --badge-default-fg: #8b949e;
+    --badge-default-border: rgba(139, 148, 158, 0.3);
+
+    /* Packet type badges */
+    --badge-mic-e-bg: rgba(255, 123, 114, 0.2);
+    --badge-mic-e-fg: #ff7b72;
+    --badge-mic-e-border: rgba(255, 123, 114, 0.3);
+    --badge-position-bg: rgba(63, 185, 80, 0.2);
+    --badge-position-fg: #3fb950;
+    --badge-position-border: rgba(63, 185, 80, 0.3);
+    --badge-wx-bg: rgba(121, 192, 255, 0.2);
+    --badge-wx-fg: #79c0ff;
+    --badge-wx-border: rgba(121, 192, 255, 0.3);
+    --badge-object-bg: rgba(210, 153, 34, 0.2);
+    --badge-object-fg: #d29922;
+    --badge-object-border: rgba(210, 153, 34, 0.3);
+    --badge-message-bg: rgba(163, 113, 247, 0.2);
+    --badge-message-fg: #a371f7;
+    --badge-message-border: rgba(163, 113, 247, 0.3);
+    --badge-status-bg: rgba(238, 221, 136, 0.2);
+    --badge-status-fg: #eedd88;
+    --badge-status-border: rgba(238, 221, 136, 0.3);
+    --badge-telemetry-bg: rgba(188, 140, 255, 0.2);
+    --badge-telemetry-fg: #bc8cff;
+    --badge-telemetry-border: rgba(188, 140, 255, 0.3);
+
+    /* Annotated packet segments */
+    --segment-source-bg: rgba(63, 185, 80, 0.3);
+    --segment-source-fg: #3fb950;
+    --segment-dest-bg: rgba(210, 153, 34, 0.3);
+    --segment-dest-fg: #d29922;
+    --segment-path-bg: rgba(88, 166, 255, 0.3);
+    --segment-path-fg: #58a6ff;
+    --segment-datatype-bg: rgba(188, 140, 255, 0.3);
+    --segment-datatype-fg: #bc8cff;
+
+    /* Decode section headers */
+    --decode-header-station: #58a6ff;
+    --decode-header-position: #ff7b72;
+    --decode-header-weather: #79c0ff;
+    --decode-header-message: #d29922;
+    --decode-header-telemetry: #bc8cff;
+    --decode-header-comment: #8b949e;
+    --decode-header-location: #ff7b72;
+
+    /* Path chain */
+    --path-arrow: #555;
+    --path-hop-fg: #8b949e;
+    --path-hop-used-fg: #3fb950;
+    --path-loc-dot: #3fb950;
+
+    /* Decode extras */
+    --decode-error-fg: #f85149;
+    --decode-symbol-name: #8b949e;
+    --decode-course-arrow: #3fb950;
+    --decode-course-cardinal: #8b949e;
+    --decode-map-attr-link: #888;
+
+    /* Map tile filter */
+    --tile-filter: none;
+    --mini-tile-filter: brightness(0.8) contrast(1.1) saturate(0.8);
+
+    /* Route colors (used in JS) */
+    --route-tx-rf: #ff0000;
+    --route-tx-tcpip: #333333;
+    --route-rx: #00cc00;
+    --route-tcpip-line: #0000ff;
+    --station-track: #00b4d8;
+
+    /* GPX overlay markers */
+    --gpx-start: #22c55e;
+    --gpx-end: #ef4444;
+    --gpx-waypoint: #a855f7;
+
+    /* Compact log colors (JS) */
+    --log-rx: #1AA730;
+    --log-type: cyan;
+    --log-callsign: #1AA730;
+    --log-comment: #D033FF;
+    --log-dim: #888;
+}
+
+/* ── Theme: Light ───────────────────────────────────────────── */
+[data-theme="light"] {
+    --bg-primary: #f5f5f7;
+    --bg-secondary: #e8eaed;
+    --bg-tertiary: #d0d4da;
+    --text-primary: #1a1a2e;
+    --text-secondary: #555770;
+    --accent: #0077b6;
+    --success: #15803d;
+    --danger: #dc2626;
+    --warning: #d97706;
+    --border: #c4c8d0;
+    --toolbar-bg: #ffffff;
+    --log-bg: #ffffff;
+    --log-row-hover: #eef0f4;
+    --modal-bg: #ffffff;
+
+    --overlay-bg: rgba(255, 255, 255, 0.96);
+    --overlay-border: #c4c8d0;
+    --overlay-text: #333;
+    --overlay-text-muted: #666;
+    --overlay-text-dim: #999;
+    --overlay-divider: #ddd;
+    --modal-backdrop: rgba(0, 0, 0, 0.35);
+    --shadow-toast: rgba(0, 0, 0, 0.15);
+    --btn-on-accent: #fff;
+    --btn-surface: #e0e0e0;
+    --btn-surface-hover: #d0d0d0;
+    --btn-surface-text: #333;
+
+    --gpx-accent: #d97706;
+    --gpx-accent-hover: #b45309;
+    --gpx-btn-text: #fff;
+
+    --popup-set: #15803d;
+    --popup-set-hover: #16a34a;
+    --popup-remove: #dc2626;
+    --popup-remove-hover: #ef4444;
+
+    --my-station-glow: #0077b6;
+
+    --label-shadow: #fff;
+    --route-label-text: #1a1a2e;
+    --decode-mini-map-bg: #e8eaed;
+    --decode-map-attr-bg: rgba(255, 255, 255, 0.8);
+    --decode-map-unavailable-text: #999;
+
+    --badge-default-bg: rgba(100, 110, 120, 0.12);
+    --badge-default-fg: #555770;
+    --badge-default-border: rgba(100, 110, 120, 0.25);
+
+    --badge-mic-e-bg: rgba(220, 38, 38, 0.1);
+    --badge-mic-e-fg: #dc2626;
+    --badge-mic-e-border: rgba(220, 38, 38, 0.25);
+    --badge-position-bg: rgba(21, 128, 61, 0.1);
+    --badge-position-fg: #15803d;
+    --badge-position-border: rgba(21, 128, 61, 0.25);
+    --badge-wx-bg: rgba(0, 119, 182, 0.1);
+    --badge-wx-fg: #0077b6;
+    --badge-wx-border: rgba(0, 119, 182, 0.25);
+    --badge-object-bg: rgba(180, 83, 9, 0.1);
+    --badge-object-fg: #b45309;
+    --badge-object-border: rgba(180, 83, 9, 0.25);
+    --badge-message-bg: rgba(126, 58, 242, 0.1);
+    --badge-message-fg: #7e3af2;
+    --badge-message-border: rgba(126, 58, 242, 0.25);
+    --badge-status-bg: rgba(180, 140, 20, 0.1);
+    --badge-status-fg: #92750c;
+    --badge-status-border: rgba(180, 140, 20, 0.25);
+    --badge-telemetry-bg: rgba(126, 58, 242, 0.1);
+    --badge-telemetry-fg: #7e3af2;
+    --badge-telemetry-border: rgba(126, 58, 242, 0.25);
+
+    --segment-source-bg: rgba(21, 128, 61, 0.15);
+    --segment-source-fg: #15803d;
+    --segment-dest-bg: rgba(180, 83, 9, 0.15);
+    --segment-dest-fg: #b45309;
+    --segment-path-bg: rgba(0, 119, 182, 0.15);
+    --segment-path-fg: #0077b6;
+    --segment-datatype-bg: rgba(126, 58, 242, 0.15);
+    --segment-datatype-fg: #7e3af2;
+
+    --decode-header-station: #0077b6;
+    --decode-header-position: #dc2626;
+    --decode-header-weather: #0077b6;
+    --decode-header-message: #b45309;
+    --decode-header-telemetry: #7e3af2;
+    --decode-header-comment: #555770;
+    --decode-header-location: #dc2626;
+
+    --path-arrow: #999;
+    --path-hop-fg: #555770;
+    --path-hop-used-fg: #15803d;
+    --path-loc-dot: #15803d;
+
+    --decode-error-fg: #dc2626;
+    --decode-symbol-name: #555770;
+    --decode-course-arrow: #15803d;
+    --decode-course-cardinal: #555770;
+    --decode-map-attr-link: #666;
+
+    --tile-filter: none;
+    --mini-tile-filter: none;
+
+    --route-tx-rf: #dc2626;
+    --route-tx-tcpip: #999;
+    --route-rx: #15803d;
+    --route-tcpip-line: #2563eb;
+    --station-track: #0077b6;
+
+    --gpx-start: #15803d;
+    --gpx-end: #dc2626;
+    --gpx-waypoint: #7e3af2;
+
+    --log-rx: #15803d;
+    --log-type: #0077b6;
+    --log-callsign: #15803d;
+    --log-comment: #7e3af2;
+    --log-dim: #999;
 }
 
 * {
@@ -99,7 +340,7 @@ html, body {
     width: 120px;
 }
 
-#btn-toggle-log, #btn-settings {
+#btn-toggle-log, #btn-settings, #btn-theme {
     background: none;
     border: 1px solid var(--border);
     color: var(--text-secondary);
@@ -110,9 +351,14 @@ html, body {
     line-height: 1;
 }
 
-#btn-toggle-log:hover, #btn-settings:hover {
+#btn-toggle-log:hover, #btn-settings:hover, #btn-theme:hover {
     color: var(--text-primary);
     border-color: var(--accent);
+}
+
+/* Hide theme toggle when embedded in parent app */
+body.embedded #btn-theme {
+    display: none;
 }
 
 #btn-toggle-log .toggle-icon {
@@ -171,7 +417,7 @@ html, body {
 
 #btn-resume {
     background: var(--accent);
-    color: #fff;
+    color: var(--btn-on-accent);
     border: none;
     padding: 2px 10px;
     border-radius: 3px;
@@ -275,7 +521,7 @@ html, body {
 }
 
 .log-timestamp {
-    color: #666;
+    color: var(--overlay-text-dim);
     font-size: 11px;
     margin-right: 6px;
     white-space: nowrap;
@@ -436,7 +682,7 @@ body.log-hidden #map-resize-handle {
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(0,0,0,0.7);
+    background: var(--modal-backdrop);
     z-index: 10000;
     display: flex;
     align-items: center;
@@ -535,7 +781,7 @@ body.log-hidden #map-resize-handle {
 
 button.primary {
     background: var(--accent);
-    color: #fff;
+    color: var(--btn-on-accent);
     border: none;
     padding: 6px 20px;
     border-radius: 4px;
@@ -591,6 +837,10 @@ button.secondary:hover {
     background: var(--bg-secondary);
 }
 
+.leaflet-tile {
+    filter: var(--tile-filter);
+}
+
 .leaflet-popup-content-wrapper {
     background: var(--modal-bg);
     color: var(--text-primary);
@@ -605,8 +855,8 @@ button.secondary:hover {
     font-size: 11px;
     font-weight: bold;
     color: var(--text-primary);
-    text-shadow: -1px -1px 0 #000, 1px -1px 0 #000,
-                 -1px  1px 0 #000, 1px  1px 0 #000;
+    text-shadow: -1px -1px 0 var(--label-shadow), 1px -1px 0 var(--label-shadow),
+                 -1px  1px 0 var(--label-shadow), 1px  1px 0 var(--label-shadow);
     white-space: nowrap;
     background: none;
     border: none;
@@ -639,33 +889,33 @@ button.secondary:hover {
 
 /* Map legend */
 .map-legend {
-    background: rgba(30, 30, 30, 0.92);
+    background: var(--overlay-bg);
     border-radius: 6px;
     padding: 10px 12px;
     font-size: 11px;
-    color: #ccc;
-    border: 1px solid #444;
+    color: var(--overlay-text);
+    border: 1px solid var(--overlay-border);
     pointer-events: auto;
     max-width: 170px;
 }
 .map-legend-header {
     cursor: pointer;
     font-size: 10px;
-    color: #888;
-    border-bottom: 1px solid #444;
+    color: var(--overlay-text-muted);
+    border-bottom: 1px solid var(--overlay-border);
     padding-bottom: 6px;
     margin-bottom: 6px;
     user-select: none;
 }
 .map-legend-header:hover {
-    color: #bbb;
+    color: var(--overlay-text);
 }
 .legend-section-title {
     font-size: 10px;
-    color: #666;
+    color: var(--overlay-text-dim);
     margin-top: 8px;
     margin-bottom: 4px;
-    border-top: 1px solid #333;
+    border-top: 1px solid var(--overlay-divider);
     padding-top: 6px;
 }
 .legend-item {
@@ -688,12 +938,12 @@ button.secondary:hover {
 
 /* --- GPX Overlay Control --- */
 .gpx-control {
-    background: rgba(30, 30, 30, 0.92);
+    background: var(--overlay-bg);
     border-radius: 6px;
     padding: 0;
     font-size: 11px;
-    color: #ccc;
-    border: 1px solid #444;
+    color: var(--overlay-text);
+    border: 1px solid var(--overlay-border);
     pointer-events: auto;
     max-width: 170px;
     overflow: hidden;
@@ -705,17 +955,17 @@ button.secondary:hover {
     padding: 7px 10px;
     cursor: pointer;
     font-size: 10px;
-    color: #ff8c00;
-    border-bottom: 1px solid #444;
+    color: var(--gpx-accent);
+    border-bottom: 1px solid var(--overlay-border);
     user-select: none;
 }
 .gpx-control-header:hover {
-    color: #ffaa33;
+    color: var(--gpx-accent-hover);
 }
 .gpx-control-header .gpx-collapse-icon {
     margin-left: auto;
     font-size: 8px;
-    color: #666;
+    color: var(--overlay-text-dim);
 }
 .gpx-control.collapsed .gpx-control-body {
     display: none;
@@ -728,11 +978,11 @@ button.secondary:hover {
 }
 .gpx-control .gpx-stats {
     font-size: 9px;
-    color: #aaa;
+    color: var(--overlay-text-muted);
     margin-bottom: 6px;
 }
 .gpx-control .gpx-stats .gpx-filename {
-    color: #ccc;
+    color: var(--overlay-text);
     font-weight: bold;
     margin-bottom: 2px;
     overflow: hidden;
@@ -755,25 +1005,25 @@ button.secondary:hover {
     cursor: pointer;
 }
 .gpx-control .gpx-btn-fit {
-    background: #ff8c00;
-    color: #000;
+    background: var(--gpx-accent);
+    color: var(--gpx-btn-text);
     font-weight: bold;
 }
 .gpx-control .gpx-btn-fit:hover {
-    background: #ffaa33;
+    background: var(--gpx-accent-hover);
 }
 .gpx-control .gpx-btn-clear {
-    background: #444;
-    color: #ccc;
+    background: var(--btn-surface);
+    color: var(--btn-surface-text);
 }
 .gpx-control .gpx-btn-clear:hover {
-    background: #555;
+    background: var(--btn-surface-hover);
 }
 .gpx-control .gpx-btn-load {
     width: 100%;
     padding: 4px 0;
-    background: #ff8c00;
-    color: #000;
+    background: var(--gpx-accent);
+    color: var(--gpx-btn-text);
     font-weight: bold;
     border: none;
     border-radius: 3px;
@@ -782,11 +1032,11 @@ button.secondary:hover {
     cursor: pointer;
 }
 .gpx-control .gpx-btn-load:hover {
-    background: #ffaa33;
+    background: var(--gpx-accent-hover);
 }
 .gpx-control .gpx-error {
     font-size: 9px;
-    color: #e74c3c;
+    color: var(--danger);
     margin-top: 4px;
 }
 .gpx-marker {
@@ -900,7 +1150,7 @@ button.secondary:hover {
 }
 .route-distance-label span {
     display: inline-block;
-    color: #000000;
+    color: var(--route-label-text);
     font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
     font-size: 9px;
     white-space: nowrap;
@@ -922,7 +1172,7 @@ button.secondary:hover {
     border-radius: 6px;
     font-size: 13px;
     z-index: 2000;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+    box-shadow: 0 2px 8px var(--shadow-toast);
 }
 
 /* Waiting modal */
@@ -933,7 +1183,7 @@ button.secondary:hover {
 
 /* My station glow */
 .my-station {
-    filter: drop-shadow(0 0 6px #00aaff) drop-shadow(0 0 3px #00aaff);
+    filter: drop-shadow(0 0 6px var(--my-station-glow)) drop-shadow(0 0 3px var(--my-station-glow));
 }
 
 /* My position pin marker */
@@ -955,21 +1205,21 @@ button.secondary:hover {
 }
 
 .popup-btn-set {
-    background: #1a6b3c;
-    color: #fff;
+    background: var(--popup-set);
+    color: var(--btn-on-accent);
 }
 
 .popup-btn-set:hover {
-    background: #228b4a;
+    background: var(--popup-set-hover);
 }
 
 .popup-btn-remove {
-    background: #6b1a1a;
-    color: #fff;
+    background: var(--popup-remove);
+    color: var(--btn-on-accent);
 }
 
 .popup-btn-remove:hover {
-    background: #8b2222;
+    background: var(--popup-remove-hover);
 }
 
 /* Drop pin button active state */
@@ -991,7 +1241,7 @@ button.secondary:hover {
 
 #btn-drop-pin.active {
     background: var(--accent);
-    color: #fff;
+    color: var(--btn-on-accent);
 }
 
 /* ===== Decode Packet Feature ===== */
@@ -1076,7 +1326,7 @@ button.secondary:hover {
 .decode-submit-btn {
     padding: 8px 20px;
     background: var(--accent);
-    color: #fff;
+    color: var(--btn-on-accent);
     border: none;
     border-radius: 6px;
     font-size: 13px;
@@ -1107,45 +1357,45 @@ button.secondary:hover {
     font-weight: 600;
     letter-spacing: 0.5px;
     text-transform: uppercase;
-    background: rgba(139, 148, 158, 0.2);
-    color: #8b949e;
-    border: 1px solid rgba(139, 148, 158, 0.3);
+    background: var(--badge-default-bg);
+    color: var(--badge-default-fg);
+    border: 1px solid var(--badge-default-border);
 }
 .packet-type-badge.packet-type-mic_e {
-    background: rgba(255, 123, 114, 0.2);
-    color: #ff7b72;
-    border: 1px solid rgba(255, 123, 114, 0.3);
+    background: var(--badge-mic-e-bg);
+    color: var(--badge-mic-e-fg);
+    border: 1px solid var(--badge-mic-e-border);
 }
 .packet-type-badge.packet-type-uncompressed,
 .packet-type-badge.packet-type-compressed {
-    background: rgba(63, 185, 80, 0.2);
-    color: #3fb950;
-    border: 1px solid rgba(63, 185, 80, 0.3);
+    background: var(--badge-position-bg);
+    color: var(--badge-position-fg);
+    border: 1px solid var(--badge-position-border);
 }
 .packet-type-badge.packet-type-wx {
-    background: rgba(121, 192, 255, 0.2);
-    color: #79c0ff;
-    border: 1px solid rgba(121, 192, 255, 0.3);
+    background: var(--badge-wx-bg);
+    color: var(--badge-wx-fg);
+    border: 1px solid var(--badge-wx-border);
 }
 .packet-type-badge.packet-type-object {
-    background: rgba(210, 153, 34, 0.2);
-    color: #d29922;
-    border: 1px solid rgba(210, 153, 34, 0.3);
+    background: var(--badge-object-bg);
+    color: var(--badge-object-fg);
+    border: 1px solid var(--badge-object-border);
 }
 .packet-type-badge.packet-type-message {
-    background: rgba(163, 113, 247, 0.2);
-    color: #a371f7;
-    border: 1px solid rgba(163, 113, 247, 0.3);
+    background: var(--badge-message-bg);
+    color: var(--badge-message-fg);
+    border: 1px solid var(--badge-message-border);
 }
 .packet-type-badge.packet-type-status {
-    background: rgba(238, 221, 136, 0.2);
-    color: #eedd88;
-    border: 1px solid rgba(238, 221, 136, 0.3);
+    background: var(--badge-status-bg);
+    color: var(--badge-status-fg);
+    border: 1px solid var(--badge-status-border);
 }
 .packet-type-badge.packet-type-telemetry {
-    background: rgba(188, 140, 255, 0.2);
-    color: #bc8cff;
-    border: 1px solid rgba(188, 140, 255, 0.3);
+    background: var(--badge-telemetry-bg);
+    color: var(--badge-telemetry-fg);
+    border: 1px solid var(--badge-telemetry-border);
 }
 
 /* Annotated Raw Packet */
@@ -1175,10 +1425,10 @@ button.secondary:hover {
     cursor: help;
 }
 .packet-segment-plain { color: var(--text-secondary); }
-.packet-segment-source { background: rgba(63,185,80,0.3); color: #3fb950; }
-.packet-segment-destination { background: rgba(210,153,34,0.3); color: #d29922; }
-.packet-segment-path { background: rgba(88,166,255,0.3); color: #58a6ff; }
-.packet-segment-datatype { background: rgba(188,140,255,0.3); color: #bc8cff; }
+.packet-segment-source { background: var(--segment-source-bg); color: var(--segment-source-fg); }
+.packet-segment-destination { background: var(--segment-dest-bg); color: var(--segment-dest-fg); }
+.packet-segment-path { background: var(--segment-path-bg); color: var(--segment-path-fg); }
+.packet-segment-datatype { background: var(--segment-datatype-bg); color: var(--segment-datatype-fg); }
 
 .packet-legend {
     display: flex;
@@ -1193,10 +1443,10 @@ button.secondary:hover {
     height: 12px;
     border-radius: 2px;
 }
-.legend-source { background: rgba(63,185,80,0.5); }
-.legend-destination { background: rgba(210,153,34,0.5); }
-.legend-path { background: rgba(88,166,255,0.5); }
-.legend-datatype { background: rgba(188,140,255,0.5); }
+.legend-source { background: var(--segment-source-bg); }
+.legend-destination { background: var(--segment-dest-bg); }
+.legend-path { background: var(--segment-path-bg); }
+.legend-datatype { background: var(--segment-datatype-bg); }
 
 /* Decode Tables */
 .decode-tables {
@@ -1274,7 +1524,7 @@ button.secondary:hover {
 .decode-btn-primary {
     background: var(--accent);
     border: none;
-    color: #fff;
+    color: var(--btn-on-accent);
     font-weight: 600;
 }
 
@@ -1282,14 +1532,14 @@ button.secondary:hover {
 .decode-error {
     background: var(--bg-primary);
     border: 1px solid var(--border);
-    border-left: 3px solid #f85149;
+    border-left: 3px solid var(--decode-error-fg);
     border-radius: 6px;
     padding: 20px;
     text-align: center;
 }
-.decode-error-icon { font-size: 32px; margin-bottom: 12px; color: #f85149; }
+.decode-error-icon { font-size: 32px; margin-bottom: 12px; color: var(--decode-error-fg); }
 .decode-error-message {
-    color: #f85149;
+    color: var(--decode-error-fg);
     font-size: 14px;
     margin-bottom: 12px;
 }
@@ -1311,7 +1561,7 @@ button.secondary:hover {
     gap: 4px;
 }
 .decode-path-arrow {
-    color: #555;
+    color: var(--path-arrow);
     font-size: 12px;
     margin: 0 2px;
 }
@@ -1321,18 +1571,18 @@ button.secondary:hover {
     gap: 3px;
 }
 .decode-path-hop code {
-    color: #8b949e;
+    color: var(--path-hop-fg);
     font-size: 12px;
 }
 .decode-path-hop.decode-path-used code {
-    color: #3fb950;
+    color: var(--path-hop-used-fg);
 }
 .decode-path-loc-dot {
     display: inline-block;
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: #3fb950;
+    background: var(--path-loc-dot);
     margin-left: 2px;
 }
 
@@ -1341,18 +1591,18 @@ button.secondary:hover {
     height: 200px;
     border-radius: 6px;
     overflow: hidden;
-    background: #0d1117;
+    background: var(--decode-mini-map-bg);
 }
 #decode-mini-map .leaflet-tile {
-    filter: brightness(0.8) contrast(1.1) saturate(0.8);
+    filter: var(--mini-tile-filter);
 }
 #decode-mini-map .leaflet-control-attribution {
     font-size: 9px;
-    background: rgba(13, 17, 23, 0.7) !important;
-    color: #666 !important;
+    background: var(--decode-map-attr-bg) !important;
+    color: var(--overlay-text-dim) !important;
 }
 #decode-mini-map .leaflet-control-attribution a {
-    color: #888 !important;
+    color: var(--decode-map-attr-link) !important;
 }
 #decode-mini-map .leaflet-div-icon {
     background: transparent !important;
@@ -1361,11 +1611,11 @@ button.secondary:hover {
 .decode-map-unavailable {
     height: 200px;
     border-radius: 6px;
-    background: #0d1117;
+    background: var(--decode-mini-map-bg);
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #555;
+    color: var(--decode-map-unavailable-text);
     font-size: 13px;
 }
 
@@ -1384,20 +1634,20 @@ button.secondary:hover {
     flex-shrink: 0;
 }
 .decode-symbol-name {
-    color: #8b949e;
+    color: var(--decode-symbol-name);
     font-size: 12px;
 }
 
 /* Course direction display */
 .decode-course-arrow {
     font-size: 16px;
-    color: #3fb950;
+    color: var(--decode-course-arrow);
     margin-right: 4px;
     line-height: 1;
     display: inline-block;
 }
 .decode-course-cardinal {
-    color: #8b949e;
+    color: var(--decode-course-cardinal);
     font-size: 12px;
     margin-left: 4px;
 }

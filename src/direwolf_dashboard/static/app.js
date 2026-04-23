@@ -47,6 +47,50 @@
         'RELAY', 'TRACE', 'TCPIP', 'CQ', 'QST', 'APRS', 'RFONLY', 'NOGATE',
     ]);
 
+    // --- Theme Support ---
+    const _embedded = window.__dwEmbedded || false;
+    let _currentTheme = window.__dwTheme || 'dark';
+
+    /** Read a CSS custom property value from :root / [data-theme]. */
+    function themeColor(varName) {
+        return getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+    }
+
+    function applyTheme(theme) {
+        if (theme !== 'light' && theme !== 'dark') return;
+        _currentTheme = theme;
+        document.documentElement.setAttribute('data-theme', theme);
+        if (!_embedded) localStorage.setItem('dw-theme', theme);
+        updateThemeIcon();
+    }
+
+    function toggleTheme() {
+        applyTheme(_currentTheme === 'dark' ? 'light' : 'dark');
+    }
+
+    function updateThemeIcon() {
+        var btn = document.getElementById('btn-theme');
+        if (!btn) return;
+        var sun = btn.querySelector('.icon-sun');
+        var moon = btn.querySelector('.icon-moon');
+        if (sun) sun.style.display = _currentTheme === 'dark' ? 'inline' : 'none';
+        if (moon) moon.style.display = _currentTheme === 'light' ? 'inline' : 'none';
+    }
+
+    // Listen for theme changes from parent window (iframe embedding)
+    window.addEventListener('message', function (e) {
+        if (e.data && e.data.type === 'theme-change' && e.data.theme) {
+            applyTheme(e.data.theme);
+        }
+    });
+
+    // Mark body as embedded so CSS can hide the theme toggle
+    if (_embedded) {
+        document.addEventListener('DOMContentLoaded', function () {
+            document.body.classList.add('embedded');
+        });
+    }
+
     // --- APRS Symbol Sprites ---
     const SYMBOL_SIZE = 24;
     const SPRITE_COLS = 16;
@@ -157,6 +201,11 @@
             options: { position: 'bottomleft' },
             onAdd: function () {
                 const container = L.DomUtil.create('div', 'map-legend');
+                var txColor = themeColor('--route-tx-rf');
+                var tcpipColor = themeColor('--route-tx-tcpip');
+                var rxColor = themeColor('--route-rx');
+                var trackColor = themeColor('--station-track');
+                var routeColor = themeColor('--route-tcpip-line');
                 container.innerHTML = `
                     <div class="map-legend-header">
                         Legend &#9660;
@@ -165,32 +214,32 @@
                         <div class="legend-section-title">Animations</div>
                         <div class="legend-item">
                             <svg width="16" height="16" viewBox="0 0 16 16">
-                                <path d="M 3 6 A 6 6 0 0 1 3 10" fill="none" stroke="#ff0000" stroke-width="1.5" stroke-linecap="round" stroke-opacity="0.8"/>
-                                <path d="M 13 6 A 6 6 0 0 0 13 10" fill="none" stroke="#ff0000" stroke-width="1.5" stroke-linecap="round" stroke-opacity="0.8"/>
+                                <path d="M 3 6 A 6 6 0 0 1 3 10" fill="none" stroke="${txColor}" stroke-width="1.5" stroke-linecap="round" stroke-opacity="0.8"/>
+                                <path d="M 13 6 A 6 6 0 0 0 13 10" fill="none" stroke="${txColor}" stroke-width="1.5" stroke-linecap="round" stroke-opacity="0.8"/>
                             </svg>
                             <span>RF Transmit</span>
                         </div>
                         <div class="legend-item">
                             <svg width="16" height="16" viewBox="0 0 16 16">
-                                <path d="M 3 6 A 6 6 0 0 1 3 10" fill="none" stroke="#555555" stroke-width="1.5" stroke-linecap="round" stroke-opacity="0.8"/>
-                                <path d="M 13 6 A 6 6 0 0 0 13 10" fill="none" stroke="#555555" stroke-width="1.5" stroke-linecap="round" stroke-opacity="0.8"/>
+                                <path d="M 3 6 A 6 6 0 0 1 3 10" fill="none" stroke="${tcpipColor}" stroke-width="1.5" stroke-linecap="round" stroke-opacity="0.8"/>
+                                <path d="M 13 6 A 6 6 0 0 0 13 10" fill="none" stroke="${tcpipColor}" stroke-width="1.5" stroke-linecap="round" stroke-opacity="0.8"/>
                             </svg>
                             <span>Internet (TCPIP)</span>
                         </div>
                         <div class="legend-item">
                             <svg width="16" height="16" viewBox="0 0 16 16">
-                                <path d="M 6 3 A 6 6 0 0 1 10 3" fill="none" stroke="#00cc00" stroke-width="1.5" stroke-linecap="round" stroke-opacity="0.8"/>
-                                <path d="M 6 13 A 6 6 0 0 0 10 13" fill="none" stroke="#00cc00" stroke-width="1.5" stroke-linecap="round" stroke-opacity="0.8"/>
+                                <path d="M 6 3 A 6 6 0 0 1 10 3" fill="none" stroke="${rxColor}" stroke-width="1.5" stroke-linecap="round" stroke-opacity="0.8"/>
+                                <path d="M 6 13 A 6 6 0 0 0 10 13" fill="none" stroke="${rxColor}" stroke-width="1.5" stroke-linecap="round" stroke-opacity="0.8"/>
                             </svg>
                             <span>Receiving</span>
                         </div>
                         <div class="legend-section-title">Trails</div>
                         <div class="legend-item">
-                            <div style="width:20px;height:3px;background:#00b4d8;opacity:0.7;border-radius:2px;"></div>
+                            <div style="width:20px;height:3px;background:${trackColor};opacity:0.7;border-radius:2px;"></div>
                             <span>Movement trail</span>
                         </div>
                         <div class="legend-item">
-                            <div style="width:20px;height:0;border-top:3px dashed #0000ff;opacity:0.6;"></div>
+                            <div style="width:20px;height:0;border-top:3px dashed ${routeColor};opacity:0.6;"></div>
                             <span>Packet route</span>
                         </div>
                     </div>
@@ -340,14 +389,14 @@
                 parseElements: ['track', 'route', 'waypoint'],
                 polyline_options: [
                     {
-                        color: '#ff8c00',
+                        color: themeColor('--gpx-accent'),
                         opacity: 0.8,
                         weight: 3,
                         lineCap: 'round',
                         lineJoin: 'round'
                     },
                     {
-                        color: '#ff8c00',
+                        color: themeColor('--gpx-accent'),
                         opacity: 0.8,
                         weight: 2,
                         dashArray: '8,6',
@@ -356,9 +405,9 @@
                     }
                 ],
                 markers: {
-                    startIcon: gpxCircleIcon('#22c55e', 6),
-                    endIcon: gpxCircleIcon('#ef4444', 6),
-                    wptIcons: { '': gpxCircleIcon('#a855f7', 5) },
+                    startIcon: gpxCircleIcon(themeColor('--gpx-start'), 6),
+                    endIcon: gpxCircleIcon(themeColor('--gpx-end'), 6),
+                    wptIcons: { '': gpxCircleIcon(themeColor('--gpx-waypoint'), 5) },
                     wptTypeIcons: {}
                 }
             }).on('loaded', function (e) {
@@ -447,20 +496,22 @@
         if (!legend) return;
         var existing = legend.querySelector('.legend-gpx-section');
         if (show && !existing) {
+            var gpxColor = themeColor('--gpx-accent');
+            var wptColor = themeColor('--gpx-waypoint');
             var section = document.createElement('div');
             section.className = 'legend-gpx-section';
             section.innerHTML =
                 '<div class="legend-section-title">GPX Overlay</div>' +
                 '<div class="legend-item">' +
-                    '<div style="width:20px;height:3px;background:#ff8c00;border-radius:2px;"></div>' +
+                    '<div style="width:20px;height:3px;background:' + gpxColor + ';border-radius:2px;"></div>' +
                     '<span>GPX track</span>' +
                 '</div>' +
                 '<div class="legend-item">' +
-                    '<div style="width:20px;height:0;border-top:3px dashed #ff8c00;opacity:0.8;"></div>' +
+                    '<div style="width:20px;height:0;border-top:3px dashed ' + gpxColor + ';opacity:0.8;"></div>' +
                     '<span>GPX route</span>' +
                 '</div>' +
                 '<div class="legend-item">' +
-                    '<svg width="10" height="10"><circle cx="5" cy="5" r="4" fill="#a855f7" stroke="white" stroke-width="1"/></svg>' +
+                    '<svg width="10" height="10"><circle cx="5" cy="5" r="4" fill="' + wptColor + '" stroke="white" stroke-width="1"/></svg>' +
                     '<span>GPX waypoint</span>' +
                 '</div>';
             legend.appendChild(section);
@@ -471,6 +522,11 @@
 
     // --- Init ---
     document.addEventListener('DOMContentLoaded', async () => {
+        // Init theme toggle
+        var themeBtn = document.getElementById('btn-theme');
+        if (themeBtn) themeBtn.addEventListener('click', toggleTheme);
+        updateThemeIcon();
+
         // Init decode modal immediately (doesn't depend on config/network)
         initDecode();
         await loadConfig();
@@ -600,7 +656,7 @@
 
             stations[cs] = {
                 marker: marker,
-                track: L.polyline([], { color: '#00b4d8', weight: 1.5, opacity: 0.6 }).addTo(map),
+                track: L.polyline([], { color: themeColor('--station-track'), weight: 1.5, opacity: 0.6 }).addTo(map),
                 data: data,
             };
 
@@ -690,7 +746,7 @@
 
     // --- SVG Arc Animation Icons ---
     function createTransmitArcIcon(index, color) {
-        const strokeColor = color || '#ff0000';
+        const strokeColor = color || themeColor('--route-tx-rf');
         const size = 40 + (index * 8);
         const center = size / 2;
         const radius = 10 + (index * 7);
@@ -737,8 +793,8 @@
         const bEnd = polarToCartesian(center, center, radius, bEndAngle);
         const bottomArc = `M ${bStart.x} ${bStart.y} A ${radius} ${radius} 0 0 1 ${bEnd.x} ${bEnd.y}`;
         const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-            <path d="${topArc}" fill="none" stroke="#00cc00" stroke-width="3" stroke-linecap="round" stroke-opacity="0.7"/>
-            <path d="${bottomArc}" fill="none" stroke="#00cc00" stroke-width="3" stroke-linecap="round" stroke-opacity="0.7"/>
+            <path d="${topArc}" fill="none" stroke="${themeColor('--route-rx')}" stroke-width="3" stroke-linecap="round" stroke-opacity="0.7"/>
+            <path d="${bottomArc}" fill="none" stroke="${themeColor('--route-rx')}" stroke-width="3" stroke-linecap="round" stroke-opacity="0.7"/>
         </svg>`;
         const svgUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
         return L.icon({ iconUrl: svgUrl, iconSize: [size, size], iconAnchor: [center, center] });
@@ -763,7 +819,7 @@
             const to = L.latLng(waypoints[i + 1].lat, waypoints[i + 1].lng);
             const line = L.polyline(
                 [[from.lat, from.lng], [to.lat, to.lng]],
-                { color: '#0000ff', weight: 3, opacity: 0.6, dashArray: '4,8', lineCap: 'round', lineJoin: 'round' }
+                { color: themeColor('--route-tcpip-line'), weight: 3, opacity: 0.6, dashArray: '4,8', lineCap: 'round', lineJoin: 'round' }
             );
             elements.push(line);
 
@@ -855,7 +911,7 @@
         }
         const latLng = [lat, lng];
         const pathInfo = parsePath(pathArray);
-        const txColor = pathInfo.isTcpip ? '#333333' : '#ff0000';
+        const txColor = pathInfo.isTcpip ? themeColor('--route-tx-tcpip') : themeColor('--route-tx-rf');
         const arcMarkers = [];
         for (let i = 1; i <= 3; i++) {
             const m = L.marker(latLng, { icon: createTransmitArcIcon(i, txColor), interactive: false, zIndexOffset: 1000 });
@@ -1992,7 +2048,7 @@
         // Station section
         if (sections.station) {
             html += '<div class="decode-section">';
-            html += '<div class="decode-section-header" style="color:#58a6ff;">Station</div>';
+            html += '<div class="decode-section-header" style="color:' + themeColor('--decode-header-station') + ';">Station</div>';
             html += '<table class="decode-table">';
             html += `<tr><td class="decode-label">From</td><td class="decode-value"><code>${escapeHtml(sections.station.from)}</code></td></tr>`;
             html += `<tr><td class="decode-label">To</td><td class="decode-value"><code>${escapeHtml(sections.station.to)}</code></td></tr>`;
@@ -2020,7 +2076,7 @@
         // Position section
         if (sections.position) {
             html += '<div class="decode-section">';
-            html += '<div class="decode-section-header" style="color:#ff7b72;">Position</div>';
+            html += '<div class="decode-section-header" style="color:' + themeColor('--decode-header-position') + ';">Position</div>';
             html += '<table class="decode-table">';
             if (sections.position.latitude != null) {
                 html += `<tr><td class="decode-label">Latitude</td><td class="decode-value">${sections.position.latitude.toFixed(5)}&deg;</td></tr>`;
@@ -2071,7 +2127,7 @@
         // Weather section
         if (sections.weather) {
             html += '<div class="decode-section decode-section-wide">';
-            html += '<div class="decode-section-header" style="color:#79c0ff;">Weather</div>';
+            html += '<div class="decode-section-header" style="color:' + themeColor('--decode-header-weather') + ';">Weather</div>';
             html += '<div class="decode-weather-grid">';
             const wxFields = [
                 ['wind_direction', 'Wind Dir', (v) => v + '\u00B0'],
@@ -2094,7 +2150,7 @@
         // Message section
         if (sections.message) {
             html += '<div class="decode-section decode-section-wide">';
-            html += '<div class="decode-section-header" style="color:#d29922;">Message</div>';
+            html += '<div class="decode-section-header" style="color:' + themeColor('--decode-header-message') + ';">Message</div>';
             html += '<table class="decode-table">';
             html += `<tr><td class="decode-label">To</td><td class="decode-value"><code>${escapeHtml(sections.message.addressee)}</code></td></tr>`;
             html += `<tr><td class="decode-label">Message</td><td class="decode-value">${escapeHtml(sections.message.message_text)}</td></tr>`;
@@ -2107,7 +2163,7 @@
         // Telemetry section
         if (sections.telemetry) {
             html += '<div class="decode-section decode-section-wide">';
-            html += '<div class="decode-section-header" style="color:#bc8cff;">Telemetry</div>';
+            html += '<div class="decode-section-header" style="color:' + themeColor('--decode-header-telemetry') + ';">Telemetry</div>';
             html += '<table class="decode-table">';
             for (const [key, value] of Object.entries(sections.telemetry)) {
                 html += `<tr><td class="decode-label">${escapeHtml(key)}</td><td class="decode-value">${escapeHtml(String(value))}</td></tr>`;
@@ -2118,7 +2174,7 @@
         // Comment section
         if (sections.comment) {
             html += '<div class="decode-section decode-section-wide">';
-            html += '<div class="decode-section-header" style="color:#8b949e;">Comment</div>';
+            html += '<div class="decode-section-header" style="color:' + themeColor('--decode-header-comment') + ';">Comment</div>';
             html += `<div class="decode-comment">${escapeHtml(sections.comment.text)}</div>`;
             html += '</div>';
         }
@@ -2128,7 +2184,7 @@
         // Mini map placeholder
         if (sections.position && sections.position.latitude != null && sections.position.longitude != null) {
             html += '<div class="decode-section decode-section-wide" style="margin-top:12px;">';
-            html += '<div class="decode-section-header" style="color:#ff7b72;">Location</div>';
+            html += '<div class="decode-section-header" style="color:' + themeColor('--decode-header-location') + ';">Location</div>';
             html += '<div id="decode-mini-map"></div>';
             html += '</div>';
         }
@@ -2219,7 +2275,7 @@
         // Draw path polyline
         if (linePoints.length > 1) {
             L.polyline(linePoints, {
-                color: '#58a6ff',
+                color: themeColor('--segment-path-fg'),
                 weight: 2,
                 dashArray: '6, 8',
                 opacity: 0.7,
@@ -2320,7 +2376,7 @@
                 msg_no: '',
                 raw_packet: `${call}>APRS:!${lat.toFixed(4)}/${lng.toFixed(4)}>${sym}`,
                 audio_level: null,
-                compact_log: `<span style="color:#1AA730">RX&#x2193;</span> <span style="color:cyan">GPSPacket</span> <span style="color:#C70039">${call}</span><span style="color:#1AA730">&#x2192;</span><span style="color:#D033FF">APRS</span> <span style="color:#888">[SIM ${distKm}km ${bearing}°]</span>`,
+                compact_log: `<span style="color:${themeColor('--log-rx')}">RX&#x2193;</span> <span style="color:${themeColor('--log-type')}">GPSPacket</span> <span style="color:${themeColor('--danger')}">${call}</span><span style="color:${themeColor('--log-callsign')}">&#x2192;</span><span style="color:${themeColor('--log-comment')}">APRS</span> <span style="color:${themeColor('--log-dim')}">[SIM ${distKm}km ${bearing}°]</span>`,
             };
             setTimeout(() => onPacket(packet), delay);
             delay += 800; // stagger so animations don't overlap
