@@ -56,8 +56,11 @@ class TileProxy:
     async def get_tile(self, z: int, x: int, y: int) -> Optional[bytes]:
         """Get a tile, serving from cache if available.
 
+        Retries transient failures (timeouts, 5xx, rate-limits) up to 2 times
+        with exponential backoff.
+
         Returns:
-            PNG bytes, or None if fetch fails.
+            PNG bytes, or None if fetch fails after retries.
         """
         path = self._tile_path(z, x, y)
 
@@ -66,26 +69,45 @@ class TileProxy:
             with open(path, "rb") as f:
                 return f.read()
 
-        # Fetch from upstream
+        # Fetch from upstream with retries
         url = self.tile_url_template.format(z=z, x=x, y=y)
-        try:
-            response = await self._client.get(url)
-            if response.status_code == 200:
-                # Cache to disk
-                os.makedirs(os.path.dirname(path), exist_ok=True)
-                with open(path, "wb") as f:
-                    f.write(response.content)
+        max_retries = 2
+        for attempt in range(max_retries + 1):
+            try:
+                response = await self._client.get(url)
+                if response.status_code == 200:
+                    # Cache to disk
+                    os.makedirs(os.path.dirname(path), exist_ok=True)
+                    with open(path, "wb") as f:
+                        f.write(response.content)
 
-                # Check cache budget
-                await self._check_cache_budget()
+                    # Check cache budget
+                    await self._check_cache_budget()
 
-                return response.content
-            else:
+                    return response.content
+
+                # Retry on transient HTTP errors
+                if response.status_code in (429, 500, 502, 503, 504) and attempt < max_retries:
+                    delay = (attempt + 1) * 1.0
+                    LOG.warning(f"Tile fetch {url} -> {response.status_code}, retry {attempt + 1}/{max_retries} in {delay}s")
+                    await asyncio.sleep(delay)
+                    continue
+
                 LOG.warning(f"Tile fetch failed: {url} -> {response.status_code}")
                 return None
-        except Exception as e:
-            LOG.error(f"Tile fetch error: {url} -> {e}")
-            return None
+            except (httpx.TimeoutException, httpx.ConnectError) as e:
+                if attempt < max_retries:
+                    delay = (attempt + 1) * 1.0
+                    LOG.warning(f"Tile fetch {url} -> {type(e).__name__}, retry {attempt + 1}/{max_retries} in {delay}s")
+                    await asyncio.sleep(delay)
+                    continue
+                LOG.error(f"Tile fetch error: {url} -> {e}")
+                return None
+            except Exception as e:
+                LOG.error(f"Tile fetch error: {url} -> {e}")
+                return None
+
+        return None
 
     def get_cache_stats(self) -> dict:
         """Get cache statistics."""

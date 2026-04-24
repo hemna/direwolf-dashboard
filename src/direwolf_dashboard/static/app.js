@@ -578,10 +578,24 @@
 
         map = L.map('map').setView([lat, lon], zoom);
 
-        L.tileLayer(API_BASE + '/tiles/{z}/{x}/{y}.png', {
+        var tileLayer = L.tileLayer(API_BASE + '/tiles/{z}/{x}/{y}.png', {
             attribution: '&copy; OpenStreetMap contributors',
             maxZoom: 18,
         }).addTo(map);
+
+        // Retry failed tiles after a delay
+        tileLayer.on('tileerror', function (e) {
+            var tile = e.tile;
+            var src = tile.src;
+            if (!tile._retryCount) tile._retryCount = 0;
+            if (tile._retryCount < 3) {
+                tile._retryCount++;
+                setTimeout(function () {
+                    tile.src = '';
+                    tile.src = src;
+                }, tile._retryCount * 3000);
+            }
+        });
 
         setInterval(cleanupAnimations, 10000);
     }
