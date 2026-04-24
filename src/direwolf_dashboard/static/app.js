@@ -1002,6 +1002,9 @@
             case 'config_updated':
                 onConfigUpdated(msg.data);
                 break;
+            case 'storage_reset':
+                clearStationsAndPackets();
+                break;
             case 'ping':
                 // Respond with pong (keep-alive)
                 break;
@@ -1326,6 +1329,9 @@
         document.getElementById('btn-estimate').addEventListener('click', estimatePreload);
         document.getElementById('btn-download').addEventListener('click', startPreload);
         document.getElementById('btn-cancel-download').addEventListener('click', cancelPreload);
+
+        // Wipe database
+        document.getElementById('btn-wipe-db').addEventListener('click', wipeDatabase);
     }
 
     function populateSettings() {
@@ -1424,6 +1430,59 @@
             feedback.textContent = `Error: ${e.message}`;
             feedback.classList.remove('hidden');
         }
+    }
+
+    async function wipeDatabase() {
+        if (!confirm('This will permanently delete all stored packets and station data. Continue?')) {
+            return;
+        }
+        const btn = document.getElementById('btn-wipe-db');
+        const feedback = document.getElementById('wipe-feedback');
+        btn.disabled = true;
+        btn.textContent = 'Wiping...';
+        feedback.classList.add('hidden');
+        try {
+            const resp = await fetch(API_BASE + '/storage', { method: 'DELETE' });
+            const result = await resp.json();
+            if (resp.ok) {
+                feedback.className = 'success';
+                feedback.textContent = 'Database wiped';
+                feedback.classList.remove('hidden');
+                // Clear local UI state
+                clearStationsAndPackets();
+            } else {
+                feedback.className = 'error';
+                feedback.textContent = 'Error: ' + (result.detail || 'Unknown');
+                feedback.classList.remove('hidden');
+            }
+        } catch (e) {
+            feedback.className = 'error';
+            feedback.textContent = 'Error: ' + e.message;
+            feedback.classList.remove('hidden');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Wipe Packet Database';
+        }
+    }
+
+    function clearStationsAndPackets() {
+        // Clear the packet log
+        var logList = document.getElementById('log-list');
+        if (logList) logList.innerHTML = '';
+        autoScroll = true;
+        var resumeBtn = document.getElementById('btn-resume');
+        if (resumeBtn) resumeBtn.classList.add('hidden');
+        // Remove station markers and tracks from map
+        Object.keys(stations).forEach(function (call) {
+            var s = stations[call];
+            if (s.marker && map) map.removeLayer(s.marker);
+            if (s.track && map) map.removeLayer(s.track);
+        });
+        stations = {};
+        // Clear position cache
+        Object.keys(stationPositionCache).forEach(function (k) {
+            delete stationPositionCache[k];
+        });
     }
 
     // --- Tile Preload ---

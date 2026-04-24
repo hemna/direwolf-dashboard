@@ -49,9 +49,10 @@ class StorageConfig:
     db_path: str = ""
     retention_days: int = 7
 
-    def __post_init__(self):
+    def resolve_defaults(self, data_dir: str) -> None:
+        """Fill in empty paths using the resolved data_dir."""
         if not self.db_path:
-            self.db_path = os.path.join(DEFAULT_DATA_DIR, "packets.db")
+            self.db_path = os.path.join(data_dir, "packets.db")
 
 
 @dataclass
@@ -61,9 +62,10 @@ class TilesConfig:
     tile_url: str = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
     max_cache_mb: int = 500
 
-    def __post_init__(self):
+    def resolve_defaults(self, data_dir: str) -> None:
+        """Fill in empty paths using the resolved data_dir."""
         if not self.cache_dir:
-            self.cache_dir = os.path.join(DEFAULT_DATA_DIR, "tiles")
+            self.cache_dir = os.path.join(data_dir, "tiles")
 
 
 @dataclass
@@ -79,6 +81,7 @@ class PacketLogConfig:
 
 @dataclass
 class Config:
+    data_dir: str = ""
     station: StationConfig = field(default_factory=StationConfig)
     direwolf: DirewolfConfig = field(default_factory=DirewolfConfig)
     server: ServerConfig = field(default_factory=ServerConfig)
@@ -87,6 +90,14 @@ class Config:
     display: DisplayConfig = field(default_factory=DisplayConfig)
     packet_log: PacketLogConfig = field(default_factory=PacketLogConfig)
 
+    def __post_init__(self):
+        if not self.data_dir:
+            self.data_dir = DEFAULT_DATA_DIR
+        self.data_dir = os.path.expanduser(self.data_dir)
+        # Resolve sub-config defaults that depend on data_dir
+        self.storage.resolve_defaults(self.data_dir)
+        self.tiles.resolve_defaults(self.data_dir)
+
     def to_dict(self) -> dict:
         """Convert config to a JSON-serializable dict."""
         return asdict(self)
@@ -94,11 +105,14 @@ class Config:
 
 # Fields that require a restart when changed
 RESTART_REQUIRED_FIELDS = {
+    "data_dir",
     "server.host",
     "server.port",
     "direwolf.agw_host",
     "direwolf.agw_port",
     "direwolf.log_file",
+    "storage.db_path",
+    "tiles.cache_dir",
 }
 
 
@@ -139,6 +153,7 @@ def _dict_to_config(d: dict) -> Config:
     direwolf_dict.pop("conf_file", None)  # Removed field
 
     return Config(
+        data_dir=d.get("data_dir", ""),
         station=station,
         direwolf=DirewolfConfig(**direwolf_dict),
         server=ServerConfig(**d.get("server", {})),

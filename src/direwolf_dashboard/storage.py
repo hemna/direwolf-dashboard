@@ -79,6 +79,24 @@ class Storage:
             await self._db.close()
             self._db = None
 
+    async def reset(self) -> None:
+        """Delete all data from packets, stations, and config tables.
+
+        Safe to call while the app is running — uses DELETE on the
+        existing connection so there are no locking issues with WAL mode.
+        The autoincrement counter is also reset so IDs start fresh.
+        """
+        LOG.info("Resetting database — deleting all data")
+        await self._db.execute("DELETE FROM packets")
+        await self._db.execute("DELETE FROM stations")
+        await self._db.execute("DELETE FROM config")
+        # Reset autoincrement counters
+        await self._db.execute(
+            "DELETE FROM sqlite_sequence WHERE name IN ('packets')"
+        )
+        await self._db.commit()
+        LOG.info("Database reset complete")
+
     async def insert_packet(self, packet: dict) -> int:
         """Insert a packet record. Returns the inserted row id."""
         # Serialize list fields to JSON strings

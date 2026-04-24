@@ -18,6 +18,7 @@ Python backend (FastAPI + uvicorn), vanilla JS frontend (Leaflet map), SQLite st
 - **Fully offline.** Target platform is DigiPi (Raspberry Pi) with no internet access. No external CDN, font, image, or script URLs anywhere. All assets served locally.
 - **No JS build step.** Frontend is vanilla JS with vendored libraries in `static/leaflet/`.
 - **Low resource.** Runs on Pi Zero 2W. Keep CPU and memory usage minimal.
+- **Readonly root filesystem.** DigiPi uses a readonly root filesystem to protect the SD card from write-wear. A ramdisk is mounted at `/tmp`. All writable data (SQLite databases, tile cache, etc.) must go to a configurable `data_dir` -- never assume `~/.local/share` or any home-directory path is writable. On DigiPi the config sets `data_dir: /tmp/direwolf-dashboard`. The config file itself lives on a writable partition (e.g. `/boot` or a small RW overlay) or is baked into the image.
 
 ## Project Structure
 

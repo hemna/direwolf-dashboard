@@ -813,6 +813,37 @@ button.secondary:hover {
     border-color: var(--accent);
 }
 
+.btn-danger {
+    background: none;
+    border: 1px solid var(--danger);
+    color: var(--danger);
+    padding: 4px 12px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 12px;
+}
+.btn-danger:hover {
+    background: var(--danger);
+    color: #fff;
+}
+.btn-danger:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.storage-actions {
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+#wipe-feedback {
+    font-size: 12px;
+}
+#wipe-feedback.success { color: var(--success); }
+#wipe-feedback.error { color: var(--danger); }
+
 .hidden { display: none !important; }
 
 /* Progress bar */

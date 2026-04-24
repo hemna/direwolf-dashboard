@@ -210,6 +210,18 @@ def create_api_router(container: ServiceContainer) -> APIRouter:
             services.tile_proxy.cancel_preload()
         return {"status": "cancelled"}
 
+    @router.delete("/storage")
+    async def wipe_storage():
+        """Wipe the packet database and recreate empty tables.
+
+        Safe to call at runtime — no restart required.
+        """
+        services = container.services
+        assert services is not None, "Services not initialized"
+        await services.storage.reset()
+        await broadcast_event("storage_reset", {}, services.ws_clients)
+        return {"status": "ok"}
+
     # --- Decode Endpoint ---
 
     class DecodeRequest(BaseModel):

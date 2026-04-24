@@ -22,6 +22,7 @@ class TestCreateApiRouter:
             "/stations/tracks",
             "/stats",
             "/config",
+            "/storage",
             "/tiles/{z}/{x}/{y}.png",
             "/tiles/preload",
         }

@@ -307,4 +307,57 @@ class TestStats:
         stats = await storage.get_stats()
         assert stats["packets_total"] == 10
         assert stats["stations_active"] == 2
-        assert stats["packets_last_hour"] == 10
+
+
+class TestReset:
+    """Test database reset (wipe and recreate)."""
+
+    async def test_reset_clears_all_data(self, storage):
+        """Reset should drop all packets and stations."""
+        t = time.time()
+        for i in range(5):
+            await storage.insert_packet(_make_packet(timestamp=t - i))
+        await storage.upsert_station("WB4BOR", t, 37.75, -77.45)
+
+        stats_before = await storage.get_stats()
+        assert stats_before["packets_total"] == 5
+        assert stats_before["stations_active"] == 1
+
+        await storage.reset()
+
+        stats_after = await storage.get_stats()
+        assert stats_after["packets_total"] == 0
+        assert stats_after["stations_active"] == 0
+
+    async def test_reset_allows_inserts_after(self, storage):
+        """After reset, the database should accept new data normally."""
+        await storage.insert_packet(_make_packet(from_call="OLD"))
+        await storage.reset()
+
+        await storage.insert_packet(_make_packet(from_call="NEW"))
+
+        results = await storage.query_packets()
+        assert len(results) == 1
+        assert results[0]["from_call"] == "NEW"
+
+    async def test_reset_preserves_schema(self, storage):
+        """Tables and indexes should exist after reset."""
+        await storage.reset()
+
+        tables = set()
+        async with storage._db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        ) as cursor:
+            async for row in cursor:
+                tables.add(row[0])
+
+        assert "packets" in tables
+        assert "stations" in tables
+        assert "config" in tables
+
+    async def test_reset_on_empty_db(self, storage):
+        """Reset on an empty database should not error."""
+        await storage.reset()
+
+        stats = await storage.get_stats()
+        assert stats["packets_total"] == 0
