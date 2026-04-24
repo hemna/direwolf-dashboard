@@ -1,5 +1,7 @@
 """CLI entry point for Direwolf Dashboard."""
 
+import logging
+
 import click
 
 from direwolf_dashboard import __version__
@@ -33,6 +35,13 @@ def serve(ctx):
     import asyncio
     import uvicorn
 
+    # Configure app-level logging so our LOG.info() calls are visible
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
     config_path = ctx.obj["config_path"]
     config = load_config(config_path)
 
@@ -50,6 +59,9 @@ def serve(ctx):
         host=config.server.host,
         port=config.server.port,
         log_level="info",
+        ws="wsproto",
+        ws_ping_interval=None,
+        ws_per_message_deflate=False,
     )
 
 

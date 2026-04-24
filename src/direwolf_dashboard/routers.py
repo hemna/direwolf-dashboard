@@ -1,6 +1,7 @@
 """Router factory functions — create APIRouter instances bound to a ServiceContainer."""
 
 import asyncio
+import json
 import logging
 import os
 import time
@@ -284,6 +285,11 @@ def create_ws_router(container: ServiceContainer, path: str = "/ws") -> APIRoute
         services.ws_clients.add(ws)
         LOG.info(f"WebSocket client connected ({len(services.ws_clients)} total)")
 
+        # Use an event to keep the handler alive; broadcast_event sends
+        # directly via ws.send_text() from the _broadcast_consumer task.
+        disconnect_event = asyncio.Event()
+        ws._disconnect_event = disconnect_event
+
         try:
             # Send initial burst of recent packets
             recent = await services.storage.query_packets(limit=50)
@@ -302,13 +308,14 @@ def create_ws_router(container: ServiceContainer, path: str = "/ws") -> APIRoute
                 }
             )
 
-            # Keep connection alive — read messages (for future client-to-server communication)
+            # Keep-alive: short receive timeout forces the ASGI handler
+            # to cycle frequently, which flushes any buffered outbound
+            # WebSocket frames that were queued by broadcast_event.
             while True:
                 try:
-                    await asyncio.wait_for(ws.receive_text(), timeout=60)
+                    await asyncio.wait_for(ws.receive_text(), timeout=0.1)
                 except asyncio.TimeoutError:
-                    # Send ping to check if client is alive
-                    await ws.send_json({"event": "ping"})
+                    pass
         except WebSocketDisconnect:
             pass
         except Exception as e:

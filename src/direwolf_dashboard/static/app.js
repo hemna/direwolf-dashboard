@@ -1088,7 +1088,11 @@
 
         ws.onmessage = (evt) => {
             try {
+                var wsRecvTime = performance.now();
                 const msg = JSON.parse(evt.data);
+                if (msg.event === 'packet' && msg.data) {
+                    msg.data._wsRecvTime = wsRecvTime;
+                }
                 handleWSMessage(msg);
             } catch (e) {
                 console.error('WS message parse error:', e);
@@ -1163,6 +1167,8 @@
     }
 
     function onPacket(packet) {
+        var t0 = performance.now();
+        var serverAge = packet.timestamp ? ((Date.now() / 1000) - packet.timestamp).toFixed(2) : '?';
         addLogRow(packet);
         if (packet.latitude != null && packet.longitude != null) {
             updatePositionCache(packet.from_call, packet.latitude, packet.longitude);
@@ -1207,6 +1213,15 @@
                 }, 300);
             }
         }
+        var t1 = performance.now();
+        var wsDelay = packet._wsRecvTime ? (t0 - packet._wsRecvTime).toFixed(1) : '?';
+        var broadcastAge = packet._broadcast_ts ? ((Date.now() / 1000) - packet._broadcast_ts).toFixed(2) : '?';
+        var pktId = packet.id || '?';
+        console.log('[TIMING] pkt#' + pktId + ' ' + (packet.tx ? 'TX' : 'RX') + ' ' + packet.from_call +
+            ' | server_age=' + serverAge + 's' +
+            ' | ws_transit=' + broadcastAge + 's' +
+            ' | ws_to_render=' + wsDelay + 'ms' +
+            ' | render=' + (t1 - t0).toFixed(1) + 'ms');
     }
 
     function onStats(stats) {
