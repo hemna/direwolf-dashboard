@@ -364,13 +364,15 @@ body.embedded #btn-theme {
     bottom: 0;
     left: 0;
     right: 0;
-    height: 6px;
+    height: 8px;
     background: var(--border);
     cursor: ns-resize;
     z-index: 50;
+    touch-action: none;
 }
 
-#map-resize-handle:hover {
+#map-resize-handle:hover,
+#map-resize-handle:active {
     background: var(--accent);
 }
 
@@ -613,7 +615,7 @@ body.log-expanded #log-container {
     opacity: 1;
 }
 
-/* Peek — map takes most space, log shows ~120px (3-4 rows) */
+/* Peek — map takes most space, log shows ~120px (3-4 rows), resizable */
 body.log-peek #map-container {
     height: auto;
     flex: 1;
@@ -625,14 +627,6 @@ body.log-peek #log-container {
     height: 120px;
     min-height: 0;
     opacity: 1;
-}
-
-body.log-peek #log-list {
-    overflow: hidden;
-}
-
-body.log-peek #map-resize-handle {
-    display: none;
 }
 
 /* Hidden — map takes full space, log invisible */

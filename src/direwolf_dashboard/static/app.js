@@ -318,6 +318,10 @@
                 var container = L.DomUtil.create('div', 'filter-overlay');
                 container.innerHTML =
                     '<div class="filter-overlay-row">' +
+                        '<label class="filter-overlay-label" for="filter-callsign">Callsign</label>' +
+                        '<input type="text" id="filter-callsign" placeholder="Filter..." />' +
+                    '</div>' +
+                    '<div class="filter-overlay-row">' +
                         '<label class="filter-overlay-label" for="trail-duration">Trails</label>' +
                         '<select id="trail-duration" title="Trail duration">' +
                             '<option value="1" selected>1h</option>' +
@@ -325,10 +329,6 @@
                             '<option value="6">6h</option>' +
                             '<option value="24">24h</option>' +
                         '</select>' +
-                    '</div>' +
-                    '<div class="filter-overlay-row">' +
-                        '<label class="filter-overlay-label" for="filter-callsign">Callsign</label>' +
-                        '<input type="text" id="filter-callsign" placeholder="Filter..." />' +
                     '</div>' +
                     '<div class="filter-overlay-row">' +
                         '<label class="filter-overlay-label" for="filter-type">Type</label>' +
@@ -1778,8 +1778,17 @@
         }
         body.classList.add('log-' + logViewState);
 
-        // Clear any inline height from manual resize so CSS classes take effect
-        mapContainer.style.height = '';
+        // Restore saved height if log is visible, otherwise clear inline height
+        if (logViewState === 'hidden') {
+            mapContainer.style.height = '';
+        } else {
+            var savedHeight = localStorage.getItem(MAP_HEIGHT_KEY);
+            if (savedHeight) {
+                mapContainer.style.height = savedHeight;
+            } else {
+                mapContainer.style.height = '';
+            }
+        }
 
         // Update button icon and title
         const icons = { expanded: '\u25BC', peek: '\u2500', hidden: '\u25B2' };  // ▼ ─ ▲
@@ -1791,8 +1800,8 @@
         btn.innerHTML = '<span class="toggle-icon">' + icons[logViewState] + '</span>';
         btn.title = titles[logViewState];
 
-        // Enable/disable resize
-        resizeEnabled = (logViewState === 'expanded');
+        // Enable resize when log is visible (expanded or peek)
+        resizeEnabled = (logViewState !== 'hidden');
 
         // Invalidate map size after a brief delay for transition
         if (map) {
@@ -1801,30 +1810,66 @@
     }
 
     // --- Map Resize ---
+    var MAP_HEIGHT_KEY = 'dw-map-height';
+
     function initMapResize() {
         const handle = document.getElementById('map-resize-handle');
         const mapContainer = document.getElementById('map-container');
-        let startY, startHeight;
+        let startY, startHeight, dragging = false;
 
-        handle.addEventListener('mousedown', (e) => {
+        function beginResize(clientY, e) {
             if (!resizeEnabled) return;
-            startY = e.clientY;
+            startY = clientY;
             startHeight = mapContainer.offsetHeight;
-            document.addEventListener('mousemove', onResize);
+            dragging = true;
+            // Disable CSS transitions during drag for instant feedback
+            mapContainer.style.transition = 'none';
+            document.getElementById('log-container').style.transition = 'none';
+            document.addEventListener('mousemove', onMouseMove);
             document.addEventListener('mouseup', stopResize);
+            document.addEventListener('touchmove', onTouchMove, { passive: false });
+            document.addEventListener('touchend', stopResize);
             e.preventDefault();
-        });
+        }
 
-        function onResize(e) {
-            const newHeight = startHeight + (e.clientY - startY);
-            mapContainer.style.height = Math.max(150, newHeight) + 'px';
+        function doResize(clientY) {
+            var toolbar = document.getElementById('toolbar');
+            var footer = document.getElementById('footer');
+            var minMap = 150;
+            var minLog = 80;
+            var maxMap = window.innerHeight - (toolbar ? toolbar.offsetHeight : 40) - (footer ? footer.offsetHeight : 24) - minLog;
+            var newHeight = Math.max(minMap, Math.min(maxMap, startHeight + (clientY - startY)));
+            mapContainer.style.height = newHeight + 'px';
             map.invalidateSize();
         }
 
-        function stopResize() {
-            document.removeEventListener('mousemove', onResize);
-            document.removeEventListener('mouseup', stopResize);
+        function onMouseMove(e) { doResize(e.clientY); }
+        function onTouchMove(e) {
+            if (e.touches.length === 1) {
+                e.preventDefault();
+                doResize(e.touches[0].clientY);
+            }
         }
+
+        function stopResize() {
+            dragging = false;
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', stopResize);
+            document.removeEventListener('touchmove', onTouchMove);
+            document.removeEventListener('touchend', stopResize);
+            // Re-enable transitions
+            mapContainer.style.transition = '';
+            document.getElementById('log-container').style.transition = '';
+            // Persist the resized height
+            if (mapContainer.style.height) {
+                localStorage.setItem(MAP_HEIGHT_KEY, mapContainer.style.height);
+            }
+        }
+
+        handle.addEventListener('mousedown', function (e) { beginResize(e.clientY, e); });
+        handle.addEventListener('touchstart', function (e) {
+            if (e.touches.length === 1) beginResize(e.touches[0].clientY, e);
+        }, { passive: false });
     }
 
     // --- Mobile Menu ---
