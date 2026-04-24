@@ -114,7 +114,9 @@ def create_api_router(container: ServiceContainer) -> APIRouter:
         assert services is not None, "Services not initialized"
         try:
             # Validate my_position if present
-            my_pos = updates.get("station", {}).get("my_position")
+            station_updates = updates.get("station", {})
+            has_my_pos = "my_position" in station_updates
+            my_pos = station_updates.get("my_position")
             if my_pos is not None:
                 mp_type = my_pos.get("type")
                 if mp_type == "station":
@@ -146,7 +148,7 @@ def create_api_router(container: ServiceContainer) -> APIRouter:
             services.config = new_config
 
             # Broadcast my_position changes to all WebSocket clients
-            if my_pos is not None:
+            if has_my_pos:
                 await broadcast_event(
                     "config_updated",
                     {"my_position": asdict(services.config.station.my_position)},

@@ -193,11 +193,17 @@ async def _broadcast_consumer(services: DirewolfServices) -> None:
     while True:
         try:
             packet = await services.broadcast_queue.get()
+            t0 = time.time()
+            pkt_ts = packet.get("timestamp", t0)
+            from_call = packet.get("from_call", "?")
+            LOG.info(f"[TIMING] Consumer got {from_call} from queue at {t0:.3f} (age={t0 - pkt_ts:.3f}s)")
 
             # Store in database
             if services.storage:
                 row_id = await services.storage.insert_packet(packet)
                 packet["id"] = row_id
+                t1 = time.time()
+                LOG.info(f"[TIMING] insert_packet done at {t1:.3f} (+{t1 - t0:.3f}s)")
 
                 # Update stations table if position data present
                 if packet.get("latitude") and packet.get("longitude"):
@@ -228,6 +234,8 @@ async def _broadcast_consumer(services: DirewolfServices) -> None:
 
                 # Enrich with bearing/distance from my_position
                 await enrich_with_bearing(packet, services)
+                t2 = time.time()
+                LOG.info(f"[TIMING] DB+enrich done at {t2:.3f} (+{t2 - t0:.3f}s)")
 
                 # Append bearing/distance to compact_log if present
                 if packet.get("bearing") and packet.get("compact_log"):
@@ -240,6 +248,8 @@ async def _broadcast_consumer(services: DirewolfServices) -> None:
 
             # Broadcast to WebSocket clients
             await broadcast_event("packet", packet, services.ws_clients)
+            t3 = time.time()
+            LOG.info(f"[TIMING] Broadcast done for {packet.get('from_call','?')} at {t3:.3f} (total={t3 - pkt_ts:.3f}s)")
 
         except asyncio.CancelledError:
             break

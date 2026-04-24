@@ -361,6 +361,7 @@ class PacketProcessor:
         )
 
         if packet:
+            LOG.info(f"[TIMING] Processor queuing {call_from} at {time.time():.3f}")
             try:
                 self.broadcast_queue.put_nowait(packet)
             except asyncio.QueueFull:

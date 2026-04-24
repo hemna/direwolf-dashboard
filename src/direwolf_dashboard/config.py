@@ -144,7 +144,7 @@ def _deep_merge(base: dict, override: dict) -> dict:
 def _dict_to_config(d: dict) -> Config:
     """Convert a dict to a Config dataclass."""
     station_dict = d.get("station", {}).copy()
-    my_pos_dict = station_dict.pop("my_position", {})
+    my_pos_dict = station_dict.pop("my_position", {}) or {}
     # Filter out removed fields that may exist in old config files
     for removed in ("callsign", "symbol", "symbol_table"):
         station_dict.pop(removed, None)

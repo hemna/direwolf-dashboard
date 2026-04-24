@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import struct
+import time
 from dataclasses import dataclass
 from typing import Callable, Optional
 
@@ -207,7 +208,7 @@ class AGWReader:
 
         elif kind == "U":
             # Monitored (RX) packet — contains raw AX.25 frame
-            LOG.debug(f"RX frame from {header.call_from} to {header.call_to}")
+            LOG.info(f"[TIMING] AGW RX frame arrived from {header.call_from} at {time.time():.3f}")
             try:
                 await self.packet_callback(
                     raw_data=data,
@@ -220,7 +221,7 @@ class AGWReader:
 
         elif kind == "T":
             # Transmitted (TX) packet
-            LOG.debug(f"TX frame from {header.call_from} to {header.call_to}")
+            LOG.info(f"[TIMING] AGW TX frame arrived from {header.call_from} at {time.time():.3f}")
             try:
                 await self.packet_callback(
                     raw_data=data,
