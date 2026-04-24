@@ -65,10 +65,14 @@ class TileProxy:
         """
         path = self._tile_path(z, x, y)
 
-        # Check cache
-        if os.path.exists(path):
+        # Check cache (skip zero-byte files from failed prior writes)
+        if os.path.exists(path) and os.path.getsize(path) > 0:
             with open(path, "rb") as f:
                 return f.read()
+
+        # Remove stale zero-byte file if present
+        if os.path.exists(path) and os.path.getsize(path) == 0:
+            os.remove(path)
 
         # Fetch from upstream with retries
         url = self.tile_url_template.format(z=z, x=x, y=y)
@@ -76,7 +80,7 @@ class TileProxy:
         for attempt in range(max_retries + 1):
             try:
                 response = await self._client.get(url)
-                if response.status_code == 200:
+                if response.status_code == 200 and response.content:
                     # Cache to disk
                     os.makedirs(os.path.dirname(path), exist_ok=True)
                     with open(path, "wb") as f:
