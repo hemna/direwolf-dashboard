@@ -814,17 +814,16 @@ button.secondary:hover {
 }
 
 .btn-danger {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    color: var(--text-secondary);
+    background: var(--danger);
+    border: 1px solid var(--danger);
+    color: #fff;
     padding: 4px 8px;
     border-radius: 3px;
     cursor: pointer;
     font-size: 12px;
 }
 .btn-danger:hover {
-    color: var(--danger);
-    border-color: var(--danger);
+    opacity: 0.85;
 }
 .btn-danger:disabled {
     opacity: 0.5;
