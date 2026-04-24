@@ -1363,6 +1363,15 @@
         document.getElementById('cfg-tile-mode').value = config.tiles?.cache_mode || 'lazy';
         document.getElementById('cfg-max-cache').value = config.tiles?.max_cache_mb || 500;
 
+        // Fetch and display tile cache stats
+        fetch(API_BASE + '/stats').then(function (r) { return r.json(); }).then(function (stats) {
+            var tc = stats.tile_cache || {};
+            var el = document.getElementById('tile-cache-stats');
+            if (el) {
+                el.textContent = 'Current usage: ' + (tc.cache_size_mb || 0) + ' MB (' + (tc.tile_count || 0) + ' tiles)';
+            }
+        }).catch(function () {});
+
         // Map display settings
         document.getElementById('cfg-show-route-distances').checked = showRouteDistances;
         document.getElementById('cfg-show-gpx-overlay').checked = showGpxOverlay;
