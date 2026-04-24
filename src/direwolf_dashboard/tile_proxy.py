@@ -40,8 +40,9 @@ class TileProxy:
         """Initialize the tile proxy."""
         os.makedirs(self.cache_dir, exist_ok=True)
         self._client = httpx.AsyncClient(
-            timeout=30.0,
-            headers={"User-Agent": "DirewolfDashboard/0.1"},
+            timeout=15.0,
+            limits=httpx.Limits(max_connections=4, max_keepalive_connections=2),
+            headers={"User-Agent": "DirewolfDashboard/1.0"},
         )
 
     async def close(self) -> None:

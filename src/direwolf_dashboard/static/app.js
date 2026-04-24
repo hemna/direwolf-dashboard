@@ -583,17 +583,19 @@
             maxZoom: 18,
         }).addTo(map);
 
-        // Retry failed tiles after a delay
+        // Retry failed tiles after a delay with cache-busting
         tileLayer.on('tileerror', function (e) {
             var tile = e.tile;
-            var src = tile.src;
             if (!tile._retryCount) tile._retryCount = 0;
             if (tile._retryCount < 3) {
                 tile._retryCount++;
+                var delay = tile._retryCount * 3000;
                 setTimeout(function () {
-                    tile.src = '';
-                    tile.src = src;
-                }, tile._retryCount * 3000);
+                    // Strip any previous retry param, then append a fresh one
+                    var base = tile.src.replace(/[?&]_retry=\d+/, '');
+                    var sep = base.indexOf('?') === -1 ? '?' : '&';
+                    tile.src = base + sep + '_retry=' + Date.now();
+                }, delay);
             }
         });
 
