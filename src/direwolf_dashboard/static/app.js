@@ -1027,8 +1027,12 @@
 
     function playTransmitAnimation(callsign, lat, lng, pathArray) {
         const now = Date.now();
-        if (animationThrottle[callsign] && now - animationThrottle[callsign] < ANIMATION_COOLDOWN_MS) return;
+        if (animationThrottle[callsign] && now - animationThrottle[callsign] < ANIMATION_COOLDOWN_MS) {
+            console.log('[ANIM DEBUG] throttled:', callsign, 'age:', now - animationThrottle[callsign], 'ms');
+            return;
+        }
         animationThrottle[callsign] = now;
+        console.log('[ANIM DEBUG] playTransmitAnimation FIRING for', callsign, 'at', lat, lng);
         if (Object.keys(animationThrottle).length > 500) {
             const cutoff = now - ANIMATION_COOLDOWN_MS * 2;
             for (const key of Object.keys(animationThrottle)) {
@@ -1188,21 +1192,31 @@
             }
         }
         const myPos = getMyPosition();
+        console.log('[ANIM DEBUG] packet:', packet.from_call, 'tx:', packet.tx, 'lat:', packet.latitude, 'lng:', packet.longitude, 'myPos:', myPos);
         if (packet.tx) {
             if (myPos) {
+                console.log('[ANIM DEBUG] playing TX anim at myPos');
                 playTransmitAnimation('My Station', myPos.lat, myPos.lng, []);
+            } else {
+                console.log('[ANIM DEBUG] TX packet but myPos is null, skipping');
             }
         } else {
             if (packet.latitude && packet.longitude) {
+                console.log('[ANIM DEBUG] playing RX transmit anim at', packet.from_call, packet.latitude, packet.longitude);
                 playTransmitAnimation(packet.from_call, packet.latitude, packet.longitude, packet.path || []);
+            } else {
+                console.log('[ANIM DEBUG] RX packet but no lat/lng, skipping transmit anim');
             }
             if (myPos) {
                 const myCall = config.station?.my_position?.callsign;
                 if (myCall) {
+                    console.log('[ANIM DEBUG] playing RX receive anim at', myCall, myPos.lat, myPos.lng);
                     setTimeout(() => {
                         playReceiveAnimation(myCall, myPos.lat, myPos.lng);
                     }, 300);
                 }
+            } else {
+                console.log('[ANIM DEBUG] RX packet but myPos is null, skipping receive anim');
             }
         }
     }
