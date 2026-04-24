@@ -320,26 +320,6 @@ html, body {
 .status.connected .status-dot { background: var(--success); }
 .status.disconnected .status-dot { background: var(--danger); }
 
-#filter-bar {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-}
-
-#filter-bar input, #filter-bar select {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    color: var(--text-primary);
-    padding: 3px 8px;
-    border-radius: 3px;
-    font-family: inherit;
-    font-size: 12px;
-}
-
-#filter-callsign {
-    width: 120px;
-}
-
 #btn-toggle-log, #btn-settings, #btn-theme {
     background: none;
     border: 1px solid var(--border);
@@ -1010,6 +990,49 @@ button.secondary:hover {
     font-variant-numeric: tabular-nums;
 }
 
+/* --- Filter Overlay --- */
+.filter-overlay {
+    background: var(--overlay-bg);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 11px;
+    color: var(--overlay-text);
+    border: 1px solid var(--overlay-border);
+    pointer-events: auto;
+    min-width: 160px;
+}
+.filter-overlay-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 0;
+}
+.filter-overlay-label {
+    color: var(--overlay-text-muted);
+    min-width: 48px;
+    font-size: 11px;
+}
+.filter-overlay select,
+.filter-overlay input {
+    flex: 1;
+    background: var(--bg-secondary);
+    border: 1px solid var(--overlay-border);
+    color: var(--text-primary);
+    padding: 3px 6px;
+    border-radius: 3px;
+    font-family: inherit;
+    font-size: 11px;
+    min-width: 0;
+}
+.filter-overlay input {
+    width: 80px;
+}
+.filter-overlay select:focus,
+.filter-overlay input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
 .gpx-control {
     background: var(--overlay-bg);
     border-radius: 6px;
@@ -1134,31 +1157,9 @@ button.secondary:hover {
 .mobile-menu.hidden {
     display: none;
 }
-.mobile-menu-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-.mobile-menu-row label {
-    font-size: 11px;
-    color: var(--text-secondary);
-    min-width: 60px;
-}
-.mobile-menu-row input,
-.mobile-menu-row select {
-    flex: 1;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    color: var(--text-primary);
-    padding: 6px 8px;
-    border-radius: 3px;
-    font-family: inherit;
-    font-size: 13px;
-}
 .mobile-menu-buttons {
     display: flex;
     gap: 8px;
-    margin-top: 4px;
 }
 .mobile-menu-buttons button {
     flex: 1;
@@ -1181,7 +1182,6 @@ button.secondary:hover {
     .mobile-only {
         display: inline-block;
     }
-    #filter-bar,
     #btn-toggle-log,
     #btn-settings {
         display: none;

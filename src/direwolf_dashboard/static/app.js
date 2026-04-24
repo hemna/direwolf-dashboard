@@ -310,6 +310,54 @@
         return d + 'd ' + h + 'h';
     }
 
+    // --- Filter Overlay ---
+    function initFilterOverlay() {
+        var FilterControl = L.Control.extend({
+            options: { position: 'topright' },
+            onAdd: function () {
+                var container = L.DomUtil.create('div', 'filter-overlay');
+                container.innerHTML =
+                    '<div class="filter-overlay-row">' +
+                        '<label class="filter-overlay-label" for="trail-duration">Trails</label>' +
+                        '<select id="trail-duration" title="Trail duration">' +
+                            '<option value="1" selected>1h</option>' +
+                            '<option value="2">2h</option>' +
+                            '<option value="6">6h</option>' +
+                            '<option value="24">24h</option>' +
+                        '</select>' +
+                    '</div>' +
+                    '<div class="filter-overlay-row">' +
+                        '<label class="filter-overlay-label" for="filter-callsign">Callsign</label>' +
+                        '<input type="text" id="filter-callsign" placeholder="Filter..." />' +
+                    '</div>' +
+                    '<div class="filter-overlay-row">' +
+                        '<label class="filter-overlay-label" for="filter-type">Type</label>' +
+                        '<select id="filter-type">' +
+                            '<option value="">All</option>' +
+                            '<option value="GPSPacket">GPS</option>' +
+                            '<option value="MessagePacket">Message</option>' +
+                            '<option value="WeatherPacket">Weather</option>' +
+                            '<option value="StatusPacket">Status</option>' +
+                            '<option value="ObjectPacket">Object</option>' +
+                            '<option value="TelemetryPacket">Telemetry</option>' +
+                        '</select>' +
+                    '</div>' +
+                    '<div class="filter-overlay-row">' +
+                        '<label class="filter-overlay-label" for="filter-txrx">TX/RX</label>' +
+                        '<select id="filter-txrx">' +
+                            '<option value="">All</option>' +
+                            '<option value="rx">RX</option>' +
+                            '<option value="tx">TX</option>' +
+                        '</select>' +
+                    '</div>';
+                L.DomEvent.disableClickPropagation(container);
+                L.DomEvent.disableScrollPropagation(container);
+                return container;
+            },
+        });
+        new FilterControl().addTo(map);
+    }
+
     // --- GPX Overlay ---
     function gpxCircleIcon(fillColor, radius) {
         var size = radius * 2 + 4;
@@ -589,6 +637,7 @@
         initMap();
         initLegend();
         initStatsOverlay();
+        initFilterOverlay();
         initGpxOverlay();
         await loadStations();
         loadStationPositions();
@@ -1787,33 +1836,6 @@
         // Toggle menu
         btn.addEventListener('click', () => {
             menu.classList.toggle('hidden');
-        });
-
-        // Sync mobile controls -> desktop controls and trigger actions
-        const mobileTrail = document.getElementById('mobile-trail-duration');
-        const mobileCallsign = document.getElementById('mobile-filter-callsign');
-        const mobileType = document.getElementById('mobile-filter-type');
-        const mobileTxrx = document.getElementById('mobile-filter-txrx');
-        const desktopTrail = document.getElementById('trail-duration');
-        const desktopCallsign = document.getElementById('filter-callsign');
-        const desktopType = document.getElementById('filter-type');
-        const desktopTxrx = document.getElementById('filter-txrx');
-
-        mobileTrail.addEventListener('change', () => {
-            desktopTrail.value = mobileTrail.value;
-            desktopTrail.dispatchEvent(new Event('change'));
-        });
-        mobileCallsign.addEventListener('input', () => {
-            desktopCallsign.value = mobileCallsign.value;
-            desktopCallsign.dispatchEvent(new Event('input'));
-        });
-        mobileType.addEventListener('change', () => {
-            desktopType.value = mobileType.value;
-            desktopType.dispatchEvent(new Event('change'));
-        });
-        mobileTxrx.addEventListener('change', () => {
-            desktopTxrx.value = mobileTxrx.value;
-            desktopTxrx.dispatchEvent(new Event('change'));
         });
 
         // Mobile buttons -> delegate to desktop buttons

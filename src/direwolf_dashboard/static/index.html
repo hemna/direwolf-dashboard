@@ -31,29 +31,6 @@
             </div>
         </div>
         <div class="toolbar-right">
-            <div id="filter-bar">
-                <select id="trail-duration" title="Trail duration">
-                    <option value="1" selected>Trails: 1h</option>
-                    <option value="2">Trails: 2h</option>
-                    <option value="6">Trails: 6h</option>
-                    <option value="24">Trails: 24h</option>
-                </select>
-                <input type="text" id="filter-callsign" placeholder="Filter callsign..." />
-                <select id="filter-type">
-                    <option value="">All Types</option>
-                    <option value="GPSPacket">GPS</option>
-                    <option value="MessagePacket">Message</option>
-                    <option value="WeatherPacket">Weather</option>
-                    <option value="StatusPacket">Status</option>
-                    <option value="ObjectPacket">Object</option>
-                    <option value="TelemetryPacket">Telemetry</option>
-                </select>
-                <select id="filter-txrx">
-                    <option value="">TX & RX</option>
-                    <option value="rx">RX Only</option>
-                    <option value="tx">TX Only</option>
-                </select>
-            </div>
             <button id="btn-drop-pin" title="Drop Pin - set my position">&#x1F4CC;</button>
             <button id="btn-decode" title="Decode APRS Packet (Ctrl+K)">&#x1F4E1;</button>
             <button id="btn-theme" title="Toggle theme">
@@ -68,39 +45,6 @@
 
     <!-- Mobile dropdown menu -->
     <div id="mobile-menu" class="mobile-menu hidden">
-        <div class="mobile-menu-row">
-            <label>Trails</label>
-            <select id="mobile-trail-duration">
-                <option value="1" selected>1 hour</option>
-                <option value="2">2 hours</option>
-                <option value="6">6 hours</option>
-                <option value="24">24 hours</option>
-            </select>
-        </div>
-        <div class="mobile-menu-row">
-            <label>Callsign</label>
-            <input type="text" id="mobile-filter-callsign" placeholder="Filter..." />
-        </div>
-        <div class="mobile-menu-row">
-            <label>Type</label>
-            <select id="mobile-filter-type">
-                <option value="">All Types</option>
-                <option value="GPSPacket">GPS</option>
-                <option value="MessagePacket">Message</option>
-                <option value="WeatherPacket">Weather</option>
-                <option value="StatusPacket">Status</option>
-                <option value="ObjectPacket">Object</option>
-                <option value="TelemetryPacket">Telemetry</option>
-            </select>
-        </div>
-        <div class="mobile-menu-row">
-            <label>Direction</label>
-            <select id="mobile-filter-txrx">
-                <option value="">TX & RX</option>
-                <option value="rx">RX Only</option>
-                <option value="tx">TX Only</option>
-            </select>
-        </div>
         <div class="mobile-menu-buttons">
             <button id="mobile-btn-drop-pin">Drop Pin</button>
             <button id="mobile-btn-toggle-log">Toggle Log</button>
