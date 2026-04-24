@@ -1027,12 +1027,8 @@
 
     function playTransmitAnimation(callsign, lat, lng, pathArray) {
         const now = Date.now();
-        if (animationThrottle[callsign] && now - animationThrottle[callsign] < ANIMATION_COOLDOWN_MS) {
-            console.log('[ANIM DEBUG] throttled:', callsign, 'age:', now - animationThrottle[callsign], 'ms');
-            return;
-        }
+        if (animationThrottle[callsign] && now - animationThrottle[callsign] < ANIMATION_COOLDOWN_MS) return;
         animationThrottle[callsign] = now;
-        console.log('[ANIM DEBUG] playTransmitAnimation FIRING for', callsign, 'at', lat, lng);
         if (Object.keys(animationThrottle).length > 500) {
             const cutoff = now - ANIMATION_COOLDOWN_MS * 2;
             for (const key of Object.keys(animationThrottle)) {
@@ -1192,33 +1188,23 @@
             }
         }
         const myPos = getMyPosition();
-        console.log('[ANIM DEBUG] packet:', packet.from_call, 'tx:', packet.tx, 'lat:', packet.latitude, 'lng:', packet.longitude, 'myPos:', myPos);
         if (packet.tx) {
             // For TX packets, prefer myPos but fall back to the packet's own coordinates
             var txPos = myPos || (packet.latitude && packet.longitude ? { lat: packet.latitude, lng: packet.longitude } : null);
             if (txPos) {
-                console.log('[ANIM DEBUG] playing TX anim at', txPos.lat, txPos.lng, myPos ? '(myPos)' : '(packet coords)');
                 playTransmitAnimation('My Station', txPos.lat, txPos.lng, packet.path || []);
-            } else {
-                console.log('[ANIM DEBUG] TX packet but no position available, skipping');
             }
         } else {
             if (packet.latitude && packet.longitude) {
-                console.log('[ANIM DEBUG] playing RX transmit anim at', packet.from_call, packet.latitude, packet.longitude);
                 playTransmitAnimation(packet.from_call, packet.latitude, packet.longitude, packet.path || []);
-            } else {
-                console.log('[ANIM DEBUG] RX packet but no lat/lng, skipping transmit anim');
             }
             // For receive animations, prefer myPos but fall back to packet coords if this is "our" packet heard back
             var rxPos = myPos || (packet.latitude && packet.longitude ? { lat: packet.latitude, lng: packet.longitude } : null);
             if (rxPos) {
                 const myCall = config.station?.my_position?.callsign || packet.from_call;
-                console.log('[ANIM DEBUG] playing RX receive anim at', myCall, rxPos.lat, rxPos.lng);
                 setTimeout(() => {
                     playReceiveAnimation(myCall, rxPos.lat, rxPos.lng);
                 }, 300);
-            } else {
-                console.log('[ANIM DEBUG] RX packet but no position for receive anim, skipping');
             }
         }
     }
@@ -1623,6 +1609,8 @@
                     feedback.textContent = 'Database wiped';
                     feedback.classList.remove('hidden');
                     clearStationsAndPackets();
+                    // Reset my position (stations are gone, stale position is misleading)
+                    saveMyPosition(null);
                 } else {
                     feedback.className = 'error';
                     feedback.textContent = 'Error: ' + (result.detail || 'Unknown');
@@ -1657,6 +1645,8 @@
         Object.keys(stationPositionCache).forEach(function (k) {
             delete stationPositionCache[k];
         });
+        // Re-apply my position marker (uses saved coords from config as fallback)
+        updateMyPositionMarker();
     }
 
     // --- Tile Preload ---
