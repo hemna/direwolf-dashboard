@@ -984,6 +984,32 @@ button.secondary:hover {
 }
 
 /* --- GPX Overlay Control --- */
+
+/* --- Stats Overlay --- */
+.stats-overlay {
+    background: var(--overlay-bg);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 11px;
+    color: var(--overlay-text);
+    border: 1px solid var(--overlay-border);
+    pointer-events: auto;
+    min-width: 110px;
+}
+.stats-overlay-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 1px 0;
+}
+.stats-label {
+    color: var(--overlay-text-muted);
+}
+.stats-value {
+    color: var(--overlay-text);
+    font-variant-numeric: tabular-nums;
+}
+
 .gpx-control {
     background: var(--overlay-bg);
     border-radius: 6px;

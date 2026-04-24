@@ -23,6 +23,7 @@
     let trailHours = 1;  // Current trail duration in hours
     let showRouteDistances = true; // updated from config on load
     let showGpxOverlay = true;     // updated from config on load
+    let showStatsOverlay = true;   // updated from config on load
     let showTimestamps = false;    // updated from config on load
     let gpxLayer = null;    // Current GPX overlay layer (L.GPX instance)
     let gpxControlEl = null; // Reference to the GPX control DOM element
@@ -252,6 +253,61 @@
             },
         });
         new LegendControl().addTo(map);
+    }
+
+    // --- Stats Overlay ---
+    var statsOverlayEl = null;
+
+    function initStatsOverlay() {
+        var StatsControl = L.Control.extend({
+            options: { position: 'topleft' },
+            onAdd: function () {
+                var container = L.DomUtil.create('div', 'stats-overlay');
+                container.innerHTML =
+                    '<div class="stats-overlay-row"><span class="stats-label">Stations</span><span class="stats-value" id="stats-stations">0</span></div>' +
+                    '<div class="stats-overlay-row"><span class="stats-label">Packets</span><span class="stats-value" id="stats-packets">0</span></div>' +
+                    '<div class="stats-overlay-row"><span class="stats-label">Pkts/hr</span><span class="stats-value" id="stats-rate">0</span></div>' +
+                    '<div class="stats-overlay-row"><span class="stats-label">Tiles</span><span class="stats-value" id="stats-tiles">0</span></div>' +
+                    '<div class="stats-overlay-row"><span class="stats-label">Uptime</span><span class="stats-value" id="stats-uptime">0s</span></div>';
+                L.DomEvent.disableClickPropagation(container);
+                L.DomEvent.disableScrollPropagation(container);
+                statsOverlayEl = container;
+                return container;
+            },
+        });
+        new StatsControl().addTo(map);
+        if (!showStatsOverlay && statsOverlayEl) {
+            statsOverlayEl.style.display = 'none';
+        }
+    }
+
+    function updateStatsOverlay(stats) {
+        if (!statsOverlayEl) return;
+        var el;
+        el = document.getElementById('stats-stations');
+        if (el) el.textContent = stats.stations_active || 0;
+        el = document.getElementById('stats-packets');
+        if (el) el.textContent = stats.packets_total || 0;
+        el = document.getElementById('stats-rate');
+        if (el) el.textContent = stats.packets_last_hour || 0;
+        el = document.getElementById('stats-tiles');
+        if (el) {
+            var tc = stats.tile_cache || {};
+            el.textContent = (tc.cache_size_mb || 0) + ' MB';
+        }
+        el = document.getElementById('stats-uptime');
+        if (el) el.textContent = formatUptime(stats.uptime_seconds || 0);
+    }
+
+    function formatUptime(seconds) {
+        if (seconds < 60) return seconds + 's';
+        if (seconds < 3600) return Math.floor(seconds / 60) + 'm';
+        var h = Math.floor(seconds / 3600);
+        var m = Math.floor((seconds % 3600) / 60);
+        if (h < 24) return h + 'h ' + m + 'm';
+        var d = Math.floor(h / 24);
+        h = h % 24;
+        return d + 'd ' + h + 'h';
     }
 
     // --- GPX Overlay ---
@@ -532,12 +588,15 @@
         await loadConfig();
         initMap();
         initLegend();
+        initStatsOverlay();
         initGpxOverlay();
         await loadStations();
         loadStationPositions();
         loadTracks();
         await initMapCenter();
         updateMyPositionMarker();
+        // Load initial stats for overlay before WebSocket connects
+        fetch(API_BASE + '/stats').then(function (r) { return r.json(); }).then(updateStatsOverlay).catch(function () {});
         connectWebSocket();
         initFilters();
         initSettings();
@@ -561,6 +620,7 @@
             if (config.display != null) {
                 showRouteDistances = config.display.show_route_distances !== false;
                 showGpxOverlay = config.display.show_gpx_overlay !== false;
+                showStatsOverlay = config.display.show_stats_overlay !== false;
             }
             if (config.packet_log != null) {
                 showTimestamps = config.packet_log.show_timestamps === true;
@@ -1099,10 +1159,10 @@
     }
 
     function onStats(stats) {
-        // Could update a stats display — for now just update status
         if (stats.agw_connected !== undefined) {
             setStatus(stats.agw_connected);
         }
+        updateStatsOverlay(stats);
     }
 
     function setStatus(connected) {
@@ -1375,6 +1435,7 @@
         // Map display settings
         document.getElementById('cfg-show-route-distances').checked = showRouteDistances;
         document.getElementById('cfg-show-gpx-overlay').checked = showGpxOverlay;
+        document.getElementById('cfg-show-stats-overlay').checked = showStatsOverlay;
 
         // Packet log settings
         document.getElementById('cfg-show-timestamps').checked = showTimestamps;
@@ -1410,6 +1471,7 @@
             display: {
                 show_route_distances: document.getElementById('cfg-show-route-distances').checked,
                 show_gpx_overlay: document.getElementById('cfg-show-gpx-overlay').checked,
+                show_stats_overlay: document.getElementById('cfg-show-stats-overlay').checked,
             },
             packet_log: {
                 show_timestamps: document.getElementById('cfg-show-timestamps').checked,
@@ -1437,6 +1499,10 @@
                 showGpxOverlay = updates.display.show_gpx_overlay;
                 if (gpxControlEl) {
                     gpxControlEl.style.display = showGpxOverlay ? '' : 'none';
+                }
+                showStatsOverlay = updates.display.show_stats_overlay;
+                if (statsOverlayEl) {
+                    statsOverlayEl.style.display = showStatsOverlay ? '' : 'none';
                 }
                 // Apply packet log settings immediately
                 showTimestamps = updates.packet_log.show_timestamps;
