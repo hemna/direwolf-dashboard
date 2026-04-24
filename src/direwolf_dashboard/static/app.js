@@ -1778,15 +1778,25 @@
         }
         body.classList.add('log-' + logViewState);
 
-        // Restore saved height if log is visible, otherwise clear inline height
+        // Restore saved height if log is visible, otherwise clear inline styles
+        var logContainer = document.getElementById('log-container');
         if (logViewState === 'hidden') {
             mapContainer.style.height = '';
+            mapContainer.style.flex = '';
+            logContainer.style.flex = '';
+            logContainer.style.height = '';
         } else {
             var savedHeight = localStorage.getItem(MAP_HEIGHT_KEY);
             if (savedHeight) {
                 mapContainer.style.height = savedHeight;
+                mapContainer.style.flex = 'none';
+                logContainer.style.flex = '1';
+                logContainer.style.height = '';
             } else {
                 mapContainer.style.height = '';
+                mapContainer.style.flex = '';
+                logContainer.style.flex = '';
+                logContainer.style.height = '';
             }
         }
 
@@ -1822,9 +1832,14 @@
             startY = clientY;
             startHeight = mapContainer.offsetHeight;
             dragging = true;
+            var logContainer = document.getElementById('log-container');
             // Disable CSS transitions during drag for instant feedback
             mapContainer.style.transition = 'none';
-            document.getElementById('log-container').style.transition = 'none';
+            logContainer.style.transition = 'none';
+            // Override flex so pixel height is respected
+            mapContainer.style.flex = 'none';
+            logContainer.style.flex = '1';
+            logContainer.style.height = '';
             document.addEventListener('mousemove', onMouseMove);
             document.addEventListener('mouseup', stopResize);
             document.addEventListener('touchmove', onTouchMove, { passive: false });
@@ -1864,6 +1879,7 @@
             if (mapContainer.style.height) {
                 localStorage.setItem(MAP_HEIGHT_KEY, mapContainer.style.height);
             }
+            map.invalidateSize();
         }
 
         handle.addEventListener('mousedown', function (e) { beginResize(e.clientY, e); });
