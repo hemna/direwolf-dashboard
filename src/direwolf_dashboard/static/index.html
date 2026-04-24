@@ -262,6 +262,23 @@
         </div>
     </div>
 
+    <!-- Confirm Wipe Modal -->
+    <div id="confirm-wipe-modal" class="modal hidden">
+        <div class="modal-content confirm-modal-content">
+            <div class="modal-header">
+                <h2>Wipe Packet Database</h2>
+                <button id="btn-close-confirm-wipe">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="confirm-message">This will permanently delete all stored packets and station data. This cannot be undone.</p>
+                <div class="confirm-actions">
+                    <button id="btn-cancel-wipe" class="secondary">Cancel</button>
+                    <button id="btn-confirm-wipe" class="btn-danger">Wipe Database</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="/static/leaflet/leaflet.js"></script>
     <script src="/static/leaflet/gpx.js"></script>
     <script src="/static/app.js"></script>

@@ -837,6 +837,23 @@ button.secondary:hover {
     gap: 8px;
 }
 
+.confirm-modal-content {
+    width: 360px;
+}
+
+.confirm-message {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin: 0 0 16px 0;
+    line-height: 1.5;
+}
+
+.confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
 #wipe-feedback {
     font-size: 12px;
 }

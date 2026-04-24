@@ -541,6 +541,7 @@
         connectWebSocket();
         initFilters();
         initSettings();
+        initConfirmWipeModal();
         initDropPin();
         initMapResize();
         initLogToggle();
@@ -1433,36 +1434,53 @@
     }
 
     async function wipeDatabase() {
-        if (!confirm('This will permanently delete all stored packets and station data. Continue?')) {
-            return;
-        }
-        const btn = document.getElementById('btn-wipe-db');
-        const feedback = document.getElementById('wipe-feedback');
-        btn.disabled = true;
-        btn.textContent = 'Wiping...';
-        feedback.classList.add('hidden');
-        try {
-            const resp = await fetch(API_BASE + '/storage', { method: 'DELETE' });
-            const result = await resp.json();
-            if (resp.ok) {
-                feedback.className = 'success';
-                feedback.textContent = 'Database wiped';
-                feedback.classList.remove('hidden');
-                // Clear local UI state
-                clearStationsAndPackets();
-            } else {
+        var modal = document.getElementById('confirm-wipe-modal');
+        modal.classList.remove('hidden');
+    }
+
+    function initConfirmWipeModal() {
+        var modal = document.getElementById('confirm-wipe-modal');
+        var btnClose = document.getElementById('btn-close-confirm-wipe');
+        var btnCancel = document.getElementById('btn-cancel-wipe');
+        var btnConfirm = document.getElementById('btn-confirm-wipe');
+
+        function closeModal() { modal.classList.add('hidden'); }
+
+        btnClose.addEventListener('click', closeModal);
+        btnCancel.addEventListener('click', closeModal);
+        modal.addEventListener('click', function (e) {
+            if (e.target === modal) closeModal();
+        });
+
+        btnConfirm.addEventListener('click', async function () {
+            closeModal();
+            var btn = document.getElementById('btn-wipe-db');
+            var feedback = document.getElementById('wipe-feedback');
+            btn.disabled = true;
+            btn.textContent = 'Wiping...';
+            feedback.classList.add('hidden');
+            try {
+                var resp = await fetch(API_BASE + '/storage', { method: 'DELETE' });
+                var result = await resp.json();
+                if (resp.ok) {
+                    feedback.className = 'success';
+                    feedback.textContent = 'Database wiped';
+                    feedback.classList.remove('hidden');
+                    clearStationsAndPackets();
+                } else {
+                    feedback.className = 'error';
+                    feedback.textContent = 'Error: ' + (result.detail || 'Unknown');
+                    feedback.classList.remove('hidden');
+                }
+            } catch (e) {
                 feedback.className = 'error';
-                feedback.textContent = 'Error: ' + (result.detail || 'Unknown');
+                feedback.textContent = 'Error: ' + e.message;
                 feedback.classList.remove('hidden');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Wipe Packet Database';
             }
-        } catch (e) {
-            feedback.className = 'error';
-            feedback.textContent = 'Error: ' + e.message;
-            feedback.classList.remove('hidden');
-        } finally {
-            btn.disabled = false;
-            btn.textContent = 'Wipe Packet Database';
-        }
+        });
     }
 
     function clearStationsAndPackets() {
