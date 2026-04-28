@@ -309,6 +309,50 @@ class TestStats:
         assert stats["stations_active"] == 2
 
 
+class TestMyPosition:
+    """Test my_position get/set via the config table."""
+
+    async def test_get_my_position_empty(self, storage):
+        """Returns None when no my_position is saved."""
+        result = await storage.get_my_position()
+        assert result is None
+
+    async def test_set_and_get_station(self, storage):
+        """Save a station-type my_position and retrieve it."""
+        await storage.set_my_position({"type": "station", "callsign": "WB4BOR"})
+        result = await storage.get_my_position()
+        assert result == {"type": "station", "callsign": "WB4BOR"}
+
+    async def test_set_and_get_pin(self, storage):
+        """Save a pin-type my_position and retrieve it."""
+        await storage.set_my_position(
+            {"type": "pin", "latitude": 37.75, "longitude": -77.45}
+        )
+        result = await storage.get_my_position()
+        assert result == {"type": "pin", "latitude": 37.75, "longitude": -77.45}
+
+    async def test_overwrite(self, storage):
+        """Overwriting my_position replaces the previous value."""
+        await storage.set_my_position({"type": "station", "callsign": "WB4BOR"})
+        await storage.set_my_position({"type": "station", "callsign": "N3LLO"})
+        result = await storage.get_my_position()
+        assert result == {"type": "station", "callsign": "N3LLO"}
+
+    async def test_clear(self, storage):
+        """Setting None clears the saved my_position."""
+        await storage.set_my_position({"type": "station", "callsign": "WB4BOR"})
+        await storage.set_my_position(None)
+        result = await storage.get_my_position()
+        assert result is None
+
+    async def test_survives_reset(self, storage):
+        """Reset clears my_position along with all other data."""
+        await storage.set_my_position({"type": "station", "callsign": "WB4BOR"})
+        await storage.reset()
+        result = await storage.get_my_position()
+        assert result is None
+
+
 class TestReset:
     """Test database reset (wipe and recreate)."""
 

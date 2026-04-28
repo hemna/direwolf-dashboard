@@ -9,7 +9,6 @@ import yaml
 from direwolf_dashboard.config import (
     Config,
     StationConfig,
-    MyPositionConfig,
     DirewolfConfig,
     ServerConfig,
     StorageConfig,
@@ -21,33 +20,8 @@ from direwolf_dashboard.config import (
 )
 
 
-class TestMyPositionConfig:
-    """Test MyPositionConfig dataclass."""
-
-    def test_default_my_position_all_none(self):
-        mp = MyPositionConfig()
-        assert mp.type is None
-        assert mp.callsign is None
-        assert mp.latitude is None
-        assert mp.longitude is None
-
-    def test_station_type(self):
-        mp = MyPositionConfig(type="station", callsign="WB4BOR")
-        assert mp.type == "station"
-        assert mp.callsign == "WB4BOR"
-        assert mp.latitude is None
-        assert mp.longitude is None
-
-    def test_pin_type(self):
-        mp = MyPositionConfig(type="pin", latitude=37.75, longitude=-77.45)
-        assert mp.type == "pin"
-        assert mp.callsign is None
-        assert mp.latitude == 37.75
-        assert mp.longitude == -77.45
-
-
 class TestStationConfigSimplified:
-    """Test StationConfig after removing callsign/symbol fields."""
+    """Test StationConfig after removing callsign/symbol/my_position fields."""
 
     def test_station_config_has_no_callsign(self):
         config = Config()
@@ -58,16 +32,14 @@ class TestStationConfigSimplified:
         assert not hasattr(config.station, "symbol")
         assert not hasattr(config.station, "symbol_table")
 
-    def test_station_config_has_my_position(self):
+    def test_station_config_has_no_my_position(self):
         config = Config()
-        assert isinstance(config.station.my_position, MyPositionConfig)
-        assert config.station.my_position.type is None
+        assert not hasattr(config.station, "my_position")
 
-    def test_config_to_dict_includes_my_position(self):
+    def test_config_to_dict_excludes_my_position(self):
         config = Config()
         d = config.to_dict()
-        assert "my_position" in d["station"]
-        assert d["station"]["my_position"]["type"] is None
+        assert "my_position" not in d["station"]
 
 
 class TestDefaultConfig:
@@ -157,7 +129,7 @@ class TestLoadSaveConfig:
         assert config.storage.retention_days == 7
 
     def test_old_config_with_removed_fields_loads(self, tmp_path):
-        """Old config files with callsign/symbol/conf_file should load fine."""
+        """Old config files with callsign/symbol/my_position/conf_file should load fine."""
         config_path = str(tmp_path / "config.yaml")
 
         old_config = {
@@ -168,6 +140,10 @@ class TestLoadSaveConfig:
                 "symbol": "#",
                 "symbol_table": "S",
                 "zoom": 14,
+                "my_position": {
+                    "type": "station",
+                    "callsign": "WB4BOR",
+                },
             },
             "direwolf": {
                 "agw_host": "localhost",
@@ -184,6 +160,7 @@ class TestLoadSaveConfig:
         # Removed fields should be silently ignored
         assert not hasattr(config.station, "callsign")
         assert not hasattr(config.station, "symbol")
+        assert not hasattr(config.station, "my_position")
         # Preserved fields should work
         assert config.station.latitude == 37.75
         assert config.station.longitude == -77.45
@@ -289,64 +266,22 @@ class TestUpdateConfig:
         assert len(updated) == 3
         assert restart is False
 
-    def test_update_my_position_station(self, tmp_path):
+    def test_update_ignores_my_position_in_yaml(self, tmp_path):
+        """my_position in station updates should be silently ignored by update_config.
+
+        my_position is now stored in the DB, not the YAML config.
+        """
         config_path = str(tmp_path / "config.yaml")
         config = Config()
         save_config(config, config_path)
 
+        # my_position key should be harmless -- it's just an unknown key
+        # that gets ignored since StationConfig doesn't have it
         new_config, updated, restart = update_config(
             config,
-            {"station": {"my_position": {"type": "station", "callsign": "WB4BOR"}}},
+            {"station": {"latitude": 37.75}},
             config_path,
         )
 
-        assert new_config.station.my_position.type == "station"
-        assert new_config.station.my_position.callsign == "WB4BOR"
-
-    def test_update_my_position_pin(self, tmp_path):
-        config_path = str(tmp_path / "config.yaml")
-        config = Config()
-        save_config(config, config_path)
-
-        new_config, updated, restart = update_config(
-            config,
-            {
-                "station": {
-                    "my_position": {
-                        "type": "pin",
-                        "latitude": 37.75,
-                        "longitude": -77.45,
-                    }
-                }
-            },
-            config_path,
-        )
-
-        assert new_config.station.my_position.type == "pin"
-        assert new_config.station.my_position.latitude == 37.75
-        assert new_config.station.my_position.longitude == -77.45
-
-    def test_update_my_position_clear(self, tmp_path):
-        config_path = str(tmp_path / "config.yaml")
-        config = Config()
-        config.station.my_position = MyPositionConfig(
-            type="pin", latitude=37.0, longitude=-77.0
-        )
-        save_config(config, config_path)
-
-        new_config, updated, restart = update_config(
-            config,
-            {
-                "station": {
-                    "my_position": {
-                        "type": None,
-                        "callsign": None,
-                        "latitude": None,
-                        "longitude": None,
-                    }
-                }
-            },
-            config_path,
-        )
-
-        assert new_config.station.my_position.type is None
+        assert new_config.station.latitude == 37.75
+        assert not hasattr(new_config.station, "my_position")

@@ -129,16 +129,29 @@ async def shutdown_services(services: DirewolfServices) -> None:
 
 
 async def resolve_my_position(services: DirewolfServices) -> Optional[tuple[float, float]]:
-    """Resolve current 'my position' coordinates from config."""
-    if not services.config:
-        return None
-    mp = services.config.station.my_position
-    if mp.type == "pin" and mp.latitude is not None and mp.longitude is not None:
-        return (mp.latitude, mp.longitude)
-    if mp.type == "station" and mp.callsign and services.storage:
-        stn = await services.storage.get_station(mp.callsign)
-        if stn and stn.get("latitude") and stn.get("longitude"):
-            return (stn["latitude"], stn["longitude"])
+    """Resolve current 'my position' coordinates.
+
+    Priority:
+      1. DB setting (type=station → look up station, type=pin → stored lat/lon)
+      2. Config fallback (station.latitude / station.longitude if non-zero)
+    """
+    if services.storage:
+        mp = await services.storage.get_my_position()
+        if mp:
+            if mp.get("type") == "pin" and mp.get("latitude") is not None and mp.get("longitude") is not None:
+                return (mp["latitude"], mp["longitude"])
+            if mp.get("type") == "station" and mp.get("callsign"):
+                stn = await services.storage.get_station(mp["callsign"])
+                if stn and stn.get("latitude") and stn.get("longitude"):
+                    return (stn["latitude"], stn["longitude"])
+
+    # Fallback: static position from config YAML (if set)
+    if services.config:
+        lat = services.config.station.latitude
+        lon = services.config.station.longitude
+        if lat and lon:
+            return (lat, lon)
+
     return None
 
 

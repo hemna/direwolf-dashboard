@@ -16,19 +16,10 @@ DEFAULT_DATA_DIR = os.path.expanduser("~/.local/share/direwolf-dashboard")
 
 
 @dataclass
-class MyPositionConfig:
-    type: Optional[str] = None  # "station", "pin", or None
-    callsign: Optional[str] = None  # set when type="station"
-    latitude: Optional[float] = None  # set when type="pin"
-    longitude: Optional[float] = None  # set when type="pin"
-
-
-@dataclass
 class StationConfig:
     latitude: float = 0.0
     longitude: float = 0.0
     zoom: int = 12
-    my_position: MyPositionConfig = field(default_factory=MyPositionConfig)
 
 
 @dataclass
@@ -144,11 +135,10 @@ def _deep_merge(base: dict, override: dict) -> dict:
 def _dict_to_config(d: dict) -> Config:
     """Convert a dict to a Config dataclass."""
     station_dict = d.get("station", {}).copy()
-    my_pos_dict = station_dict.pop("my_position", {}) or {}
     # Filter out removed fields that may exist in old config files
-    for removed in ("callsign", "symbol", "symbol_table"):
+    for removed in ("callsign", "symbol", "symbol_table", "my_position"):
         station_dict.pop(removed, None)
-    station = StationConfig(**station_dict, my_position=MyPositionConfig(**my_pos_dict))
+    station = StationConfig(**station_dict)
 
     direwolf_dict = d.get("direwolf", {}).copy()
     direwolf_dict.pop("conf_file", None)  # Removed field

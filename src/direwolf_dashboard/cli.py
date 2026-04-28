@@ -85,13 +85,11 @@ def check(ctx):
         f"  Station lat/lon: {config.station.latitude}, {config.station.longitude}"
     )
     click.echo(f"  Zoom: {config.station.zoom}")
-    mp = config.station.my_position
-    if mp.type == "station":
-        click.echo(f"  My Position: tracking station {mp.callsign}")
-    elif mp.type == "pin":
-        click.echo(f"  My Position: pin at {mp.latitude}, {mp.longitude}")
+    if config.station.latitude and config.station.longitude:
+        click.echo(f"  Fallback position: {config.station.latitude}, {config.station.longitude}")
     else:
-        click.echo(f"  My Position: not set")
+        click.echo(f"  Fallback position: not set")
+    click.echo(f"  My Position: stored in DB (set via web UI)")
     click.echo(f"  AGW: {config.direwolf.agw_host}:{config.direwolf.agw_port}")
     click.echo(f"  Log file: {config.direwolf.log_file}")
     click.echo(f"  Web server: {config.server.host}:{config.server.port}")

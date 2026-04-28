@@ -319,6 +319,43 @@ class Storage:
             for row in rows
         }
 
+    # ---- my_position (stored in the config table) ----
+
+    async def get_my_position(self) -> Optional[dict]:
+        """Return the saved my_position dict, or None if not set.
+
+        Stored as a JSON blob under key 'my_position' in the config table.
+        Returns e.g. {"type": "station", "callsign": "WB4BOR"} or
+        {"type": "pin", "latitude": 37.75, "longitude": -77.45}.
+        """
+        cursor = await self._db.execute(
+            "SELECT value FROM config WHERE key = 'my_position'"
+        )
+        row = await cursor.fetchone()
+        if row:
+            try:
+                return json.loads(row["value"])
+            except (json.JSONDecodeError, TypeError):
+                return None
+        return None
+
+    async def set_my_position(self, my_position: Optional[dict]) -> None:
+        """Save (or clear) the my_position setting.
+
+        Pass None to clear the saved position.
+        """
+        if my_position is None:
+            await self._db.execute(
+                "DELETE FROM config WHERE key = 'my_position'"
+            )
+        else:
+            await self._db.execute(
+                "INSERT INTO config (key, value) VALUES ('my_position', ?)"
+                " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (json.dumps(my_position),),
+            )
+        await self._db.commit()
+
     async def get_stats(self) -> dict:
         """Return storage statistics."""
         cursor = await self._db.execute("SELECT COUNT(*) as cnt FROM packets")

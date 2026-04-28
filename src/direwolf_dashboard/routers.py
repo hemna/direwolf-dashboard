@@ -8,7 +8,6 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from dataclasses import asdict
 from fastapi import APIRouter, HTTPException, Query, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
@@ -99,65 +98,96 @@ def create_api_router(container: ServiceContainer) -> APIRouter:
 
     @router.get("/config")
     async def get_config():
-        """Get current configuration."""
+        """Get current configuration (with my_position from DB)."""
         services = container.services
         assert services is not None, "Services not initialized"
         from direwolf_dashboard import __version__
 
         d = services.config.to_dict()
         d["version"] = __version__
+
+        # Merge runtime my_position from DB into the response
+        mp = await services.storage.get_my_position()
+        d["station"]["my_position"] = mp or {"type": None, "callsign": None, "latitude": None, "longitude": None}
+
         return d
 
     @router.put("/config")
     async def put_config(updates: dict):
-        """Update configuration. Returns updated fields and restart status."""
+        """Update configuration. Returns updated fields and restart status.
+
+        my_position updates are saved to the DB (runtime state), not the YAML.
+        All other fields are persisted to the YAML config file.
+        """
         services = container.services
         assert services is not None, "Services not initialized"
         try:
-            # Validate my_position if present
+            # Extract my_position from updates — it goes to DB, not YAML
             station_updates = updates.get("station", {})
             has_my_pos = "my_position" in station_updates
-            my_pos = station_updates.get("my_position")
-            if my_pos is not None:
-                mp_type = my_pos.get("type")
-                if mp_type == "station":
-                    if not my_pos.get("callsign"):
+            my_pos = station_updates.pop("my_position", None)
+
+            # Remove empty station dict if my_position was the only key
+            if not station_updates:
+                updates.pop("station", None)
+
+            # Validate and save my_position to DB
+            if has_my_pos:
+                if my_pos is None:
+                    # Explicit clear
+                    await services.storage.set_my_position(None)
+                else:
+                    mp_type = my_pos.get("type")
+                    if mp_type == "station":
+                        if not my_pos.get("callsign"):
+                            raise HTTPException(
+                                status_code=400,
+                                detail="my_position type 'station' requires a non-empty callsign",
+                            )
+                    elif mp_type == "pin":
+                        lat = my_pos.get("latitude")
+                        lon = my_pos.get("longitude")
+                        if lat is None or lon is None:
+                            raise HTTPException(
+                                status_code=400,
+                                detail="my_position type 'pin' requires latitude and longitude",
+                            )
+                        if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
+                            raise HTTPException(
+                                status_code=400,
+                                detail="latitude must be [-90, 90], longitude must be [-180, 180]",
+                            )
+                    elif mp_type is not None:
                         raise HTTPException(
                             status_code=400,
-                            detail="my_position type 'station' requires a non-empty callsign",
+                            detail=f"Invalid my_position type: {mp_type}",
                         )
-                elif mp_type == "pin":
-                    lat = my_pos.get("latitude")
-                    lon = my_pos.get("longitude")
-                    if lat is None or lon is None:
-                        raise HTTPException(
-                            status_code=400,
-                            detail="my_position type 'pin' requires latitude and longitude",
-                        )
-                    if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
-                        raise HTTPException(
-                            status_code=400,
-                            detail="latitude must be [-90, 90], longitude must be [-180, 180]",
-                        )
-                elif mp_type is not None:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Invalid my_position type: {mp_type}",
+
+                    # Save to DB (None type clears it)
+                    await services.storage.set_my_position(
+                        my_pos if mp_type else None
                     )
 
-            new_config, updated_fields, restart_required = update_config(services.config, updates, services.config_path)
-            services.config = new_config
+            # Apply remaining YAML config updates (if any)
+            updated_fields = []
+            restart_required = False
+            if updates:
+                new_config, updated_fields, restart_required = update_config(
+                    services.config, updates, services.config_path
+                )
+                services.config = new_config
 
             # Broadcast my_position changes to all WebSocket clients
             if has_my_pos:
+                mp_data = await services.storage.get_my_position()
                 await broadcast_event(
                     "config_updated",
-                    {"my_position": asdict(services.config.station.my_position)},
+                    {"my_position": mp_data or {"type": None}},
                     services.ws_clients,
                 )
 
             return {
-                "updated": updated_fields,
+                "updated": updated_fields + (["station.my_position"] if has_my_pos else []),
                 "restart_required": restart_required,
             }
         except HTTPException:
