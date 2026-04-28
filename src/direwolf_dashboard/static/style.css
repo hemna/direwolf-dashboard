@@ -1027,6 +1027,62 @@ button.secondary:hover {
     border-color: var(--accent);
 }
 
+/* --- My Location Overlay --- */
+.my-location-overlay {
+    background: var(--overlay-bg);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 11px;
+    color: var(--overlay-text);
+    border: 1px solid var(--overlay-border);
+    pointer-events: auto;
+    min-width: 160px;
+}
+.my-location-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 3px;
+    border-bottom: 1px solid var(--overlay-divider);
+    margin-bottom: 4px;
+}
+.my-location-title {
+    color: var(--overlay-text-muted);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.my-location-actions {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+.my-location-btn {
+    cursor: pointer;
+    color: var(--overlay-text-muted);
+    font-size: 14px;
+    line-height: 1;
+    padding: 0 2px;
+    border-radius: 3px;
+}
+.my-location-btn:hover {
+    color: var(--overlay-text);
+    background: rgba(255, 255, 255, 0.1);
+}
+.my-location-btn.hidden {
+    display: none;
+}
+.my-location-type {
+    color: var(--overlay-text);
+    font-weight: 600;
+    padding: 1px 0;
+}
+.my-location-coords {
+    color: var(--overlay-text-muted);
+    font-variant-numeric: tabular-nums;
+    padding: 1px 0;
+}
+
 .gpx-control {
     background: var(--overlay-bg);
     border-radius: 6px;

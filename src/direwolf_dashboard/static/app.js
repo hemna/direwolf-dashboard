@@ -24,9 +24,11 @@
     let showRouteDistances = true; // updated from config on load
     let showGpxOverlay = true;     // updated from config on load
     let showStatsOverlay = true;   // updated from config on load
+    let showMyLocationOverlay = true; // updated from config on load
     let showTimestamps = false;    // updated from config on load
     let gpxLayer = null;    // Current GPX overlay layer (L.GPX instance)
     let gpxControlEl = null; // Reference to the GPX control DOM element
+    let myLocationOverlayEl = null; // Reference to My Location overlay DOM element
     let waitingForPosition = false;
     let myPositionPinMarker = null;
     let pinModeActive = false;
@@ -358,6 +360,91 @@
         new FilterControl().addTo(map);
     }
 
+    // --- My Location Overlay ---
+    function initMyLocationOverlay() {
+        var MyLocControl = L.Control.extend({
+            options: { position: 'topright' },
+            onAdd: function () {
+                var container = L.DomUtil.create('div', 'my-location-overlay');
+                container.innerHTML =
+                    '<div class="my-location-header">' +
+                        '<span class="my-location-title">My Location</span>' +
+                        '<span class="my-location-actions">' +
+                            '<span class="my-location-btn my-location-center" title="Center map on my location">&#8982;</span>' +
+                            '<span class="my-location-btn my-location-clear hidden" title="Clear my location">&times;</span>' +
+                        '</span>' +
+                    '</div>' +
+                    '<div class="my-location-body">' +
+                        '<div class="my-location-type">Not set</div>' +
+                        '<div class="my-location-coords"></div>' +
+                    '</div>';
+                L.DomEvent.disableClickPropagation(container);
+                L.DomEvent.disableScrollPropagation(container);
+                // Wire up center button
+                container.querySelector('.my-location-center').addEventListener('click', function () {
+                    var pos = getMyPosition();
+                    if (pos) {
+                        var zoom = config.station?.zoom || 12;
+                        map.flyTo([pos.lat, pos.lng], zoom);
+                    }
+                });
+                // Wire up clear button
+                container.querySelector('.my-location-clear').addEventListener('click', function () {
+                    if (window._removeMyPosition) window._removeMyPosition();
+                });
+                myLocationOverlayEl = container;
+                return container;
+            },
+        });
+        new MyLocControl().addTo(map);
+        if (!showMyLocationOverlay && myLocationOverlayEl) {
+            myLocationOverlayEl.style.display = 'none';
+        }
+        updateMyLocationOverlay();
+    }
+
+    function updateMyLocationOverlay() {
+        if (!myLocationOverlayEl) return;
+        var mp = config.station?.my_position;
+        var typeEl = myLocationOverlayEl.querySelector('.my-location-type');
+        var coordsEl = myLocationOverlayEl.querySelector('.my-location-coords');
+        var clearBtn = myLocationOverlayEl.querySelector('.my-location-clear');
+        var centerBtn = myLocationOverlayEl.querySelector('.my-location-center');
+
+        if (!mp || !mp.type) {
+            typeEl.textContent = 'Not set';
+            coordsEl.textContent = '';
+            clearBtn.classList.add('hidden');
+            centerBtn.classList.add('hidden');
+            return;
+        }
+
+        clearBtn.classList.remove('hidden');
+        centerBtn.classList.remove('hidden');
+
+        if (mp.type === 'station') {
+            typeEl.textContent = mp.callsign || 'Station';
+            var pos = getMyPosition();
+            if (pos) {
+                coordsEl.textContent = pos.lat.toFixed(4) + ', ' + pos.lng.toFixed(4);
+            } else {
+                coordsEl.textContent = 'Awaiting position...';
+            }
+        } else if (mp.type === 'pin') {
+            typeEl.textContent = 'Dropped Pin';
+            if (mp.latitude != null && mp.longitude != null) {
+                coordsEl.textContent = mp.latitude.toFixed(4) + ', ' + mp.longitude.toFixed(4);
+            } else {
+                coordsEl.textContent = '';
+            }
+        } else {
+            typeEl.textContent = 'Not set';
+            coordsEl.textContent = '';
+            clearBtn.classList.add('hidden');
+            centerBtn.classList.add('hidden');
+        }
+    }
+
     // --- GPX Overlay ---
     function gpxCircleIcon(fillColor, radius) {
         var size = radius * 2 + 4;
@@ -638,6 +725,7 @@
         initLegend();
         initStatsOverlay();
         initFilterOverlay();
+        initMyLocationOverlay();
         initGpxOverlay();
         await loadStations();
         loadStationPositions();
@@ -670,6 +758,7 @@
                 showRouteDistances = config.display.show_route_distances !== false;
                 showGpxOverlay = config.display.show_gpx_overlay !== false;
                 showStatsOverlay = config.display.show_stats_overlay !== false;
+                showMyLocationOverlay = config.display.show_my_location_overlay !== false;
             }
             if (config.packet_log != null) {
                 showTimestamps = config.packet_log.show_timestamps === true;
@@ -1146,6 +1235,7 @@
             if (!config.station) config.station = {};
             config.station.my_position = data.my_position;
             updateMyPositionMarker();
+            updateMyLocationOverlay();
             // Re-render all open popups
             for (const cs of Object.keys(stations)) {
                 updateStationPopup(cs);
@@ -1502,6 +1592,7 @@
         document.getElementById('cfg-show-route-distances').checked = showRouteDistances;
         document.getElementById('cfg-show-gpx-overlay').checked = showGpxOverlay;
         document.getElementById('cfg-show-stats-overlay').checked = showStatsOverlay;
+        document.getElementById('cfg-show-my-location-overlay').checked = showMyLocationOverlay;
 
         // Packet log settings
         document.getElementById('cfg-show-timestamps').checked = showTimestamps;
@@ -1538,6 +1629,7 @@
                 show_route_distances: document.getElementById('cfg-show-route-distances').checked,
                 show_gpx_overlay: document.getElementById('cfg-show-gpx-overlay').checked,
                 show_stats_overlay: document.getElementById('cfg-show-stats-overlay').checked,
+                show_my_location_overlay: document.getElementById('cfg-show-my-location-overlay').checked,
             },
             packet_log: {
                 show_timestamps: document.getElementById('cfg-show-timestamps').checked,
@@ -1569,6 +1661,10 @@
                 showStatsOverlay = updates.display.show_stats_overlay;
                 if (statsOverlayEl) {
                     statsOverlayEl.style.display = showStatsOverlay ? '' : 'none';
+                }
+                showMyLocationOverlay = updates.display.show_my_location_overlay;
+                if (myLocationOverlayEl) {
+                    myLocationOverlayEl.style.display = showMyLocationOverlay ? '' : 'none';
                 }
                 // Apply packet log settings immediately
                 showTimestamps = updates.packet_log.show_timestamps;
@@ -2057,6 +2153,7 @@
                 if (el) el.classList.add('my-station');
             }
         }
+        updateMyLocationOverlay();
     }
 
     async function saveMyPosition(myPosition) {
