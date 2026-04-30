@@ -1345,6 +1345,15 @@ button.secondary:hover {
     background: var(--popup-remove-hover);
 }
 
+.popup-btn-weather {
+    background: var(--accent);
+    color: var(--btn-on-accent);
+}
+
+.popup-btn-weather:hover {
+    background: #0096b7;
+}
+
 /* Drop pin button active state */
 #btn-drop-pin {
     background: none;
@@ -1780,4 +1789,71 @@ button.secondary:hover {
     .decode-tables { grid-template-columns: 1fr; }
     .decode-section-wide { grid-column: span 1; }
     .decode-weather-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ── Weather Modal ──────────────────────────────────────────── */
+.weather-modal-content {
+    width: 600px;
+    max-width: 95vw;
+    max-height: 85vh;
+    overflow-y: auto;
+}
+
+.weather-loading {
+    text-align: center;
+    padding: 24px;
+    color: var(--text-secondary);
+}
+
+.weather-current-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.weather-current-item {
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+}
+
+.weather-current-label {
+    font-size: 11px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.weather-current-value {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-top: 2px;
+}
+
+.weather-current-time {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+}
+
+.weather-chart-container {
+    height: 220px;
+    margin-bottom: 16px;
+    position: relative;
+}
+
+.weather-chart-container canvas {
+    width: 100% !important;
+    height: 100% !important;
+}
+
+@media (max-width: 600px) {
+    .weather-modal-content { width: 100%; }
+    .weather-current-grid { grid-template-columns: repeat(2, 1fr); }
+    .weather-chart-container { height: 180px; }
 }

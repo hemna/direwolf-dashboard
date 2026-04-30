@@ -232,8 +232,34 @@
         </div>
     </div>
 
+    <!-- Weather Modal -->
+    <div id="weather-modal" class="modal hidden">
+        <div class="modal-content weather-modal-content">
+            <div class="modal-header">
+                <h2 id="weather-modal-title">Weather</h2>
+                <button id="btn-close-weather">&times;</button>
+            </div>
+            <div class="modal-body" id="weather-modal-body">
+                <div id="weather-loading" class="weather-loading">Loading weather data...</div>
+                <div id="weather-current" class="hidden"></div>
+                <div id="weather-charts" class="hidden">
+                    <div class="weather-chart-container">
+                        <canvas id="weather-chart-temp"></canvas>
+                    </div>
+                    <div class="weather-chart-container">
+                        <canvas id="weather-chart-pressure"></canvas>
+                    </div>
+                </div>
+                <div id="weather-no-data" class="hidden">
+                    <p>No weather data available for this station.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="/static/leaflet/leaflet.js"></script>
     <script src="/static/leaflet/gpx.js"></script>
+    <script src="/static/vendor/chart.min.js"></script>
     <script src="/static/app.js"></script>
 </body>
 </html>

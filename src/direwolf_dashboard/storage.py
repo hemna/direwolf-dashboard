@@ -50,6 +50,25 @@ CREATE TABLE IF NOT EXISTS config (
     key         TEXT PRIMARY KEY,
     value       TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS weather_reports (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp       REAL NOT NULL,
+    callsign        TEXT NOT NULL,
+    temperature     REAL,
+    dewpoint        REAL,
+    humidity        REAL,
+    pressure        REAL,
+    wind_direction  REAL,
+    wind_speed      REAL,
+    wind_gust       REAL,
+    rain_1h         REAL,
+    rain_24h        REAL,
+    rain_since_midnight REAL,
+    luminosity      REAL
+);
+
+CREATE INDEX IF NOT EXISTS idx_weather_callsign_ts ON weather_reports(callsign, timestamp);
 """
 
 
@@ -90,9 +109,10 @@ class Storage:
         await self._db.execute("DELETE FROM packets")
         await self._db.execute("DELETE FROM stations")
         await self._db.execute("DELETE FROM config")
+        await self._db.execute("DELETE FROM weather_reports")
         # Reset autoincrement counters
         await self._db.execute(
-            "DELETE FROM sqlite_sequence WHERE name IN ('packets')"
+            "DELETE FROM sqlite_sequence WHERE name IN ('packets', 'weather_reports')"
         )
         await self._db.commit()
         LOG.info("Database reset complete")
@@ -319,6 +339,61 @@ class Storage:
             for row in rows
         }
 
+    # ---- Weather reports ----
+
+    async def insert_weather_report(self, report: dict) -> int:
+        """Insert a parsed weather report. Returns the inserted row id."""
+        cursor = await self._db.execute(
+            """INSERT INTO weather_reports
+            (timestamp, callsign, temperature, dewpoint, humidity, pressure,
+             wind_direction, wind_speed, wind_gust, rain_1h, rain_24h,
+             rain_since_midnight, luminosity)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                report.get("timestamp", time.time()),
+                report.get("callsign", ""),
+                report.get("temperature"),
+                report.get("dewpoint"),
+                report.get("humidity"),
+                report.get("pressure"),
+                report.get("wind_direction"),
+                report.get("wind_speed"),
+                report.get("wind_gust"),
+                report.get("rain_1h"),
+                report.get("rain_24h"),
+                report.get("rain_since_midnight"),
+                report.get("luminosity"),
+            ),
+        )
+        await self._db.commit()
+        return cursor.lastrowid
+
+    async def get_weather_reports(
+        self,
+        callsign: str,
+        since: Optional[float] = None,
+        limit: int = 500,
+    ) -> list[dict]:
+        """Return weather reports for a station, ordered oldest-first for charting."""
+        if since is not None:
+            cursor = await self._db.execute(
+                """SELECT * FROM weather_reports
+                WHERE callsign = ? AND timestamp >= ?
+                ORDER BY timestamp ASC
+                LIMIT ?""",
+                (callsign, since, limit),
+            )
+        else:
+            cursor = await self._db.execute(
+                """SELECT * FROM weather_reports
+                WHERE callsign = ?
+                ORDER BY timestamp ASC
+                LIMIT ?""",
+                (callsign, limit),
+            )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
     # ---- my_position (stored in the config table) ----
 
     async def get_my_position(self) -> Optional[dict]:
@@ -394,6 +469,9 @@ class Storage:
         cutoff = time.time() - (retention_days * 86400)
         cursor = await self._db.execute(
             "DELETE FROM packets WHERE timestamp < ?", (cutoff,)
+        )
+        await self._db.execute(
+            "DELETE FROM weather_reports WHERE timestamp < ?", (cutoff,)
         )
         await self._db.commit()
         deleted = cursor.rowcount

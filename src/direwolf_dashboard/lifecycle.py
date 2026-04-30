@@ -206,6 +206,62 @@ async def broadcast_event(event: str, data: dict, ws_clients: set[WebSocket]) ->
 # ---------------------------------------------------------------------------
 
 
+async def _store_weather_report(packet: dict, services: DirewolfServices) -> None:
+    """Parse weather data from a packet's raw_packet and store in weather_reports."""
+    try:
+        import aprslib
+
+        raw = packet.get("raw_packet", "")
+        if not raw:
+            return
+
+        parsed = aprslib.parse(raw)
+        weather = parsed.get("weather", {})
+        if not isinstance(weather, dict):
+            weather = {}
+
+        # Also check top-level keys (aprslib sometimes puts them there)
+        temperature = weather.get("temperature") or parsed.get("temperature")
+        humidity = weather.get("humidity") or parsed.get("humidity")
+        pressure = weather.get("pressure") or parsed.get("pressure")
+
+        # Compute dewpoint from temperature and humidity if both available
+        dewpoint = None
+        if temperature is not None and humidity is not None:
+            try:
+                # Magnus formula approximation
+                t = float(temperature)
+                rh = float(humidity)
+                if rh > 0:
+                    import math
+                    a, b = 17.27, 237.7
+                    alpha = (a * t / (b + t)) + math.log(rh / 100.0)
+                    dewpoint = (b * alpha) / (a - alpha)
+            except (ValueError, ZeroDivisionError):
+                pass
+
+        report = {
+            "timestamp": packet.get("timestamp", time.time()),
+            "callsign": packet.get("from_call", ""),
+            "temperature": temperature,
+            "dewpoint": dewpoint,
+            "humidity": humidity,
+            "pressure": pressure,
+            "wind_direction": weather.get("wind_direction") or parsed.get("wind_direction"),
+            "wind_speed": weather.get("wind_speed") or parsed.get("wind_speed"),
+            "wind_gust": weather.get("wind_gust") or parsed.get("wind_gust"),
+            "rain_1h": weather.get("rain_1h") or parsed.get("rain_1h"),
+            "rain_24h": weather.get("rain_24h") or parsed.get("rain_24h"),
+            "rain_since_midnight": weather.get("rain_since_midnight") or parsed.get("rain_since_midnight"),
+            "luminosity": weather.get("luminosity") or parsed.get("luminosity"),
+        }
+
+        await services.storage.insert_weather_report(report)
+        LOG.debug(f"Stored weather report from {report['callsign']}")
+    except Exception:
+        LOG.debug("Failed to parse/store weather report", exc_info=True)
+
+
 async def _broadcast_consumer(services: DirewolfServices) -> None:
     """Read from broadcast queue and send to all WebSocket clients."""
     while True:
@@ -222,6 +278,10 @@ async def _broadcast_consumer(services: DirewolfServices) -> None:
                 packet["id"] = row_id
                 t1 = time.time()
                 LOG.info(f"[TIMING] pkt#{row_id} insert_packet done at {t1:.3f} (+{t1 - t0:.3f}s)")
+
+                # Store weather report if this is a weather packet
+                if packet.get("type") == "WeatherPacket":
+                    await _store_weather_report(packet, services)
 
                 # Update stations table if position data present
                 if packet.get("latitude") and packet.get("longitude"):

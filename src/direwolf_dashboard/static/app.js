@@ -720,6 +720,7 @@
 
         // Init decode modal immediately (doesn't depend on config/network)
         initDecode();
+        initWeatherModal();
         await loadConfig();
         initMap();
         initLegend();
@@ -898,6 +899,10 @@
             html += `<button class="popup-btn popup-btn-remove" onclick="window._removeMyPosition()">Remove as My Position</button>`;
         } else {
             html += `<button class="popup-btn popup-btn-set" onclick="window._setMyPositionStation('${callsign}')">Set as My Position</button>`;
+        }
+        // "View Weather" button for weather stations (symbol '_')
+        if (d.symbol === '_') {
+            html += `<button class="popup-btn popup-btn-weather" onclick="window._viewWeather('${callsign}')">View Weather</button>`;
         }
         s.marker.bindPopup(html);
     }
@@ -2195,6 +2200,209 @@
         saveMyPosition(null);
         map.closePopup();
     };
+
+    // --- Weather Modal ---
+    window._viewWeather = function (callsign) {
+        map.closePopup();
+        openWeatherModal(callsign);
+    };
+
+    let weatherTempChart = null;
+    let weatherPressureChart = null;
+
+    function initWeatherModal() {
+        const modal = document.getElementById('weather-modal');
+        const closeBtn = document.getElementById('btn-close-weather');
+
+        closeBtn.addEventListener('click', closeWeatherModal);
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) closeWeatherModal();
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && !modal.classList.contains('hidden')) {
+                closeWeatherModal();
+            }
+        });
+    }
+
+    async function openWeatherModal(callsign) {
+        const modal = document.getElementById('weather-modal');
+        const title = document.getElementById('weather-modal-title');
+        const loading = document.getElementById('weather-loading');
+        const currentEl = document.getElementById('weather-current');
+        const chartsEl = document.getElementById('weather-charts');
+        const noDataEl = document.getElementById('weather-no-data');
+
+        title.textContent = `Weather: ${callsign}`;
+        loading.classList.remove('hidden');
+        currentEl.classList.add('hidden');
+        chartsEl.classList.add('hidden');
+        noDataEl.classList.add('hidden');
+        modal.classList.remove('hidden');
+
+        // Destroy old charts
+        if (weatherTempChart) { weatherTempChart.destroy(); weatherTempChart = null; }
+        if (weatherPressureChart) { weatherPressureChart.destroy(); weatherPressureChart = null; }
+
+        try {
+            const resp = await fetch(API_BASE + '/weather/' + encodeURIComponent(callsign) + '?hours=24');
+            if (!resp.ok) throw new Error('Failed to fetch weather data');
+            const data = await resp.json();
+            const reports = data.reports || [];
+
+            loading.classList.add('hidden');
+
+            if (reports.length === 0) {
+                noDataEl.classList.remove('hidden');
+                return;
+            }
+
+            // Show current conditions (latest report)
+            const latest = reports[reports.length - 1];
+            currentEl.innerHTML = buildCurrentWeatherHtml(latest);
+            currentEl.classList.remove('hidden');
+
+            // If multiple reports, show charts
+            if (reports.length > 1) {
+                chartsEl.classList.remove('hidden');
+                renderWeatherCharts(reports);
+            }
+        } catch (err) {
+            loading.classList.add('hidden');
+            noDataEl.classList.remove('hidden');
+            noDataEl.querySelector('p').textContent = 'Error loading weather data: ' + err.message;
+        }
+    }
+
+    function closeWeatherModal() {
+        document.getElementById('weather-modal').classList.add('hidden');
+        if (weatherTempChart) { weatherTempChart.destroy(); weatherTempChart = null; }
+        if (weatherPressureChart) { weatherPressureChart.destroy(); weatherPressureChart = null; }
+    }
+
+    function buildCurrentWeatherHtml(report) {
+        const fields = [];
+        if (report.temperature != null) fields.push(['Temperature', report.temperature.toFixed(1) + '\u00B0C']);
+        if (report.dewpoint != null) fields.push(['Dewpoint', report.dewpoint.toFixed(1) + '\u00B0C']);
+        if (report.humidity != null) fields.push(['Humidity', report.humidity + '%']);
+        if (report.pressure != null) fields.push(['Pressure', report.pressure.toFixed(1) + ' hPa']);
+        if (report.wind_speed != null) fields.push(['Wind Speed', report.wind_speed.toFixed(1) + ' m/s']);
+        if (report.wind_direction != null) fields.push(['Wind Dir', report.wind_direction + '\u00B0']);
+        if (report.wind_gust != null) fields.push(['Gust', report.wind_gust.toFixed(1) + ' m/s']);
+        if (report.rain_1h != null) fields.push(['Rain 1h', report.rain_1h.toFixed(1) + ' mm']);
+        if (report.rain_24h != null) fields.push(['Rain 24h', report.rain_24h.toFixed(1) + ' mm']);
+        if (report.luminosity != null) fields.push(['Luminosity', report.luminosity + ' W/m\u00B2']);
+
+        let html = '<div class="weather-current-grid">';
+        for (const [label, value] of fields) {
+            html += `<div class="weather-current-item"><span class="weather-current-label">${label}</span><span class="weather-current-value">${value}</span></div>`;
+        }
+        html += '</div>';
+        if (report.timestamp) {
+            const d = new Date(report.timestamp * 1000);
+            html += `<div class="weather-current-time">Last report: ${d.toLocaleString()}</div>`;
+        }
+        return html;
+    }
+
+    function renderWeatherCharts(reports) {
+        const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+        const textColor = isDark ? '#e0e0e0' : '#333';
+        const gridColor = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)';
+
+        const labels = reports.map(r => {
+            const d = new Date(r.timestamp * 1000);
+            return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        });
+
+        // Temperature + Dewpoint chart
+        const tempData = reports.map(r => r.temperature);
+        const dewData = reports.map(r => r.dewpoint);
+        const hasTempData = tempData.some(v => v != null);
+        const hasDewData = dewData.some(v => v != null);
+
+        if (hasTempData || hasDewData) {
+            const datasets = [];
+            if (hasTempData) {
+                datasets.push({
+                    label: 'Temperature (\u00B0C)',
+                    data: tempData,
+                    borderColor: '#ff6384',
+                    backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                    borderWidth: 2,
+                    tension: 0.3,
+                    pointRadius: 2,
+                    spanGaps: true,
+                });
+            }
+            if (hasDewData) {
+                datasets.push({
+                    label: 'Dewpoint (\u00B0C)',
+                    data: dewData,
+                    borderColor: '#36a2eb',
+                    backgroundColor: 'rgba(54, 162, 235, 0.1)',
+                    borderWidth: 2,
+                    tension: 0.3,
+                    pointRadius: 2,
+                    spanGaps: true,
+                });
+            }
+
+            const ctx = document.getElementById('weather-chart-temp').getContext('2d');
+            weatherTempChart = new Chart(ctx, {
+                type: 'line',
+                data: { labels, datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { labels: { color: textColor } },
+                        title: { display: true, text: 'Temperature & Dewpoint', color: textColor },
+                    },
+                    scales: {
+                        x: { ticks: { color: textColor, maxTicksLimit: 12 }, grid: { color: gridColor } },
+                        y: { ticks: { color: textColor }, grid: { color: gridColor }, title: { display: true, text: '\u00B0C', color: textColor } },
+                    },
+                },
+            });
+        }
+
+        // Barometric Pressure chart
+        const pressureData = reports.map(r => r.pressure);
+        const hasPressure = pressureData.some(v => v != null);
+
+        if (hasPressure) {
+            const ctx2 = document.getElementById('weather-chart-pressure').getContext('2d');
+            weatherPressureChart = new Chart(ctx2, {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'Pressure (hPa)',
+                        data: pressureData,
+                        borderColor: '#4bc0c0',
+                        backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.3,
+                        pointRadius: 2,
+                        spanGaps: true,
+                    }],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { labels: { color: textColor } },
+                        title: { display: true, text: 'Barometric Pressure', color: textColor },
+                    },
+                    scales: {
+                        x: { ticks: { color: textColor, maxTicksLimit: 12 }, grid: { color: gridColor } },
+                        y: { ticks: { color: textColor }, grid: { color: gridColor }, title: { display: true, text: 'hPa', color: textColor } },
+                    },
+                },
+            });
+        }
+    }
 
     // --- Drop Pin ---
     function initDropPin() {

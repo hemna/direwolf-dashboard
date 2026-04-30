@@ -299,6 +299,24 @@ def create_api_router(container: ServiceContainer) -> APIRouter:
         result["path_stations"] = path_stations
         return result
 
+    @router.get("/weather/{callsign}")
+    async def get_weather(
+        callsign: str,
+        hours: int = Query(24, ge=1, le=168),
+        limit: int = Query(500, le=2000),
+    ):
+        """Get weather reports for a station.
+
+        Returns historical weather data for charting.
+        """
+        services = container.services
+        assert services is not None, "Services not initialized"
+        since = time.time() - (hours * 3600)
+        reports = await services.storage.get_weather_reports(
+            callsign=callsign, since=since, limit=limit
+        )
+        return {"callsign": callsign, "reports": reports}
+
     return router
 
 
