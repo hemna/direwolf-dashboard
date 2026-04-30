@@ -723,6 +723,7 @@
         initWeatherModal();
         await loadConfig();
         initMap();
+        initCenterFab();
         initLegend();
         initStatsOverlay();
         initFilterOverlay();
@@ -799,6 +800,18 @@
         });
 
         setInterval(cleanupAnimations, 10000);
+    }
+
+    function initCenterFab() {
+        const btn = document.getElementById('btn-center-my-pos');
+        if (!btn) return;
+        btn.addEventListener('click', function () {
+            const pos = getMyPosition();
+            if (pos) {
+                const zoom = config.station?.zoom || 12;
+                map.flyTo([pos.lat, pos.lng], zoom);
+            }
+        });
     }
 
     async function loadStations() {

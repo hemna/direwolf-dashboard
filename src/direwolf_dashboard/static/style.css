@@ -376,6 +376,38 @@ body.embedded #btn-theme {
     background: var(--accent);
 }
 
+/* FAB - Center on My Position */
+.fab-center {
+    position: absolute;
+    bottom: 24px;
+    right: 12px;
+    z-index: 1000;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--modal-bg);
+    color: var(--text-primary);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s, transform 0.15s;
+}
+
+.fab-center:hover {
+    background: var(--accent);
+    color: var(--btn-on-accent);
+    transform: scale(1.1);
+}
+
+.fab-center:active {
+    transform: scale(0.95);
+}
+
 /* Packet Log */
 #log-container {
     flex: 1;
