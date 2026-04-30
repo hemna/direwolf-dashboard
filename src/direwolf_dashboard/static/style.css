@@ -301,6 +301,12 @@ html, body {
     font-weight: bold;
     font-size: 14px;
     color: var(--accent);
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.logo:hover {
+    text-decoration: underline;
 }
 
 .status {

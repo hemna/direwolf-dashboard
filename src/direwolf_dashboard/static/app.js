@@ -2243,14 +2243,17 @@
         const modal = document.getElementById('about-modal');
         const closeBtn = document.getElementById('btn-close-about');
         const openBtn = document.getElementById('btn-about');
+        const logoBtn = document.getElementById('btn-about-logo');
 
-        openBtn.addEventListener('click', (e) => {
+        function openAbout(e) {
             e.preventDefault();
-            // Set version from config
             const ver = document.getElementById('app-version')?.textContent || '1.0.0';
             document.getElementById('about-version').textContent = ver;
             modal.classList.remove('hidden');
-        });
+        }
+
+        openBtn.addEventListener('click', openAbout);
+        if (logoBtn) logoBtn.addEventListener('click', openAbout);
         closeBtn.addEventListener('click', () => modal.classList.add('hidden'));
         modal.addEventListener('click', (e) => {
             if (e.target === modal) modal.classList.add('hidden');
