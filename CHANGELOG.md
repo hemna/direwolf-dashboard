@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented here.
 
+## [1.0.5] - 2026-04-30
+
+### Added
+- **Weather modal** — tap a weather station icon and click "View Weather" to
+  see current conditions (temperature, dewpoint, humidity, pressure, wind, rain)
+  and historical Chart.js line graphs of temperature/dewpoint and barometric
+  pressure over time. Vendored Chart.js 4.4.1 for offline use.
+- **Weather data storage** — new `weather_reports` table stores parsed weather
+  fields on ingest, including computed dewpoint (Magnus formula). Housekeeping
+  and DB wipe include the new table.
+- `GET /api/weather/{callsign}` endpoint for historical weather data.
+- **Center FAB** — floating GPS crosshair button on the map that flies to the
+  user's configured My Position.
+- **About modal** — shows app name, version, author (WB4BOR), DigiPi credit
+  (KM6LYW), GitHub link, and APRS Chat promo. Triggered from toolbar logo or
+  footer link.
+- **Changelog modal** — view the formatted changelog from within the app.
+
 ## [1.0.4] - 2026-04-28
 
 ### Added

@@ -722,6 +722,7 @@
         initDecode();
         initWeatherModal();
         initAboutModal();
+        initChangelogModal();
         await loadConfig();
         initMap();
         initCenterFab();
@@ -2263,6 +2264,111 @@
                 modal.classList.add('hidden');
             }
         });
+    }
+
+    function initChangelogModal() {
+        const modal = document.getElementById('changelog-modal');
+        const closeBtn = document.getElementById('btn-close-changelog');
+        const showBtn = document.getElementById('btn-show-changelog');
+
+        showBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            // Close about modal and open changelog
+            document.getElementById('about-modal').classList.add('hidden');
+            openChangelogModal();
+        });
+        closeBtn.addEventListener('click', () => modal.classList.add('hidden'));
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) modal.classList.add('hidden');
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && !modal.classList.contains('hidden')) {
+                modal.classList.add('hidden');
+            }
+        });
+    }
+
+    async function openChangelogModal() {
+        const modal = document.getElementById('changelog-modal');
+        const loading = document.getElementById('changelog-loading');
+        const content = document.getElementById('changelog-content');
+
+        loading.classList.remove('hidden');
+        content.classList.add('hidden');
+        modal.classList.remove('hidden');
+
+        try {
+            const resp = await fetch(API_BASE + '/changelog');
+            if (!resp.ok) throw new Error('Failed to load changelog');
+            const md = await resp.text();
+            content.innerHTML = renderMarkdown(md);
+            loading.classList.add('hidden');
+            content.classList.remove('hidden');
+        } catch (err) {
+            loading.textContent = 'Failed to load changelog.';
+        }
+    }
+
+    function renderMarkdown(md) {
+        // Simple markdown to HTML for changelogs
+        const lines = md.split('\n');
+        let html = '';
+        let inList = false;
+
+        for (let i = 0; i < lines.length; i++) {
+            let line = lines[i];
+
+            // Headings
+            if (line.startsWith('### ')) {
+                if (inList) { html += '</ul>'; inList = false; }
+                html += '<h4 class="cl-h4">' + escHtml(line.slice(4)) + '</h4>';
+                continue;
+            }
+            if (line.startsWith('## ')) {
+                if (inList) { html += '</ul>'; inList = false; }
+                html += '<h3 class="cl-h3">' + escHtml(line.slice(3)) + '</h3>';
+                continue;
+            }
+            if (line.startsWith('# ')) {
+                if (inList) { html += '</ul>'; inList = false; }
+                html += '<h2 class="cl-h2">' + escHtml(line.slice(2)) + '</h2>';
+                continue;
+            }
+
+            // List items
+            if (line.match(/^- /)) {
+                if (!inList) { html += '<ul>'; inList = true; }
+                html += '<li>' + inlineFormat(line.slice(2)) + '</li>';
+                continue;
+            }
+
+            // Blank line
+            if (line.trim() === '') {
+                if (inList) { html += '</ul>'; inList = false; }
+                continue;
+            }
+
+            // Plain text
+            if (inList) { html += '</ul>'; inList = false; }
+            html += '<p>' + inlineFormat(line) + '</p>';
+        }
+        if (inList) html += '</ul>';
+        return html;
+    }
+
+    function escHtml(str) {
+        return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function inlineFormat(str) {
+        let s = escHtml(str);
+        // Bold
+        s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        // Inline code
+        s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+        // Links [text](url)
+        s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+        return s;
     }
 
     async function openWeatherModal(callsign) {

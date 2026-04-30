@@ -317,6 +317,21 @@ def create_api_router(container: ServiceContainer) -> APIRouter:
         )
         return {"callsign": callsign, "reports": reports}
 
+    @router.get("/changelog")
+    async def get_changelog():
+        """Serve the CHANGELOG.md content as plain text."""
+        # Look for CHANGELOG.md relative to the package root
+        changelog_path = Path(__file__).resolve().parent.parent.parent / "CHANGELOG.md"
+        if not changelog_path.exists():
+            # Fallback: check cwd
+            changelog_path = Path("CHANGELOG.md")
+        if changelog_path.exists():
+            return Response(
+                content=changelog_path.read_text(encoding="utf-8"),
+                media_type="text/plain",
+            )
+        raise HTTPException(status_code=404, detail="Changelog not found")
+
     return router
 
 

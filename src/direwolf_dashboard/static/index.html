@@ -280,6 +280,23 @@
                 <div class="about-promo">
                     <a href="https://aprschat.online" target="_blank" rel="noopener">APRS Chat</a> &mdash; Mobile APRS messaging app
                 </div>
+                <div class="about-changelog-link">
+                    <a href="#" id="btn-show-changelog">View Changelog</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Changelog Modal -->
+    <div id="changelog-modal" class="modal hidden">
+        <div class="modal-content changelog-modal-content">
+            <div class="modal-header">
+                <h2>Changelog</h2>
+                <button id="btn-close-changelog">&times;</button>
+            </div>
+            <div class="modal-body" id="changelog-modal-body">
+                <div id="changelog-loading" class="weather-loading">Loading changelog...</div>
+                <div id="changelog-content" class="hidden"></div>
             </div>
         </div>
     </div>
