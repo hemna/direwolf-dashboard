@@ -2300,7 +2300,9 @@
         try {
             const resp = await fetch(API_BASE + '/changelog');
             if (!resp.ok) throw new Error('Failed to load changelog');
-            const md = await resp.text();
+            let md = await resp.text();
+            // Strip the top-level title and intro line (already in modal header)
+            md = md.replace(/^# Changelog\n+(?:All notable.*\n+)?/, '');
             content.innerHTML = renderMarkdown(md);
             loading.classList.add('hidden');
             content.classList.remove('hidden');
@@ -2311,7 +2313,20 @@
 
     function renderMarkdown(md) {
         // Simple markdown to HTML for changelogs
-        const lines = md.split('\n');
+        // First, join continuation lines (indented lines following a list item)
+        const rawLines = md.split('\n');
+        const lines = [];
+        for (let i = 0; i < rawLines.length; i++) {
+            const line = rawLines[i];
+            // Continuation: non-empty line starting with spaces, previous was a list item or continuation
+            if (line.match(/^  \S/) && lines.length > 0 && lines[lines.length - 1].match(/^- /)) {
+                // Append to previous line
+                lines[lines.length - 1] += ' ' + line.trim();
+            } else {
+                lines.push(line);
+            }
+        }
+
         let html = '';
         let inList = false;
 
@@ -2345,6 +2360,13 @@
             // Blank line
             if (line.trim() === '') {
                 if (inList) { html += '</ul>'; inList = false; }
+                continue;
+            }
+
+            // Continuation of list context (indented text after a list)
+            if (inList && line.match(/^\s/)) {
+                // Append to last li — reopen it
+                html = html.replace(/<\/li>$/, ' ' + inlineFormat(line.trim()) + '</li>');
                 continue;
             }
 
