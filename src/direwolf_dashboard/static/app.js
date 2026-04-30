@@ -721,6 +721,7 @@
         // Init decode modal immediately (doesn't depend on config/network)
         initDecode();
         initWeatherModal();
+        initAboutModal();
         await loadConfig();
         initMap();
         initCenterFab();
@@ -2234,6 +2235,29 @@
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape' && !modal.classList.contains('hidden')) {
                 closeWeatherModal();
+            }
+        });
+    }
+
+    function initAboutModal() {
+        const modal = document.getElementById('about-modal');
+        const closeBtn = document.getElementById('btn-close-about');
+        const openBtn = document.getElementById('btn-about');
+
+        openBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            // Set version from config
+            const ver = document.getElementById('app-version')?.textContent || '1.0.0';
+            document.getElementById('about-version').textContent = ver;
+            modal.classList.remove('hidden');
+        });
+        closeBtn.addEventListener('click', () => modal.classList.add('hidden'));
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) modal.classList.add('hidden');
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && !modal.classList.contains('hidden')) {
+                modal.classList.add('hidden');
             }
         });
     }
