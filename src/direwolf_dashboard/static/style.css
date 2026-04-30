@@ -1945,3 +1945,34 @@ button.secondary:hover {
     color: var(--text-secondary);
     line-height: 1.5;
 }
+
+.about-description a,
+.about-author a {
+    color: #5ec4e0;
+    text-decoration: none;
+}
+
+.about-description a:hover,
+.about-author a:hover {
+    text-decoration: underline;
+    color: #8dd8ec;
+}
+
+.about-promo {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.about-promo a {
+    color: #5ec4e0;
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.about-promo a:hover {
+    text-decoration: underline;
+    color: #8dd8ec;
+}
