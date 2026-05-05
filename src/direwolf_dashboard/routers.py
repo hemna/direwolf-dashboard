@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 from pathlib import Path
 from typing import Optional
@@ -12,7 +13,9 @@ from fastapi import APIRouter, HTTPException, Query, Response, WebSocket, WebSoc
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
+from direwolf_dashboard import __version__
 from direwolf_dashboard.config import update_config
+from direwolf_dashboard.decoder import decode_packet as _decode
 from direwolf_dashboard.lifecycle import (
     ServiceContainer,
     broadcast_event,
@@ -20,6 +23,14 @@ from direwolf_dashboard.lifecycle import (
 )
 
 LOG = logging.getLogger(__name__)
+
+
+def _get_services(container: ServiceContainer):
+    """Get services from container, raising HTTP 503 if not initialized."""
+    services = container.services
+    if services is None:
+        raise HTTPException(status_code=503, detail="Services not initialized")
+    return services
 
 
 def create_api_router(container: ServiceContainer) -> APIRouter:
@@ -38,8 +49,7 @@ def create_api_router(container: ServiceContainer) -> APIRouter:
         type: Optional[str] = Query(None),
     ):
         """Query packet history with optional filters."""
-        services = container.services
-        assert services is not None, "Services not initialized"
+        services = _get_services(container)
         packets = await services.storage.query_packets(since=since, limit=limit, callsign=callsign, packet_type=type)
         # Compute bearing/distance for each packet
         for p in packets:
@@ -49,15 +59,13 @@ def create_api_router(container: ServiceContainer) -> APIRouter:
     @router.get("/stations")
     async def get_stations():
         """Get all known stations with last position."""
-        services = container.services
-        assert services is not None, "Services not initialized"
+        services = _get_services(container)
         return await services.storage.get_stations()
 
     @router.get("/station/{callsign}")
     async def get_station(callsign: str, track_limit: int = Query(100, le=500)):
         """Get station detail and position track."""
-        services = container.services
-        assert services is not None, "Services not initialized"
+        services = _get_services(container)
         stations = await services.storage.get_stations()
         station = next((s for s in stations if s["callsign"] == callsign), None)
         if not station:
@@ -69,8 +77,7 @@ def create_api_router(container: ServiceContainer) -> APIRouter:
     @router.get("/stations/positions")
     async def get_station_positions():
         """Return lightweight position map for all known stations."""
-        services = container.services
-        assert services is not None, "Services not initialized"
+        services = _get_services(container)
         rows = await services.storage.get_all_station_positions()
         return {row["callsign"]: {"lat": row["latitude"], "lng": row["longitude"]} for row in rows}
 
@@ -80,8 +87,7 @@ def create_api_router(container: ServiceContainer) -> APIRouter:
 
         Returns a dict of callsign -> [[lat, lon, timestamp], ...] for map display.
         """
-        services = container.services
-        assert services is not None, "Services not initialized"
+        services = _get_services(container)
         since = time.time() - (hours * 3600)
         tracks = await services.storage.get_all_station_tracks(since)
         # Convert to lightweight format: {callsign: [[lat, lon, ts], ...]}
@@ -90,8 +96,7 @@ def create_api_router(container: ServiceContainer) -> APIRouter:
     @router.get("/stats")
     async def get_stats():
         """Get dashboard statistics."""
-        services = container.services
-        assert services is not None, "Services not initialized"
+        services = _get_services(container)
         db_stats = await services.storage.get_stats()
         db_stats.update(services.get_stats_dict())
         return db_stats
@@ -99,9 +104,7 @@ def create_api_router(container: ServiceContainer) -> APIRouter:
     @router.get("/config")
     async def get_config():
         """Get current configuration (with my_position from DB)."""
-        services = container.services
-        assert services is not None, "Services not initialized"
-        from direwolf_dashboard import __version__
+        services = _get_services(container)
 
         d = services.config.to_dict()
         d["version"] = __version__
@@ -119,11 +122,10 @@ def create_api_router(container: ServiceContainer) -> APIRouter:
         my_position updates are saved to the DB (runtime state), not the YAML.
         All other fields are persisted to the YAML config file.
         """
-        services = container.services
-        assert services is not None, "Services not initialized"
+        services = _get_services(container)
         try:
             # Extract my_position from updates — it goes to DB, not YAML
-            station_updates = updates.get("station", {})
+            station_updates = updates.get("station", {}).copy()
             has_my_pos = "my_position" in station_updates
             my_pos = station_updates.pop("my_position", None)
 
@@ -198,8 +200,13 @@ def create_api_router(container: ServiceContainer) -> APIRouter:
     @router.get("/tiles/{z}/{x}/{y}.png")
     async def get_tile(z: int, x: int, y: int):
         """Serve a map tile (cached or proxied from upstream)."""
-        services = container.services
-        assert services is not None, "Services not initialized"
+        services = _get_services(container)
+        # Validate tile coordinates
+        if z < 0 or z > 19:
+            raise HTTPException(status_code=400, detail="Zoom level must be 0-19")
+        max_coord = (1 << z) - 1
+        if x < 0 or x > max_coord or y < 0 or y > max_coord:
+            raise HTTPException(status_code=400, detail="Tile coordinates out of range")
         tile_data = await services.tile_proxy.get_tile(z, x, y)
         if tile_data:
             return Response(content=tile_data, media_type="image/png")
@@ -212,8 +219,7 @@ def create_api_router(container: ServiceContainer) -> APIRouter:
         Without confirm=true: returns estimate.
         With confirm=true: starts background preload.
         """
-        services = container.services
-        assert services is not None, "Services not initialized"
+        services = _get_services(container)
         bbox = request.get("bbox", [])
         if len(bbox) != 4:
             raise HTTPException(status_code=400, detail="bbox must be [south, west, north, east]")
@@ -227,18 +233,18 @@ def create_api_router(container: ServiceContainer) -> APIRouter:
         if not request.get("confirm"):
             return estimate
 
-        # Start preload in background
+        # Start preload in background (tracked for proper shutdown)
         async def progress_cb(done, total):
             await broadcast_event("preload_progress", {"done": done, "total": total}, services.ws_clients)
 
-        asyncio.create_task(services.tile_proxy.preload(south, west, north, east, min_zoom, max_zoom, progress_cb))
+        task = asyncio.create_task(services.tile_proxy.preload(south, west, north, east, min_zoom, max_zoom, progress_cb))
+        services.background_tasks.append(task)
         return {"status": "started", **estimate}
 
     @router.delete("/tiles/preload")
     async def cancel_preload():
         """Cancel an in-progress tile preload."""
-        services = container.services
-        assert services is not None, "Services not initialized"
+        services = _get_services(container)
         if services.tile_proxy:
             services.tile_proxy.cancel_preload()
         return {"status": "cancelled"}
@@ -249,8 +255,7 @@ def create_api_router(container: ServiceContainer) -> APIRouter:
 
         Safe to call at runtime — no restart required.
         """
-        services = container.services
-        assert services is not None, "Services not initialized"
+        services = _get_services(container)
         await services.storage.reset()
         await broadcast_event("storage_reset", {}, services.ws_clients)
         return {"status": "ok"}
@@ -263,11 +268,7 @@ def create_api_router(container: ServiceContainer) -> APIRouter:
     @router.post("/decode")
     async def decode_packet(req: DecodeRequest):
         """Decode a raw APRS packet and return structured JSON result."""
-        import re
-        from direwolf_dashboard.decoder import decode_packet as _decode
-
-        services = container.services
-        assert services is not None, "Services not initialized"
+        services = _get_services(container)
 
         result = _decode(req.raw_packet)
 
@@ -309,8 +310,7 @@ def create_api_router(container: ServiceContainer) -> APIRouter:
 
         Returns historical weather data for charting.
         """
-        services = container.services
-        assert services is not None, "Services not initialized"
+        services = _get_services(container)
         since = time.time() - (hours * 3600)
         reports = await services.storage.get_weather_reports(
             callsign=callsign, since=since, limit=limit
@@ -342,16 +342,13 @@ def create_ws_router(container: ServiceContainer, path: str = "/ws") -> APIRoute
     @router.websocket(path)
     async def websocket_endpoint(ws: WebSocket):
         services = container.services
-        assert services is not None, "Services not initialized"
+        if services is None:
+            await ws.close(code=1013, reason="Services not initialized")
+            return
 
         await ws.accept()
         services.ws_clients.add(ws)
         LOG.info(f"WebSocket client connected ({len(services.ws_clients)} total)")
-
-        # Use an event to keep the handler alive; broadcast_event sends
-        # directly via ws.send_text() from the _broadcast_consumer task.
-        disconnect_event = asyncio.Event()
-        ws._disconnect_event = disconnect_event
 
         try:
             # Send initial burst of recent packets

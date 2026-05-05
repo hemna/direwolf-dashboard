@@ -14,6 +14,36 @@ DEFAULT_CONFIG_DIR = os.path.expanduser("~/.config/direwolf-dashboard")
 DEFAULT_CONFIG_PATH = os.path.join(DEFAULT_CONFIG_DIR, "config.yaml")
 DEFAULT_DATA_DIR = os.path.expanduser("~/.local/share/direwolf-dashboard")
 
+# Fallback data directory for systems with readonly root filesystems (e.g. DigiPi).
+# If the standard DEFAULT_DATA_DIR is not writable, use /tmp which is typically
+# a ramdisk on such systems.
+FALLBACK_DATA_DIR = "/tmp/direwolf-dashboard"
+
+
+def _resolve_data_dir() -> str:
+    """Determine the best data directory.
+
+    Uses DEFAULT_DATA_DIR if writable, otherwise falls back to FALLBACK_DATA_DIR.
+    This handles readonly root filesystems like DigiPi where ~/.local/share may
+    not be writable but /tmp is a ramdisk.
+    """
+    expanded = os.path.expanduser(DEFAULT_DATA_DIR)
+    parent = os.path.dirname(expanded)
+    try:
+        os.makedirs(expanded, exist_ok=True)
+        # Verify we can actually write
+        test_file = os.path.join(expanded, ".write_test")
+        with open(test_file, "w") as f:
+            f.write("test")
+        os.remove(test_file)
+        return DEFAULT_DATA_DIR
+    except OSError:
+        LOG.warning(
+            f"Default data directory {expanded} is not writable, "
+            f"falling back to {FALLBACK_DATA_DIR}"
+        )
+        return FALLBACK_DATA_DIR
+
 
 @dataclass
 class StationConfig:
@@ -85,7 +115,7 @@ class Config:
 
     def __post_init__(self):
         if not self.data_dir:
-            self.data_dir = DEFAULT_DATA_DIR
+            self.data_dir = _resolve_data_dir()
         self.data_dir = os.path.expanduser(self.data_dir)
         # Resolve sub-config defaults that depend on data_dir
         self.storage.resolve_defaults(self.data_dir)

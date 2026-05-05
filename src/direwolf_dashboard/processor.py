@@ -3,8 +3,11 @@
 import asyncio
 import logging
 import math
+import re
 import time
 from typing import Optional
+
+import aprslib
 
 LOG = logging.getLogger(__name__)
 
@@ -66,6 +69,12 @@ def degrees_to_cardinal(degrees: float, full_string: bool = True) -> str:
 
 def format_compact_log(packet: dict) -> str:
     """Format a packet dict into APRSD-style compact log HTML.
+
+    NOTE: This embeds presentation HTML in the backend for historical reasons.
+    The frontend currently renders this directly. A future refactor should move
+    all rendering to the frontend using the structured packet fields (from_call,
+    to_call, type, path, bearing, distance_miles, human_info) and remove this
+    function entirely. See also: bearing HTML appended in lifecycle._broadcast_consumer.
 
     Matches the color scheme and format from aprsd/packets/log.py:
     - from_call: #C70039
@@ -144,8 +153,6 @@ def _strip_agw_header(raw: str) -> tuple[str, str | None]:
         from the Via clause (e.g. "N3XYZ*,WIDE1-1,qAR,N3LLO-10"), or None if no
         Via clause found. Payload is the APRS info portion.
     """
-    import re
-
     m = re.match(
         r"^\d+:Fm\s+\S+\s+To\s+\S+(?:\s+Via\s+(\S+(?:,\S+)*))?(?:\s+<[^>]*>)*\s*\[\d{2}:\d{2}:\d{2}\]\s*",
         raw,
@@ -206,8 +213,6 @@ def packet_to_dict(
     aprs_string = aprs_string.rstrip("\r\n\x00")
 
     try:
-        import aprslib
-
         parsed = aprslib.parse(aprs_string)
     except Exception:
         # If aprslib can't parse it, build a minimal dict from what we have
@@ -361,7 +366,7 @@ class PacketProcessor:
         )
 
         if packet:
-            LOG.info(f"[TIMING] Processor queuing {call_from} at {time.time():.3f}")
+            LOG.debug(f"[TIMING] Processor queuing {call_from} at {time.time():.3f}")
             try:
                 self.broadcast_queue.put_nowait(packet)
             except asyncio.QueueFull:

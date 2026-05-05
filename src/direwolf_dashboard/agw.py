@@ -208,7 +208,7 @@ class AGWReader:
 
         elif kind == "U":
             # Monitored (RX) packet — contains raw AX.25 frame
-            LOG.info(f"[TIMING] AGW RX frame arrived from {header.call_from} at {time.time():.3f}")
+            LOG.debug(f"[TIMING] AGW RX frame arrived from {header.call_from} at {time.time():.3f}")
             try:
                 await self.packet_callback(
                     raw_data=data,
@@ -221,7 +221,7 @@ class AGWReader:
 
         elif kind == "T":
             # Transmitted (TX) packet
-            LOG.info(f"[TIMING] AGW TX frame arrived from {header.call_from} at {time.time():.3f}")
+            LOG.debug(f"[TIMING] AGW TX frame arrived from {header.call_from} at {time.time():.3f}")
             try:
                 await self.packet_callback(
                     raw_data=data,

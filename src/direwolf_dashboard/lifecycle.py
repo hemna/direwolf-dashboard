@@ -3,16 +3,23 @@
 import asyncio
 import json
 import logging
+import math
 import time
 from dataclasses import dataclass, field
 from typing import Optional
 
+import aprslib
 from fastapi import WebSocket
+from haversine import haversine, Unit
 
 from direwolf_dashboard.agw import AGWReader
 from direwolf_dashboard.config import Config
 from direwolf_dashboard.log_tailer import LogTailer
-from direwolf_dashboard.processor import PacketProcessor
+from direwolf_dashboard.processor import (
+    PacketProcessor,
+    calculate_initial_compass_bearing,
+    degrees_to_cardinal,
+)
 from direwolf_dashboard.storage import Storage
 from direwolf_dashboard.tile_proxy import TileProxy
 
@@ -157,12 +164,6 @@ async def resolve_my_position(services: DirewolfServices) -> Optional[tuple[floa
 
 async def enrich_with_bearing(packet: dict, services: DirewolfServices) -> None:
     """Add bearing/distance to packet using my_position as reference."""
-    from direwolf_dashboard.processor import (
-        calculate_initial_compass_bearing,
-        degrees_to_cardinal,
-    )
-    from haversine import haversine, Unit
-
     if not packet.get("latitude") or not packet.get("longitude"):
         return
 
@@ -176,7 +177,7 @@ async def enrich_with_bearing(packet: dict, services: DirewolfServices) -> None:
         packet["bearing"] = degrees_to_cardinal(bearing_deg, full_string=True)
         packet["distance_miles"] = round(haversine(my_coords, pkt_coords, unit=Unit.MILES), 2)
     except Exception:
-        pass
+        LOG.debug("Failed to compute bearing/distance for packet", exc_info=True)
 
 
 async def broadcast_event(event: str, data: dict, ws_clients: set[WebSocket]) -> None:
@@ -194,7 +195,7 @@ async def broadcast_event(event: str, data: dict, ws_clients: set[WebSocket]) ->
             elapsed = time.time() - t_send
             if event == "packet":
                 pkt_id = data.get("id", "?")
-                LOG.info(f"[TIMING] pkt#{pkt_id} send_text took {elapsed:.3f}s")
+                LOG.debug(f"[TIMING] pkt#{pkt_id} send_text took {elapsed:.3f}s")
         except Exception:
             disconnected.add(ws)
 
@@ -209,8 +210,6 @@ async def broadcast_event(event: str, data: dict, ws_clients: set[WebSocket]) ->
 async def _store_weather_report(packet: dict, services: DirewolfServices) -> None:
     """Parse weather data from a packet's raw_packet and store in weather_reports."""
     try:
-        import aprslib
-
         raw = packet.get("raw_packet", "")
         if not raw:
             return
@@ -233,7 +232,6 @@ async def _store_weather_report(packet: dict, services: DirewolfServices) -> Non
                 t = float(temperature)
                 rh = float(humidity)
                 if rh > 0:
-                    import math
                     a, b = 17.27, 237.7
                     alpha = (a * t / (b + t)) + math.log(rh / 100.0)
                     dewpoint = (b * alpha) / (a - alpha)
@@ -270,14 +268,14 @@ async def _broadcast_consumer(services: DirewolfServices) -> None:
             t0 = time.time()
             pkt_ts = packet.get("timestamp", t0)
             from_call = packet.get("from_call", "?")
-            LOG.info(f"[TIMING] Consumer got {from_call} from queue at {t0:.3f} (age={t0 - pkt_ts:.3f}s)")
+            LOG.debug(f"[TIMING] Consumer got {from_call} from queue at {t0:.3f} (age={t0 - pkt_ts:.3f}s)")
 
             # Store in database
             if services.storage:
                 row_id = await services.storage.insert_packet(packet)
                 packet["id"] = row_id
                 t1 = time.time()
-                LOG.info(f"[TIMING] pkt#{row_id} insert_packet done at {t1:.3f} (+{t1 - t0:.3f}s)")
+                LOG.debug(f"[TIMING] pkt#{row_id} insert_packet done at {t1:.3f} (+{t1 - t0:.3f}s)")
 
                 # Store weather report if this is a weather packet
                 if packet.get("type") == "WeatherPacket":
@@ -314,7 +312,7 @@ async def _broadcast_consumer(services: DirewolfServices) -> None:
                 await enrich_with_bearing(packet, services)
                 t2 = time.time()
                 pkt_id = packet.get("id", "?")
-                LOG.info(f"[TIMING] pkt#{pkt_id} DB+enrich done at {t2:.3f} (+{t2 - t0:.3f}s)")
+                LOG.debug(f"[TIMING] pkt#{pkt_id} DB+enrich done at {t2:.3f} (+{t2 - t0:.3f}s)")
 
                 # Append bearing/distance to compact_log if present
                 if packet.get("bearing") and packet.get("compact_log"):
@@ -328,12 +326,14 @@ async def _broadcast_consumer(services: DirewolfServices) -> None:
             # Broadcast to WebSocket clients
             packet["_broadcast_ts"] = time.time()
             await broadcast_event("packet", packet, services.ws_clients)
-            # Force event loop to process transport write callbacks
+            # Yield to the event loop multiple times so the asyncio transport
+            # flushes buffered WebSocket write callbacks to the network layer.
+            # Without this, frames may batch up and arrive with noticeable delay.
             for _ in range(5):
                 await asyncio.sleep(0)
             t3 = time.time()
             pkt_id = packet.get("id", "?")
-            LOG.info(f"[TIMING] pkt#{pkt_id} Broadcast done for {packet.get('from_call','?')} at {t3:.3f} (total={t3 - pkt_ts:.3f}s)")
+            LOG.debug(f"[TIMING] pkt#{pkt_id} Broadcast done for {packet.get('from_call','?')} at {t3:.3f} (total={t3 - pkt_ts:.3f}s)")
 
         except asyncio.CancelledError:
             break

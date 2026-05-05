@@ -81,7 +81,9 @@ class Storage:
 
     async def init(self) -> None:
         """Initialize database: create tables, enable WAL mode."""
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        parent = os.path.dirname(self.db_path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
         self._db = await aiosqlite.connect(self.db_path)
         self._db.row_factory = aiosqlite.Row
 
