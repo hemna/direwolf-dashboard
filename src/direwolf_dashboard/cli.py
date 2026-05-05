@@ -59,7 +59,7 @@ def serve(ctx):
         host=config.server.host,
         port=config.server.port,
         log_level="info",
-        ws="wsproto",
+        ws="websockets",
         ws_ping_interval=None,
         ws_per_message_deflate=False,
     )
