@@ -2,6 +2,38 @@
 
 All notable changes to this project are documented here.
 
+## [1.0.6] - 2026-05-09
+
+### Added
+- **Clear data FAB** — trash icon button on the map that wipes all stored
+  packets, stations, and resets My Position. Includes a confirmation modal
+  with a "Don't ask me again" checkbox (persisted in localStorage).
+- **Retention days setting** — configurable in Settings > Storage to control
+  how long packets are kept before housekeeping deletes them.
+
+### Changed
+- **Packet log toggle simplified** — the 3-state cycle (expanded/peek/hidden)
+  is now a simple show/hide toggle. Panel defaults to 1/3 viewport height on
+  first show, remembers the last dragged position via localStorage.
+- **Timing logs demoted to DEBUG** — all `[TIMING]` instrumentation in
+  lifecycle, AGW, and processor modules now logs at DEBUG level instead of
+  INFO, significantly reducing log noise on the Pi.
+
+### Fixed
+- Replace `assert` with proper HTTP 503 responses in all route handlers —
+  assertions are stripped in optimized Python builds.
+- Data directory fallback for readonly filesystems — if `~/.local/share` is
+  not writable (e.g. DigiPi), automatically falls back to
+  `/tmp/direwolf-dashboard`.
+- Guard `os.makedirs` against empty dirname in storage init.
+- Fix dict mutation in `PUT /api/config` when extracting `my_position`.
+- Track tile preload background tasks for proper shutdown cancellation.
+- Add tile coordinate bounds validation (z: 0-19, x/y within range).
+- Remove dead `_disconnect_event` code from WebSocket handler.
+- Add debug logging to silent bearing/distance calculation exceptions.
+- Move inline imports (`aprslib`, `re`, `math`, `haversine`) to module top
+  level for clarity and slight performance improvement.
+
 ## [1.0.5] - 2026-04-30
 
 ### Added
