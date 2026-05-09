@@ -34,9 +34,9 @@
     let pinModeActive = false;
 
     // --- Log View State ---
-    const LOG_STATES = ['expanded', 'peek', 'hidden'];
+    const LOG_STATES = ['visible', 'hidden'];
     const LOG_STATE_KEY = 'logViewState';
-    let logViewState = 'peek';
+    let logViewState = 'visible';
     let resizeEnabled = true;
 
     // --- Animation state ---
@@ -1898,21 +1898,31 @@
         } else if (window.innerWidth < 768) {
             logViewState = 'hidden';
         } else {
-            logViewState = 'peek';
+            logViewState = 'visible';
+        }
+
+        // Set default map height to 2/3 viewport if no saved height exists
+        if (!localStorage.getItem(MAP_HEIGHT_KEY)) {
+            var toolbar = document.getElementById('toolbar');
+            var footer = document.getElementById('footer');
+            var chrome = (toolbar ? toolbar.offsetHeight : 40) + (footer ? footer.offsetHeight : 24);
+            var available = window.innerHeight - chrome;
+            var defaultMapHeight = Math.round(available * 2 / 3);
+            localStorage.setItem(MAP_HEIGHT_KEY, defaultMapHeight + 'px');
         }
 
         applyLogViewState();
 
-        // Click to cycle states
-        btn.addEventListener('click', cycleLogViewState);
+        // Click to toggle
+        btn.addEventListener('click', toggleLogViewState);
 
-        // Keyboard shortcut: L to cycle (when not focused on an input)
+        // Keyboard shortcut: L to toggle (when not focused on an input)
         document.addEventListener('keydown', (e) => {
             if (e.key === 'l' || e.key === 'L') {
                 const tag = document.activeElement?.tagName;
                 if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
                 e.preventDefault();
-                cycleLogViewState();
+                toggleLogViewState();
             }
         });
 
@@ -1924,9 +1934,8 @@
         });
     }
 
-    function cycleLogViewState() {
-        const idx = LOG_STATES.indexOf(logViewState);
-        logViewState = LOG_STATES[(idx + 1) % LOG_STATES.length];
+    function toggleLogViewState() {
+        logViewState = (logViewState === 'visible') ? 'hidden' : 'visible';
         localStorage.setItem(LOG_STATE_KEY, logViewState);
         applyLogViewState();
     }
@@ -1935,6 +1944,7 @@
         const body = document.body;
         const btn = document.getElementById('btn-toggle-log');
         const mapContainer = document.getElementById('map-container');
+        var logContainer = document.getElementById('log-container');
 
         // Remove all state classes, apply current
         for (const s of LOG_STATES) {
@@ -1942,14 +1952,13 @@
         }
         body.classList.add('log-' + logViewState);
 
-        // Restore saved height if log is visible, otherwise clear inline styles
-        var logContainer = document.getElementById('log-container');
         if (logViewState === 'hidden') {
             mapContainer.style.height = '';
             mapContainer.style.flex = '';
             logContainer.style.flex = '';
             logContainer.style.height = '';
         } else {
+            // Restore saved map height (defaults to 2/3 viewport, set in initLogToggle)
             var savedHeight = localStorage.getItem(MAP_HEIGHT_KEY);
             if (savedHeight) {
                 mapContainer.style.height = savedHeight;
@@ -1965,16 +1974,15 @@
         }
 
         // Update button icon and title
-        const icons = { expanded: '\u25BC', peek: '\u2500', hidden: '\u25B2' };  // ▼ ─ ▲
-        const titles = {
-            expanded: 'Collapse log to peek (L)',
-            peek: 'Hide log (L)',
-            hidden: 'Show log (L)',
-        };
-        btn.innerHTML = '<span class="toggle-icon">' + icons[logViewState] + '</span>';
-        btn.title = titles[logViewState];
+        if (logViewState === 'hidden') {
+            btn.innerHTML = '<span class="toggle-icon">\u25B2</span>';  // ▲
+            btn.title = 'Show packet log (L)';
+        } else {
+            btn.innerHTML = '<span class="toggle-icon">\u25BC</span>';  // ▼
+            btn.title = 'Hide packet log (L)';
+        }
 
-        // Enable resize when log is visible (expanded or peek)
+        // Enable resize when log is visible
         resizeEnabled = (logViewState !== 'hidden');
 
         // Invalidate map size after a brief delay for transition
@@ -2065,7 +2073,7 @@
 
         // Mobile buttons -> delegate to desktop buttons
         document.getElementById('mobile-btn-toggle-log').addEventListener('click', () => {
-            cycleLogViewState();
+            toggleLogViewState();
             menu.classList.add('hidden');
         });
         document.getElementById('mobile-btn-settings').addEventListener('click', () => {

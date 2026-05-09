@@ -673,29 +673,14 @@ body {
     transition: height 0.3s ease, flex 0.3s ease, min-height 0.3s ease, opacity 0.3s ease;
 }
 
-/* Expanded (default) — 50/50 split, current behavior */
-body.log-expanded #map-container {
-    height: 50%;
-    flex: none;
-}
-
-body.log-expanded #log-container {
-    flex: 1;
-    min-height: 100px;
-    opacity: 1;
-}
-
-/* Peek — map takes most space, log shows ~120px (3-4 rows), resizable */
-body.log-peek #map-container {
-    height: auto;
-    flex: 1;
+/* Visible — map takes saved height (or 2/3), log fills remainder */
+body.log-visible #map-container {
     min-height: 150px;
 }
 
-body.log-peek #log-container {
-    flex: none;
-    height: 120px;
-    min-height: 0;
+body.log-visible #log-container {
+    flex: 1;
+    min-height: 80px;
     opacity: 1;
 }
 
