@@ -33,6 +33,55 @@ def _get_services(container: ServiceContainer):
     return services
 
 
+def _generate_gpx(callsign: str, track: list[dict]) -> str:
+    """Generate a GPX 1.1 XML string from a station's position track.
+
+    Args:
+        callsign: Station callsign (used as track name).
+        track: List of dicts with 'latitude', 'longitude', 'timestamp' keys,
+               ordered newest-first from the DB query.
+
+    Returns:
+        GPX XML string.
+    """
+    from datetime import datetime, timezone
+
+    # Track comes newest-first from DB; reverse for chronological GPX order
+    points = list(reversed(track))
+
+    lines = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<gpx version="1.1" creator="Direwolf Dashboard"',
+        '     xmlns="http://www.topografix.com/GPX/1/1">',
+        '  <metadata>',
+        f'    <name>{callsign} Track</name>',
+        f'    <time>{datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}</time>',
+        '  </metadata>',
+        '  <trk>',
+        f'    <name>{callsign}</name>',
+        '    <trkseg>',
+    ]
+
+    for pt in points:
+        lat = pt["latitude"]
+        lon = pt["longitude"]
+        ts = pt.get("timestamp")
+        time_str = ""
+        if ts:
+            dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+            time_str = f"\n        <time>{dt.strftime('%Y-%m-%dT%H:%M:%SZ')}</time>"
+        lines.append(f'      <trkpt lat="{lat}" lon="{lon}">{time_str}')
+        lines.append('      </trkpt>')
+
+    lines.extend([
+        '    </trkseg>',
+        '  </trk>',
+        '</gpx>',
+    ])
+
+    return "\n".join(lines)
+
+
 def create_api_router(container: ServiceContainer) -> APIRouter:
     """Create the REST API router. Route handlers access container.services at request time.
 
@@ -316,6 +365,31 @@ def create_api_router(container: ServiceContainer) -> APIRouter:
             callsign=callsign, since=since, limit=limit
         )
         return {"callsign": callsign, "reports": reports}
+
+    @router.get("/station/{callsign}/gpx")
+    async def get_station_gpx(
+        callsign: str,
+        hours: int = Query(24, ge=1, le=168),
+    ):
+        """Export a station's position track as a GPX file.
+
+        Returns a downloadable GPX 1.1 XML file containing all recorded
+        positions for the station within the specified time window.
+        """
+        services = _get_services(container)
+        since = time.time() - (hours * 3600)
+        track = await services.storage.get_station_track(callsign, limit=5000, since=since)
+
+        if not track:
+            raise HTTPException(status_code=404, detail="No track data for station")
+
+        gpx_xml = _generate_gpx(callsign, track)
+        filename = f"{callsign.replace(' ', '_')}_{hours}h.gpx"
+        return Response(
+            content=gpx_xml,
+            media_type="application/gpx+xml",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
     @router.get("/changelog")
     async def get_changelog():

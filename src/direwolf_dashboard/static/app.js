@@ -920,6 +920,10 @@
         if (d.symbol === '_') {
             html += `<button class="popup-btn popup-btn-weather" onclick="window._viewWeather('${callsign}')">View Weather</button>`;
         }
+        // "Download GPX" button for stations with position data
+        if (d.latitude && d.longitude) {
+            html += `<button class="popup-btn popup-btn-gpx" onclick="window._downloadGpx('${callsign}')">Download GPX</button>`;
+        }
         s.marker.bindPopup(html);
     }
 
@@ -2255,6 +2259,18 @@
     window._viewWeather = function (callsign) {
         map.closePopup();
         openWeatherModal(callsign);
+    };
+
+    window._downloadGpx = function (callsign) {
+        map.closePopup();
+        // Trigger download via a temporary link
+        const url = API_BASE + '/station/' + encodeURIComponent(callsign) + '/gpx?hours=24';
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = callsign.replace(/\s/g, '_') + '_24h.gpx';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
     };
 
     let weatherTempChart = null;
