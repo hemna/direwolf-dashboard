@@ -414,6 +414,38 @@ body.embedded #btn-theme {
     transform: scale(0.95);
 }
 
+/* FAB - Clear All Data */
+.fab-clear {
+    position: absolute;
+    bottom: 72px;
+    right: 12px;
+    z-index: 1000;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--modal-bg);
+    color: var(--text-primary);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s, transform 0.15s;
+}
+
+.fab-clear:hover {
+    background: var(--danger);
+    color: #fff;
+    transform: scale(1.1);
+}
+
+.fab-clear:active {
+    transform: scale(0.95);
+}
+
 /* Packet Log */
 #log-container {
     flex: 1;
@@ -864,6 +896,21 @@ button.secondary:hover {
     display: flex;
     justify-content: flex-end;
     gap: 8px;
+}
+
+.confirm-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin: 0 0 16px 0;
+    cursor: pointer;
+}
+
+.confirm-checkbox-label input[type="checkbox"] {
+    margin: 0;
+    cursor: pointer;
 }
 
 #wipe-feedback {

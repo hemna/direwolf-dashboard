@@ -742,6 +742,7 @@
         initFilters();
         initSettings();
         initConfirmWipeModal();
+        initClearDataFab();
         initDropPin();
         initMapResize();
         initLogToggle();
@@ -1706,9 +1707,40 @@
         }
     }
 
+    var SKIP_CLEAR_CONFIRM_KEY = 'direwolf_dashboard_skip_clear_confirm';
+
     async function wipeDatabase() {
+        // Check if user has opted out of confirmation
+        if (localStorage.getItem(SKIP_CLEAR_CONFIRM_KEY) === 'true') {
+            await performClearData();
+            return;
+        }
         var modal = document.getElementById('confirm-wipe-modal');
+        // Reset the checkbox each time
+        document.getElementById('chk-dont-ask-again').checked = false;
         modal.classList.remove('hidden');
+    }
+
+    async function performClearData() {
+        try {
+            var resp = await fetch(API_BASE + '/storage', { method: 'DELETE' });
+            var result = await resp.json();
+            if (resp.ok) {
+                clearStationsAndPackets();
+                // Reset my position (stations are gone, stale position is misleading)
+                saveMyPosition(null);
+            } else {
+                console.error('Clear data failed:', result.detail || 'Unknown error');
+            }
+        } catch (e) {
+            console.error('Clear data error:', e.message);
+        }
+    }
+
+    function initClearDataFab() {
+        var btn = document.getElementById('btn-clear-data');
+        if (!btn) return;
+        btn.addEventListener('click', wipeDatabase);
     }
 
     function initConfirmWipeModal() {
@@ -1716,6 +1748,7 @@
         var btnClose = document.getElementById('btn-close-confirm-wipe');
         var btnCancel = document.getElementById('btn-cancel-wipe');
         var btnConfirm = document.getElementById('btn-confirm-wipe');
+        var chkDontAsk = document.getElementById('chk-dont-ask-again');
 
         function closeModal() { modal.classList.add('hidden'); }
 
@@ -1726,27 +1759,21 @@
         });
 
         btnConfirm.addEventListener('click', async function () {
+            // Save "don't ask again" preference if checked
+            if (chkDontAsk.checked) {
+                localStorage.setItem(SKIP_CLEAR_CONFIRM_KEY, 'true');
+            }
             closeModal();
             var btn = document.getElementById('btn-wipe-db');
             var feedback = document.getElementById('wipe-feedback');
             btn.disabled = true;
-            btn.textContent = 'Wiping...';
+            btn.textContent = 'Clearing...';
             feedback.classList.add('hidden');
             try {
-                var resp = await fetch(API_BASE + '/storage', { method: 'DELETE' });
-                var result = await resp.json();
-                if (resp.ok) {
-                    feedback.className = 'success';
-                    feedback.textContent = 'Database wiped';
-                    feedback.classList.remove('hidden');
-                    clearStationsAndPackets();
-                    // Reset my position (stations are gone, stale position is misleading)
-                    saveMyPosition(null);
-                } else {
-                    feedback.className = 'error';
-                    feedback.textContent = 'Error: ' + (result.detail || 'Unknown');
-                    feedback.classList.remove('hidden');
-                }
+                await performClearData();
+                feedback.className = 'success';
+                feedback.textContent = 'Data cleared';
+                feedback.classList.remove('hidden');
             } catch (e) {
                 feedback.className = 'error';
                 feedback.textContent = 'Error: ' + e.message;

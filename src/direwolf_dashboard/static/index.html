@@ -56,6 +56,7 @@
     <div id="map-container">
         <div id="map"></div>
         <button id="btn-center-my-pos" class="fab-center" title="Center on my position">&#x2316;</button>
+        <button id="btn-clear-data" class="fab-clear" title="Clear all stations and packets">&#x1F5D1;</button>
         <div id="map-resize-handle"></div>
     </div>
 
@@ -220,14 +221,18 @@
     <div id="confirm-wipe-modal" class="modal hidden">
         <div class="modal-content confirm-modal-content">
             <div class="modal-header">
-                <h2>Wipe Packet Database</h2>
+                <h2>Clear All Data</h2>
                 <button id="btn-close-confirm-wipe">&times;</button>
             </div>
             <div class="modal-body">
                 <p class="confirm-message">This will permanently delete all stored packets, station data, and reset your "My Position" setting. This cannot be undone.</p>
+                <label class="confirm-checkbox-label">
+                    <input type="checkbox" id="chk-dont-ask-again" />
+                    Don't ask me again
+                </label>
                 <div class="confirm-actions">
                     <button id="btn-cancel-wipe" class="secondary">Cancel</button>
-                    <button id="btn-confirm-wipe" class="btn-danger">Wipe Database</button>
+                    <button id="btn-confirm-wipe" class="btn-danger">Clear Data</button>
                 </div>
             </div>
         </div>
