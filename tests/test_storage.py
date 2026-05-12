@@ -287,6 +287,32 @@ class TestHousekeeping:
         results = await storage.query_packets()
         assert len(results) == 5
 
+    async def test_housekeeping_deletes_old_stations(self, storage):
+        """Stations with last_seen older than retention are purged."""
+        old_time = time.time() - (8 * 86400)  # 8 days ago
+        new_time = time.time()
+
+        await storage.upsert_station("OLD-1", old_time, 35.0, -80.0)
+        await storage.upsert_station("NEW-1", new_time, 36.0, -81.0)
+
+        await storage.housekeep(retention_days=7)
+
+        stations = await storage.get_stations()
+        callsigns = [s["callsign"] for s in stations]
+        assert "OLD-1" not in callsigns
+        assert "NEW-1" in callsigns
+
+    async def test_housekeeping_keeps_recent_stations(self, storage):
+        """Stations seen within retention window are kept."""
+        t = time.time()
+        await storage.upsert_station("RECENT-1", t - 3600, 35.0, -80.0)
+        await storage.upsert_station("RECENT-2", t - 7200, 36.0, -81.0)
+
+        await storage.housekeep(retention_days=7)
+
+        stations = await storage.get_stations()
+        assert len(stations) == 2
+
 
 class TestStats:
     """Test statistics retrieval."""

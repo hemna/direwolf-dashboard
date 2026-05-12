@@ -467,7 +467,7 @@ class Storage:
         }
 
     async def housekeep(self, retention_days: int) -> int:
-        """Delete packets older than retention_days. Returns count deleted."""
+        """Delete packets and stations older than retention_days. Returns packet count deleted."""
         cutoff = time.time() - (retention_days * 86400)
         cursor = await self._db.execute(
             "DELETE FROM packets WHERE timestamp < ?", (cutoff,)
@@ -475,11 +475,16 @@ class Storage:
         await self._db.execute(
             "DELETE FROM weather_reports WHERE timestamp < ?", (cutoff,)
         )
+        station_cursor = await self._db.execute(
+            "DELETE FROM stations WHERE last_seen < ?", (cutoff,)
+        )
         await self._db.commit()
         deleted = cursor.rowcount
-        if deleted:
+        stations_deleted = station_cursor.rowcount
+        if deleted or stations_deleted:
             LOG.info(
-                f"Housekeeping: deleted {deleted} packets older than {retention_days} days"
+                f"Housekeeping: deleted {deleted} packets and {stations_deleted} stations"
+                f" older than {retention_days} days"
             )
         return deleted
 
