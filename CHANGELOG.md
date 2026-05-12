@@ -11,6 +11,13 @@ All notable changes to this project are documented here.
 - **Retention days setting** — configurable in Settings > Storage to control
   how long packets are kept before housekeeping deletes them.
 
+### Fixed
+- **Housekeeping now purges stale stations** — the periodic housekeeping loop
+  deleted old packets and weather reports but never touched the stations table,
+  causing the map to display all stations ever heard regardless of the
+  retention_days setting. Stations with `last_seen` older than the retention
+  window are now deleted alongside packets.
+
 ### Changed
 - **Packet log toggle simplified** — the 3-state cycle (expanded/peek/hidden)
   is now a simple show/hide toggle. Panel defaults to 1/3 viewport height on
