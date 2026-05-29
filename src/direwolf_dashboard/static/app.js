@@ -1028,24 +1028,6 @@
         }
         s.marker.bindPopup(html);
     }
-        // "Set as My Position" / "Remove as My Position" button
-        const mp = config.station?.my_position;
-        const isMyStation = mp && mp.type === 'station' && mp.callsign === callsign;
-        if (isMyStation) {
-            html += `<button class="popup-btn popup-btn-remove" onclick="window._removeMyPosition()">Remove as My Position</button>`;
-        } else {
-            html += `<button class="popup-btn popup-btn-set" onclick="window._setMyPositionStation('${callsign}')">Set as My Position</button>`;
-        }
-        // "View Weather" button for weather stations (symbol '_')
-        if (d.symbol === '_') {
-            html += `<button class="popup-btn popup-btn-weather" onclick="window._viewWeather('${callsign}')">View Weather</button>`;
-        }
-        // "Download GPX" button for stations with position data
-        if (d.latitude && d.longitude) {
-            html += `<button class="popup-btn popup-btn-gpx" onclick="window._downloadGpx('${callsign}')">Download GPX</button>`;
-        }
-        s.marker.bindPopup(html);
-    }
 
     function updateStationTrack(callsign, lat, lon) {
         const s = stations[callsign];
