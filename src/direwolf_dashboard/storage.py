@@ -90,6 +90,9 @@ class Storage:
         # Enable WAL mode for concurrent reads during writes
         await self._db.execute("PRAGMA journal_mode=WAL")
 
+        # Reduce page cache to 512 KB (default is 2 MB) — important on low-RAM Pi
+        await self._db.execute("PRAGMA cache_size = -512")
+
         # Create tables and indexes
         await self._db.executescript(SCHEMA_SQL)
         await self._db.commit()

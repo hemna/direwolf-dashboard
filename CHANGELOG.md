@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented here.
 
+## [1.0.8] - 2026-05-29
+
+### Changed
+- **RAM optimizations** for Raspberry Pi Zero 2W:
+  - Disabled FastAPI OpenAPI/docs schema generation (not needed in production)
+  - Reduced broadcast queue depth from 500 → 50 entries
+  - Set SQLite `PRAGMA cache_size = -512` (512 KB vs 2 MB default)
+  - Tile stats `os.walk` now cached for 60 s instead of running every 10 s
+  - Single-station API endpoint now queries by callsign directly instead of
+    fetching all stations and doing a linear scan
+
 ## [1.0.7] - 2026-05-29
 
 ### Added

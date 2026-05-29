@@ -35,6 +35,10 @@ class TileProxy:
         self._preload_task: Optional[asyncio.Task] = None
         self._preload_cancel = False
         self._client: Optional[httpx.AsyncClient] = None
+        # Cache stats to avoid walking the tile dir on every stats poll
+        self._stats_cache: Optional[dict] = None
+        self._stats_cache_time: float = 0.0
+        self._stats_cache_ttl: float = 60.0  # seconds
 
     async def init(self) -> None:
         """Initialize the tile proxy."""
@@ -115,7 +119,11 @@ class TileProxy:
         return None
 
     def get_cache_stats(self) -> dict:
-        """Get cache statistics."""
+        """Get cache statistics, cached for 60 s to avoid frequent os.walk."""
+        now = time.time()
+        if self._stats_cache is not None and (now - self._stats_cache_time) < self._stats_cache_ttl:
+            return self._stats_cache
+
         total_size = 0
         tile_count = 0
         for root, dirs, files in os.walk(self.cache_dir):
@@ -124,11 +132,13 @@ class TileProxy:
                     tile_count += 1
                     total_size += os.path.getsize(os.path.join(root, f))
 
-        return {
+        self._stats_cache = {
             "tile_count": tile_count,
             "cache_size_mb": round(total_size / (1024 * 1024), 2),
             "max_cache_mb": self.max_cache_mb,
         }
+        self._stats_cache_time = now
+        return self._stats_cache
 
     def estimate_preload(
         self, south: float, west: float, north: float, east: float,

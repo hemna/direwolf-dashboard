@@ -115,8 +115,7 @@ def create_api_router(container: ServiceContainer) -> APIRouter:
     async def get_station(callsign: str, track_limit: int = Query(100, le=500)):
         """Get station detail and position track."""
         services = _get_services(container)
-        stations = await services.storage.get_stations()
-        station = next((s for s in stations if s["callsign"] == callsign), None)
+        station = await services.storage.get_station(callsign)
         if not station:
             raise HTTPException(status_code=404, detail="Station not found")
 

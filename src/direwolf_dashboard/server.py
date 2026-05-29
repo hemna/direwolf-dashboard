@@ -32,7 +32,14 @@ def create_app(config: Config, config_path: str) -> FastAPI:
         yield
         await shutdown_services(container.services)
 
-    app = FastAPI(title="Direwolf Dashboard", lifespan=lifespan)
+    # Disable OpenAPI schema/docs — not needed in production, saves Pydantic overhead
+    app = FastAPI(
+        title="Direwolf Dashboard",
+        lifespan=lifespan,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
 
     # Mount API routes at /api prefix (routes are defined without prefix in routers.py)
     app.include_router(create_api_router(container), prefix="/api")

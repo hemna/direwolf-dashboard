@@ -75,7 +75,7 @@ async def startup_services(config: Config, config_path: str | None = None) -> Di
     await tile_proxy.init()
 
     # Init broadcast queue and processor
-    broadcast_queue: asyncio.Queue = asyncio.Queue(maxsize=500)
+    broadcast_queue: asyncio.Queue = asyncio.Queue(maxsize=50)
     processor = PacketProcessor(broadcast_queue=broadcast_queue)
 
     # Create AGW reader
