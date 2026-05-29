@@ -850,6 +850,19 @@
             localStorage.setItem('dw-map-zoom', map.getZoom());
         });
 
+        // Station click overlay: path lines, distance, log highlight
+        map.on('popupopen', function (e) {
+            for (const cs of Object.keys(stations)) {
+                if (stations[cs].marker === e.popup._source) {
+                    showStationOverlay(cs);
+                    break;
+                }
+            }
+        });
+        map.on('popupclose', function () {
+            clearStationOverlay();
+        });
+
         var tileLayer = L.tileLayer(API_BASE + '/tiles/{z}/{x}/{y}.png', {
             attribution: '&copy; OpenStreetMap contributors',
             maxZoom: 18,
@@ -977,6 +990,44 @@
             const ago = Math.round((Date.now() / 1000 - d.last_seen) / 60);
             html += `Last seen: ${ago}m ago<br>`;
         }
+
+        // Path info
+        if (d.last_path && d.last_path.length > 0) {
+            const pathInfo = parsePath(d.last_path);
+            const hops = [];
+            if (pathInfo.digipeaters.length > 0) hops.push(...pathInfo.digipeaters);
+            if (pathInfo.igate) hops.push(pathInfo.igate);
+            if (hops.length > 0) {
+                html += `<div class="popup-path">&#8594; ${hops.join(' &rsaquo; ')}</div>`;
+            } else if (pathInfo.isTcpip) {
+                html += `<div class="popup-path">&#8594; TCPIP (internet)</div>`;
+            }
+        }
+
+        // Distance to My Position
+        const myPos = getMyPosition();
+        if (myPos && d.latitude && d.longitude) {
+            const distKm = haversineKm(d.latitude, d.longitude, myPos.lat, myPos.lng);
+            const distMi = (distKm * 0.621371).toFixed(1);
+            html += `<div class="popup-distance">&#128205; ${distKm.toFixed(1)}&thinsp;km / ${distMi}&thinsp;mi</div>`;
+        }
+
+        // "Set as My Position" / "Remove as My Position" button
+        const mp = config.station?.my_position;
+        const isMyStation = mp && mp.type === 'station' && mp.callsign === callsign;
+        if (isMyStation) {
+            html += `<button class="popup-btn popup-btn-remove" onclick="window._removeMyPosition()">Remove as My Position</button>`;
+        } else {
+            html += `<button class="popup-btn popup-btn-set" onclick="window._setMyPositionStation('${callsign}')">Set as My Position</button>`;
+        }
+        if (d.symbol === '_') {
+            html += `<button class="popup-btn popup-btn-weather" onclick="window._viewWeather('${callsign}')">View Weather</button>`;
+        }
+        if (d.latitude && d.longitude) {
+            html += `<button class="popup-btn popup-btn-gpx" onclick="window._downloadGpx('${callsign}')">Download GPX</button>`;
+        }
+        s.marker.bindPopup(html);
+    }
         // "Set as My Position" / "Remove as My Position" button
         const mp = config.station?.my_position;
         const isMyStation = mp && mp.type === 'station' && mp.callsign === callsign;
@@ -1024,6 +1075,95 @@
             }
         }
         return result;
+    }
+
+    // --- Station overlay: path lines, distance, log highlight ---
+    function haversineKm(lat1, lon1, lat2, lon2) {
+        const R = 6371;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) ** 2 +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+        return R * 2 * Math.asin(Math.sqrt(a));
+    }
+
+    var _overlayLayers = [];
+    var _selectedCallsign = null;
+
+    function clearStationOverlay() {
+        _overlayLayers.forEach(l => map.removeLayer(l));
+        _overlayLayers = [];
+        document.querySelectorAll('.log-row.log-row-selected')
+            .forEach(el => el.classList.remove('log-row-selected'));
+        _selectedCallsign = null;
+    }
+
+    function showStationOverlay(callsign) {
+        clearStationOverlay();
+        _selectedCallsign = callsign;
+        const s = stations[callsign];
+        if (!s) return;
+        const stLat = s.data.latitude;
+        const stLng = s.data.longitude;
+
+        // --- Path lines: station → digipeaters → igate ---
+        const pathInfo = parsePath(s.data.last_path || []);
+        const waypoints = [{ lat: stLat, lng: stLng }];
+        for (const digi of pathInfo.digipeaters) {
+            const pos = getStationPosition(digi);
+            if (pos) waypoints.push({ lat: pos.lat, lng: pos.lng, label: digi });
+        }
+        if (pathInfo.igate) {
+            const pos = getStationPosition(pathInfo.igate);
+            if (pos) waypoints.push({ lat: pos.lat, lng: pos.lng, label: pathInfo.igate });
+        }
+        for (let i = 0; i < waypoints.length - 1; i++) {
+            const from = waypoints[i];
+            const to = waypoints[i + 1];
+            const line = L.polyline([[from.lat, from.lng], [to.lat, to.lng]], {
+                color: 'var(--path-overlay-color, #ff9500)',
+                weight: 2.5, opacity: 0.85, dashArray: '6,4',
+            }).addTo(map);
+            _overlayLayers.push(line);
+            if (to.label) {
+                const dot = L.circleMarker([to.lat, to.lng], {
+                    radius: 5, color: '#ff9500', fillColor: '#ff9500',
+                    fillOpacity: 0.9, weight: 1.5,
+                }).bindTooltip(to.label, { permanent: false, direction: 'top', className: 'path-tooltip' }).addTo(map);
+                _overlayLayers.push(dot);
+            }
+        }
+
+        // --- Distance line to My Position ---
+        const myPos = getMyPosition();
+        if (myPos) {
+            const distKm = haversineKm(stLat, stLng, myPos.lat, myPos.lng);
+            const distMi = (distKm * 0.621371).toFixed(1);
+            const distLine = L.polyline([[stLat, stLng], [myPos.lat, myPos.lng]], {
+                color: 'var(--distance-line-color, #00bfff)',
+                weight: 1.5, opacity: 0.7, dashArray: '4,8',
+            }).addTo(map);
+            _overlayLayers.push(distLine);
+            const midLat = (stLat + myPos.lat) / 2;
+            const midLng = (stLng + myPos.lng) / 2;
+            const distLabel = L.marker([midLat, midLng], {
+                icon: L.divIcon({
+                    html: `<div class="distance-label">${distKm.toFixed(1)}&thinsp;km&ensp;/&ensp;${distMi}&thinsp;mi</div>`,
+                    className: '',
+                    iconSize: [110, 20],
+                    iconAnchor: [55, 10],
+                }),
+                interactive: false,
+            }).addTo(map);
+            _overlayLayers.push(distLabel);
+        }
+
+        // --- Highlight log rows ---
+        const escaped = CSS.escape(callsign);
+        document.querySelectorAll(`.log-row[data-callsign="${escaped}"]`)
+            .forEach(el => el.classList.add('log-row-selected'));
+        const first = document.querySelector(`.log-row[data-callsign="${escaped}"]`);
+        if (first) first.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
 
     // --- Station Position Helpers ---
@@ -1372,6 +1512,7 @@
                 last_comment: packet.comment,
                 packet_count: (stations[packet.from_call]?.data?.packet_count || 0) + 1,
                 last_seen: packet.timestamp,
+                last_path: packet.path || [],
             });
             if (!packet.position_from_db) {
                 updateStationTrack(packet.from_call, packet.latitude, packet.longitude);

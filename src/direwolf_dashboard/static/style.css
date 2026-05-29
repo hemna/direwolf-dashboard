@@ -636,6 +636,12 @@ body.embedded #btn-theme {
     display: none;
 }
 
+/* Station click: highlight matching log rows */
+.log-row.log-row-selected {
+    background: var(--log-row-selected, rgba(255, 149, 0, 0.15));
+    border-left: 2px solid #ff9500;
+}
+
 /* Footer */
 #footer {
     display: flex;
@@ -1497,6 +1503,45 @@ button.secondary:hover {
 
 .popup-btn-gpx:hover {
     background: #5d9e72;
+}
+
+/* Station popup: path and distance lines */
+.popup-path {
+    font-size: 11px;
+    color: var(--overlay-text-muted);
+    margin: 3px 0 2px;
+    word-break: break-all;
+}
+.popup-distance {
+    font-size: 11px;
+    color: #00bfff;
+    margin: 2px 0 4px;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Map overlay: distance label */
+.distance-label {
+    background: rgba(0, 0, 0, 0.65);
+    color: #00bfff;
+    font-size: 11px;
+    font-family: inherit;
+    padding: 2px 6px;
+    border-radius: 4px;
+    white-space: nowrap;
+    pointer-events: none;
+    border: 1px solid rgba(0, 191, 255, 0.4);
+}
+
+/* Map overlay: path hop tooltip */
+.path-tooltip {
+    background: rgba(0, 0, 0, 0.75);
+    color: #ff9500;
+    border: 1px solid rgba(255, 149, 0, 0.5);
+    border-radius: 4px;
+    font-size: 11px;
+    font-family: inherit;
+    padding: 2px 6px;
+    box-shadow: none;
 }
 
 /* Drop pin button active state */
