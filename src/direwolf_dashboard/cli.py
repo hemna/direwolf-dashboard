@@ -34,6 +34,7 @@ def serve(ctx):
     """Start the Direwolf Dashboard web server."""
     import asyncio
     import uvicorn
+    from concurrent.futures import ThreadPoolExecutor
 
     # Configure app-level logging so our LOG.info() calls are visible
     logging.basicConfig(
@@ -54,11 +55,18 @@ def serve(ctx):
 
     app = create_app(config, config_path)
 
+    # Cap the default thread pool — single-user Pi app doesn't need many threads
+    loop = asyncio.new_event_loop()
+    loop.set_default_executor(ThreadPoolExecutor(max_workers=2))
+    asyncio.set_event_loop(loop)
+
     uvicorn.run(
         app,
         host=config.server.host,
         port=config.server.port,
         log_level="info",
+        loop="asyncio",
+        http="h11",
         ws="websockets",
         ws_ping_interval=None,
         ws_per_message_deflate=False,
