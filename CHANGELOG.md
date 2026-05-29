@@ -8,6 +8,9 @@ All notable changes to this project are documented here.
 - **Collapsible overlays** — all map overlay panels (Stats, Filters, My Location,
   GPX Overlay, Legend) can now be collapsed and expanded by clicking their header.
   Collapse state is persisted in localStorage and restored on page refresh.
+- **Map view persistence** — zoom level and map center are saved to localStorage
+  on every pan/zoom and restored on page refresh. First visit still uses the
+  normal centering priority chain (my position → config → most-recent station).
 - **Legend arrow fix** — the legend header arrow now correctly shows ▲ when
   expanded and ▼ when collapsed (was previously a static ▼).
 

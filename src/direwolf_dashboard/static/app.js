@@ -842,6 +842,14 @@
 
         map = L.map('map').setView([lat, lon], zoom);
 
+        // Persist map view across page refreshes
+        map.on('moveend', function () {
+            var c = map.getCenter();
+            localStorage.setItem('dw-map-lat', c.lat);
+            localStorage.setItem('dw-map-lng', c.lng);
+            localStorage.setItem('dw-map-zoom', map.getZoom());
+        });
+
         var tileLayer = L.tileLayer(API_BASE + '/tiles/{z}/{x}/{y}.png', {
             attribution: '&copy; OpenStreetMap contributors',
             maxZoom: 18,
@@ -2158,6 +2166,15 @@
 
     // --- Cold Start / Map Centering ---
     async function initMapCenter() {
+        // Priority 0: restore last view from localStorage
+        var savedLat = localStorage.getItem('dw-map-lat');
+        var savedLng = localStorage.getItem('dw-map-lng');
+        var savedZoom = localStorage.getItem('dw-map-zoom');
+        if (savedLat !== null && savedLng !== null && savedZoom !== null) {
+            map.setView([parseFloat(savedLat), parseFloat(savedLng)], parseInt(savedZoom));
+            return;
+        }
+
         // Priority 1: my_position resolved coords
         const myPos = getMyPosition();
         if (myPos) {
