@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 import aprslib
-from fastapi import WebSocket
+from starlette.websockets import WebSocket
 from haversine import haversine, Unit
 
 from direwolf_dashboard.agw import AGWReader

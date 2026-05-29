@@ -13,11 +13,28 @@ All notable changes to this project are documented here.
   normal centering priority chain (my position → config → most-recent station).
 - **Legend arrow fix** — the legend header arrow now correctly shows ▲ when
   expanded and ▼ when collapsed (was previously a static ▼).
+- **Station path visualization** — clicking a station marker draws the packet
+  path on the map: orange dashed lines from station through each digipeater to
+  the iGate, using live station positions. Path hops are also shown as text in
+  the popup (e.g. `→ KD4ATF-3 › APPOMX`).
+- **Distance to My Position** — when My Position is set, clicking any station
+  draws a blue dashed line to your position with a floating distance label in
+  both km and miles. Distance is also shown in the popup.
+- **Log row highlight** — clicking a station highlights all matching rows in the
+  Live Packet Log with an orange left-border and scrolls to the first match.
+  Closing the popup clears the highlight.
 
 ### Changed
-- **RAM optimizations** for Raspberry Pi Zero 2W:
+- **RAM optimizations** for Raspberry Pi Zero 2W (RSS reduced from ~49 MB to
+  ~35 MB, packages from 63 → 12):
+  - Replaced FastAPI with Starlette directly — removes Pydantic, pydantic-core,
+    annotated-types (the only Pydantic model in the codebase was a 2-line
+    `DecodeRequest` with a single field)
+  - Replaced `httpx` tile fetching with `asyncio.to_thread` + stdlib `urllib`
+  - Added `PYTHONMALLOC=malloc` and `MALLOC_ARENA_MAX=2` to the systemd service
+    so Python returns freed memory to the OS instead of hoarding it
   - Removed unused `aprsd` dependency and switched to `uvicorn` (no extras),
-    cutting installed packages from 63 → 29
+    cutting installed packages from 63 → 12
   - Disabled FastAPI OpenAPI/docs schema generation (not needed in production)
   - Capped uvicorn thread pool to 2 workers; use stdlib asyncio loop and h11
   - Reduced broadcast queue depth from 500 → 50 entries
