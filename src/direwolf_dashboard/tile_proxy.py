@@ -4,27 +4,15 @@ import asyncio
 import logging
 import os
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Callable, Optional
+
+import httpx
 
 LOG = logging.getLogger(__name__)
 
 # OSM tile usage policy: max 2 requests/second
 RATE_LIMIT_DELAY = 0.5  # seconds between requests
-
-_TILE_HEADERS = {"User-Agent": "DirewolfDashboard/1.0"}
-
-
-def _sync_fetch_tile(url: str, timeout: float) -> tuple[int, bytes]:
-    """Synchronous tile fetch — run in a thread via asyncio.to_thread."""
-    req = urllib.request.Request(url, headers=_TILE_HEADERS)
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.status, resp.read()
-    except urllib.error.HTTPError as e:
-        return e.code, b""
 
 
 class TileProxy:
@@ -46,6 +34,7 @@ class TileProxy:
         self.max_cache_mb = max_cache_mb
         self._preload_task: Optional[asyncio.Task] = None
         self._preload_cancel = False
+        self._client: Optional[httpx.AsyncClient] = None
         # Cache stats to avoid walking the tile dir on every stats poll
         self._stats_cache: Optional[dict] = None
         self._stats_cache_time: float = 0.0
@@ -54,10 +43,16 @@ class TileProxy:
     async def init(self) -> None:
         """Initialize the tile proxy."""
         os.makedirs(self.cache_dir, exist_ok=True)
+        self._client = httpx.AsyncClient(
+            timeout=15.0,
+            limits=httpx.Limits(max_connections=4, max_keepalive_connections=2),
+            headers={"User-Agent": "DirewolfDashboard/1.0"},
+        )
 
     async def close(self) -> None:
-        """Close the tile proxy (no-op — no persistent connection to close)."""
-        pass
+        """Close the HTTP client."""
+        if self._client:
+            await self._client.aclose()
 
     def _tile_path(self, z: int, x: int, y: int) -> str:
         """Get the filesystem path for a cached tile."""
@@ -88,25 +83,23 @@ class TileProxy:
         max_retries = 2
         for attempt in range(max_retries + 1):
             try:
-                status, content = await asyncio.to_thread(_sync_fetch_tile, url, 15.0)
-                if status == 200 and content:
-                    # Cache to disk
+                response = await self._client.get(url)
+                if response.status_code == 200 and response.content:
                     os.makedirs(os.path.dirname(path), exist_ok=True)
                     with open(path, "wb") as f:
-                        f.write(content)
+                        f.write(response.content)
                     await self._check_cache_budget()
-                    return content
+                    return response.content
 
-                # Retry on transient HTTP errors
-                if status in (429, 500, 502, 503, 504) and attempt < max_retries:
+                if response.status_code in (429, 500, 502, 503, 504) and attempt < max_retries:
                     delay = (attempt + 1) * 1.0
-                    LOG.warning(f"Tile fetch {url} -> {status}, retry {attempt + 1}/{max_retries} in {delay}s")
+                    LOG.warning(f"Tile fetch {url} -> {response.status_code}, retry {attempt + 1}/{max_retries} in {delay}s")
                     await asyncio.sleep(delay)
                     continue
 
-                LOG.warning(f"Tile fetch failed: {url} -> {status}")
+                LOG.warning(f"Tile fetch failed: {url} -> {response.status_code}")
                 return None
-            except (TimeoutError, OSError) as e:
+            except (httpx.TimeoutException, httpx.ConnectError) as e:
                 if attempt < max_retries:
                     delay = (attempt + 1) * 1.0
                     LOG.warning(f"Tile fetch {url} -> {type(e).__name__}, retry {attempt + 1}/{max_retries} in {delay}s")
