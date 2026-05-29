@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented here.
 
+## [1.0.7] - 2026-05-29
+
+### Added
+- **Collapsible overlays** — all map overlay panels (Stats, Filters, My Location,
+  GPX Overlay, Legend) can now be collapsed and expanded by clicking their header.
+  Collapse state is persisted in localStorage and restored on page refresh.
+- **Legend arrow fix** — the legend header arrow now correctly shows ▲ when
+  expanded and ▼ when collapsed (was previously a static ▼).
+
 ## [1.0.6] - 2026-05-09
 
 ### Added

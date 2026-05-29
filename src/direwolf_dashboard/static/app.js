@@ -211,7 +211,7 @@
                 var routeColor = themeColor('--route-tcpip-line');
                 container.innerHTML = `
                     <div class="map-legend-header">
-                        Legend &#9660;
+                        Legend <span class="legend-collapse-icon">&#9650;</span>
                     </div>
                     <div class="legend-body">
                         <div class="legend-section-title">Animations</div>
@@ -248,7 +248,17 @@
                     </div>
                 `;
                 const header = container.querySelector('.map-legend-header');
-                header.addEventListener('click', () => container.classList.toggle('collapsed'));
+                const legendIcon = container.querySelector('.legend-collapse-icon');
+                header.addEventListener('click', () => {
+                    container.classList.toggle('collapsed');
+                    const isCollapsed = container.classList.contains('collapsed');
+                    legendIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
+                    localStorage.setItem('dw-legend-collapsed', isCollapsed ? '1' : '0');
+                });
+                if (localStorage.getItem('dw-legend-collapsed') === '1') {
+                    container.classList.add('collapsed');
+                    legendIcon.textContent = '\u25BC';
+                }
                 L.DomEvent.disableClickPropagation(container);
                 L.DomEvent.disableScrollPropagation(container);
                 return container;
@@ -266,11 +276,26 @@
             onAdd: function () {
                 var container = L.DomUtil.create('div', 'stats-overlay');
                 container.innerHTML =
+                    '<div class="stats-overlay-header">Stats <span class="stats-collapse-icon">\u25B2</span></div>' +
+                    '<div class="stats-overlay-body">' +
                     '<div class="stats-overlay-row"><span class="stats-label">Stations</span><span class="stats-value" id="stats-stations">0</span></div>' +
                     '<div class="stats-overlay-row"><span class="stats-label">Packets</span><span class="stats-value" id="stats-packets">0</span></div>' +
                     '<div class="stats-overlay-row"><span class="stats-label">Pkts/hr</span><span class="stats-value" id="stats-rate">0</span></div>' +
                     '<div class="stats-overlay-row"><span class="stats-label">Tiles</span><span class="stats-value" id="stats-tiles">0</span></div>' +
-                    '<div class="stats-overlay-row"><span class="stats-label">Uptime</span><span class="stats-value" id="stats-uptime">0s</span></div>';
+                    '<div class="stats-overlay-row"><span class="stats-label">Uptime</span><span class="stats-value" id="stats-uptime">0s</span></div>' +
+                    '</div>';
+                var statsHeader = container.querySelector('.stats-overlay-header');
+                var statsIcon = container.querySelector('.stats-collapse-icon');
+                statsHeader.addEventListener('click', function () {
+                    container.classList.toggle('collapsed');
+                    var isCollapsed = container.classList.contains('collapsed');
+                    statsIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
+                    localStorage.setItem('dw-stats-collapsed', isCollapsed ? '1' : '0');
+                });
+                if (localStorage.getItem('dw-stats-collapsed') === '1') {
+                    container.classList.add('collapsed');
+                    statsIcon.textContent = '\u25BC';
+                }
                 L.DomEvent.disableClickPropagation(container);
                 L.DomEvent.disableScrollPropagation(container);
                 statsOverlayEl = container;
@@ -319,6 +344,8 @@
             onAdd: function () {
                 var container = L.DomUtil.create('div', 'filter-overlay');
                 container.innerHTML =
+                    '<div class="filter-overlay-header">Filters <span class="filter-collapse-icon">\u25B2</span></div>' +
+                    '<div class="filter-overlay-body">' +
                     '<div class="filter-overlay-row">' +
                         '<label class="filter-overlay-label" for="filter-callsign">Callsign</label>' +
                         '<input type="text" id="filter-callsign" placeholder="Filter..." />' +
@@ -351,7 +378,20 @@
                             '<option value="rx">RX</option>' +
                             '<option value="tx">TX</option>' +
                         '</select>' +
+                    '</div>' +
                     '</div>';
+                var filterHeader = container.querySelector('.filter-overlay-header');
+                var filterIcon = container.querySelector('.filter-collapse-icon');
+                filterHeader.addEventListener('click', function () {
+                    container.classList.toggle('collapsed');
+                    var isCollapsed = container.classList.contains('collapsed');
+                    filterIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
+                    localStorage.setItem('dw-filter-collapsed', isCollapsed ? '1' : '0');
+                });
+                if (localStorage.getItem('dw-filter-collapsed') === '1') {
+                    container.classList.add('collapsed');
+                    filterIcon.textContent = '\u25BC';
+                }
                 L.DomEvent.disableClickPropagation(container);
                 L.DomEvent.disableScrollPropagation(container);
                 return container;
@@ -372,6 +412,7 @@
                         '<span class="my-location-actions">' +
                             '<span class="my-location-btn my-location-center" title="Center map on my location">&#8982;</span>' +
                             '<span class="my-location-btn my-location-clear hidden" title="Clear my location">&times;</span>' +
+                            '<span class="my-location-collapse-icon">\u25B2</span>' +
                         '</span>' +
                     '</div>' +
                     '<div class="my-location-body">' +
@@ -392,6 +433,20 @@
                 container.querySelector('.my-location-clear').addEventListener('click', function () {
                     if (window._removeMyPosition) window._removeMyPosition();
                 });
+                // Wire up collapse toggle
+                var myLocHeader = container.querySelector('.my-location-header');
+                var myLocIcon = container.querySelector('.my-location-collapse-icon');
+                myLocHeader.addEventListener('click', function (e) {
+                    if (e.target.closest('.my-location-btn')) return;
+                    container.classList.toggle('collapsed');
+                    var isCollapsed = container.classList.contains('collapsed');
+                    myLocIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
+                    localStorage.setItem('dw-myloc-collapsed', isCollapsed ? '1' : '0');
+                });
+                if (localStorage.getItem('dw-myloc-collapsed') === '1') {
+                    container.classList.add('collapsed');
+                    myLocIcon.textContent = '\u25BC';
+                }
                 myLocationOverlayEl = container;
                 return container;
             },
@@ -496,8 +551,14 @@
                 var collapseIcon = container.querySelector('.gpx-collapse-icon');
                 header.addEventListener('click', function () {
                     container.classList.toggle('collapsed');
-                    collapseIcon.textContent = container.classList.contains('collapsed') ? '\u25BC' : '\u25B2';
+                    var isCollapsed = container.classList.contains('collapsed');
+                    collapseIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
+                    localStorage.setItem('dw-gpx-collapsed', isCollapsed ? '1' : '0');
                 });
+                if (localStorage.getItem('dw-gpx-collapsed') === '1') {
+                    container.classList.add('collapsed');
+                    collapseIcon.textContent = '\u25BC';
+                }
 
                 container.querySelector('.gpx-btn-load').addEventListener('click', function () {
                     gpxFileInput.click();

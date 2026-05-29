@@ -1033,12 +1033,35 @@ button.secondary:hover {
 .stats-overlay {
     background: var(--overlay-bg);
     border-radius: 6px;
-    padding: 6px 10px;
+    padding: 0;
     font-size: 11px;
     color: var(--overlay-text);
     border: 1px solid var(--overlay-border);
     pointer-events: auto;
     min-width: 110px;
+}
+.stats-overlay-header {
+    cursor: pointer;
+    font-size: 10px;
+    color: var(--overlay-text-muted);
+    border-bottom: 1px solid var(--overlay-border);
+    padding: 5px 10px;
+    user-select: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.stats-overlay-header:hover {
+    color: var(--overlay-text);
+}
+.stats-overlay-body {
+    padding: 4px 10px 6px;
+}
+.stats-overlay.collapsed .stats-overlay-body {
+    display: none;
+}
+.stats-overlay.collapsed .stats-overlay-header {
+    border-bottom: none;
 }
 .stats-overlay-row {
     display: flex;
@@ -1058,12 +1081,35 @@ button.secondary:hover {
 .filter-overlay {
     background: var(--overlay-bg);
     border-radius: 6px;
-    padding: 6px 10px;
+    padding: 0;
     font-size: 11px;
     color: var(--overlay-text);
     border: 1px solid var(--overlay-border);
     pointer-events: auto;
     min-width: 160px;
+}
+.filter-overlay-header {
+    cursor: pointer;
+    font-size: 10px;
+    color: var(--overlay-text-muted);
+    border-bottom: 1px solid var(--overlay-border);
+    padding: 5px 10px;
+    user-select: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.filter-overlay-header:hover {
+    color: var(--overlay-text);
+}
+.filter-overlay-body {
+    padding: 4px 10px 6px;
+}
+.filter-overlay.collapsed .filter-overlay-body {
+    display: none;
+}
+.filter-overlay.collapsed .filter-overlay-header {
+    border-bottom: none;
 }
 .filter-overlay-row {
     display: flex;
@@ -1101,7 +1147,7 @@ button.secondary:hover {
 .my-location-overlay {
     background: var(--overlay-bg);
     border-radius: 6px;
-    padding: 6px 10px;
+    padding: 0;
     font-size: 11px;
     color: var(--overlay-text);
     border: 1px solid var(--overlay-border);
@@ -1112,9 +1158,29 @@ button.secondary:hover {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding-bottom: 3px;
+    padding: 6px 10px 3px;
     border-bottom: 1px solid var(--overlay-divider);
-    margin-bottom: 4px;
+    margin-bottom: 0;
+    cursor: pointer;
+    user-select: none;
+}
+.my-location-header:hover .my-location-title {
+    color: var(--overlay-text);
+}
+.my-location-body {
+    padding: 4px 10px 6px;
+}
+.my-location-overlay.collapsed .my-location-body {
+    display: none;
+}
+.my-location-overlay.collapsed .my-location-header {
+    border-bottom: none;
+    padding-bottom: 6px;
+}
+.my-location-collapse-icon {
+    font-size: 9px;
+    color: var(--overlay-text-muted);
+    margin-left: 4px;
 }
 .my-location-title {
     color: var(--overlay-text-muted);
