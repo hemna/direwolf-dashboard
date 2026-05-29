@@ -83,7 +83,7 @@ wheels = [
 
 [[package]]
 name = "direwolf-dashboard"
-version = "1.0.8"
+version = "1.0.7"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
