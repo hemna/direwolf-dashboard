@@ -1,4 +1,4 @@
-"""Router factory functions — create APIRouter instances bound to a ServiceContainer."""
+"""Router factory functions — create Starlette route lists bound to a ServiceContainer."""
 
 import asyncio
 import json
@@ -9,9 +9,11 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, Response, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from starlette.exceptions import HTTPException
+from starlette.requests import Request
+from starlette.responses import HTMLResponse, JSONResponse, Response
+from starlette.routing import Route, WebSocketRoute
+from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from direwolf_dashboard import __version__
 from direwolf_dashboard.config import update_config
@@ -34,19 +36,9 @@ def _get_services(container: ServiceContainer):
 
 
 def _generate_gpx(callsign: str, track: list[dict]) -> str:
-    """Generate a GPX 1.1 XML string from a station's position track.
-
-    Args:
-        callsign: Station callsign (used as track name).
-        track: List of dicts with 'latitude', 'longitude', 'timestamp' keys,
-               ordered newest-first from the DB query.
-
-    Returns:
-        GPX XML string.
-    """
+    """Generate a GPX 1.1 XML string from a station's position track."""
     from datetime import datetime, timezone
 
-    # Track comes newest-first from DB; reverse for chronological GPX order
     points = list(reversed(track))
 
     lines = [
@@ -82,109 +74,127 @@ def _generate_gpx(callsign: str, track: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def create_api_router(container: ServiceContainer) -> APIRouter:
-    """Create the REST API router. Route handlers access container.services at request time.
+def _qint(request: Request, name: str, default: int, min_val: int = None, max_val: int = None) -> int:
+    """Parse an integer query parameter with optional clamping."""
+    try:
+        val = int(request.query_params.get(name, default))
+    except (ValueError, TypeError):
+        val = default
+    if min_val is not None:
+        val = max(val, min_val)
+    if max_val is not None:
+        val = min(val, max_val)
+    return val
 
-    Routes are defined WITHOUT the /api/ prefix — the caller mounts at the desired prefix.
-    Standalone: prefix="/api", Hosted: prefix="/api/direwolf-dashboard".
-    """
-    router = APIRouter()
 
-    @router.get("/packets")
-    async def get_packets(
-        since: Optional[float] = Query(None),
-        limit: int = Query(100, le=500),
-        callsign: Optional[str] = Query(None),
-        type: Optional[str] = Query(None),
-    ):
-        """Query packet history with optional filters."""
+def _qfloat(request: Request, name: str, default=None) -> Optional[float]:
+    """Parse an optional float query parameter."""
+    raw = request.query_params.get(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except (ValueError, TypeError):
+        return default
+
+
+def create_api_routes(container: ServiceContainer) -> list:
+    """Return a list of Starlette Route objects for the REST API."""
+
+    async def get_packets(request: Request):
         services = _get_services(container)
-        packets = await services.storage.query_packets(since=since, limit=limit, callsign=callsign, packet_type=type)
-        # Compute bearing/distance for each packet
+        since = _qfloat(request, "since")
+        limit = _qint(request, "limit", 100, max_val=500)
+        callsign = request.query_params.get("callsign") or None
+        ptype = request.query_params.get("type") or None
+        packets = await services.storage.query_packets(
+            since=since, limit=limit, callsign=callsign, packet_type=ptype
+        )
         for p in packets:
             await enrich_with_bearing(p, services)
-        return packets
+        return JSONResponse(packets)
 
-    @router.get("/stations")
-    async def get_stations():
-        """Get all known stations with last position."""
+    async def get_stations(request: Request):
         services = _get_services(container)
-        return await services.storage.get_stations()
+        return JSONResponse(await services.storage.get_stations())
 
-    @router.get("/station/{callsign}")
-    async def get_station(callsign: str, track_limit: int = Query(100, le=500)):
-        """Get station detail and position track."""
+    async def get_station_positions(request: Request):
         services = _get_services(container)
+        rows = await services.storage.get_all_station_positions()
+        return JSONResponse({
+            row["callsign"]: {"lat": row["latitude"], "lng": row["longitude"]}
+            for row in rows
+        })
+
+    async def get_station_tracks(request: Request):
+        services = _get_services(container)
+        hours = _qint(request, "hours", 1, min_val=1, max_val=24)
+        since = time.time() - (hours * 3600)
+        tracks = await services.storage.get_all_station_tracks(since)
+        return JSONResponse({
+            cs: [[p["latitude"], p["longitude"], p["timestamp"]] for p in points]
+            for cs, points in tracks.items()
+        })
+
+    async def get_station(request: Request):
+        services = _get_services(container)
+        callsign = request.path_params["callsign"]
         station = await services.storage.get_station(callsign)
         if not station:
             raise HTTPException(status_code=404, detail="Station not found")
-
+        track_limit = _qint(request, "track_limit", 100, max_val=500)
         track = await services.storage.get_station_track(callsign, limit=track_limit)
-        return {"station": station, "track": track}
+        return JSONResponse({"station": station, "track": track})
 
-    @router.get("/stations/positions")
-    async def get_station_positions():
-        """Return lightweight position map for all known stations."""
+    async def get_station_gpx(request: Request):
         services = _get_services(container)
-        rows = await services.storage.get_all_station_positions()
-        return {row["callsign"]: {"lat": row["latitude"], "lng": row["longitude"]} for row in rows}
-
-    @router.get("/stations/tracks")
-    async def get_station_tracks(hours: int = Query(1, ge=1, le=24)):
-        """Return position tracks for all stations within a time window.
-
-        Returns a dict of callsign -> [[lat, lon, timestamp], ...] for map display.
-        """
-        services = _get_services(container)
+        callsign = request.path_params["callsign"]
+        hours = _qint(request, "hours", 24, min_val=1, max_val=168)
         since = time.time() - (hours * 3600)
-        tracks = await services.storage.get_all_station_tracks(since)
-        # Convert to lightweight format: {callsign: [[lat, lon, ts], ...]}
-        return {cs: [[p["latitude"], p["longitude"], p["timestamp"]] for p in points] for cs, points in tracks.items()}
+        track = await services.storage.get_station_track(callsign, limit=5000, since=since)
+        if not track:
+            raise HTTPException(status_code=404, detail="No track data for station")
+        gpx_xml = _generate_gpx(callsign, track)
+        filename = f"{callsign.replace(' ', '_')}_{hours}h.gpx"
+        return Response(
+            content=gpx_xml,
+            media_type="application/gpx+xml",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
-    @router.get("/stats")
-    async def get_stats():
-        """Get dashboard statistics."""
+    async def get_stats(request: Request):
         services = _get_services(container)
         db_stats = await services.storage.get_stats()
         db_stats.update(services.get_stats_dict())
-        return db_stats
+        return JSONResponse(db_stats)
 
-    @router.get("/config")
-    async def get_config():
-        """Get current configuration (with my_position from DB)."""
+    async def config_handler(request: Request):
         services = _get_services(container)
+        if request.method == "GET":
+            d = services.config.to_dict()
+            d["version"] = __version__
+            mp = await services.storage.get_my_position()
+            d["station"]["my_position"] = mp or {
+                "type": None, "callsign": None, "latitude": None, "longitude": None
+            }
+            return JSONResponse(d)
 
-        d = services.config.to_dict()
-        d["version"] = __version__
-
-        # Merge runtime my_position from DB into the response
-        mp = await services.storage.get_my_position()
-        d["station"]["my_position"] = mp or {"type": None, "callsign": None, "latitude": None, "longitude": None}
-
-        return d
-
-    @router.put("/config")
-    async def put_config(updates: dict):
-        """Update configuration. Returns updated fields and restart status.
-
-        my_position updates are saved to the DB (runtime state), not the YAML.
-        All other fields are persisted to the YAML config file.
-        """
-        services = _get_services(container)
+        # PUT
         try:
-            # Extract my_position from updates — it goes to DB, not YAML
+            updates = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+        try:
             station_updates = updates.get("station", {}).copy()
             has_my_pos = "my_position" in station_updates
             my_pos = station_updates.pop("my_position", None)
 
-            # Remove empty station dict if my_position was the only key
             if not station_updates:
                 updates.pop("station", None)
 
-            # Validate and save my_position to DB
             if has_my_pos:
                 if my_pos is None:
-                    # Explicit clear
                     await services.storage.set_my_position(None)
                 else:
                     mp_type = my_pos.get("type")
@@ -212,13 +222,10 @@ def create_api_router(container: ServiceContainer) -> APIRouter:
                             status_code=400,
                             detail=f"Invalid my_position type: {mp_type}",
                         )
-
-                    # Save to DB (None type clears it)
                     await services.storage.set_my_position(
                         my_pos if mp_type else None
                     )
 
-            # Apply remaining YAML config updates (if any)
             updated_fields = []
             restart_required = False
             if updates:
@@ -227,7 +234,6 @@ def create_api_router(container: ServiceContainer) -> APIRouter:
                 )
                 services.config = new_config
 
-            # Broadcast my_position changes to all WebSocket clients
             if has_my_pos:
                 mp_data = await services.storage.get_my_position()
                 await broadcast_event(
@@ -236,20 +242,23 @@ def create_api_router(container: ServiceContainer) -> APIRouter:
                     services.ws_clients,
                 )
 
-            return {
+            return JSONResponse({
                 "updated": updated_fields + (["station.my_position"] if has_my_pos else []),
                 "restart_required": restart_required,
-            }
+            })
         except HTTPException:
             raise
         except Exception as e:
             raise HTTPException(status_code=400, detail={"errors": str(e)})
 
-    @router.get("/tiles/{z}/{x}/{y}.png")
-    async def get_tile(z: int, x: int, y: int):
-        """Serve a map tile (cached or proxied from upstream)."""
+    async def get_tile(request: Request):
         services = _get_services(container)
-        # Validate tile coordinates
+        try:
+            z = int(request.path_params["z"])
+            x = int(request.path_params["x"])
+            y = int(request.path_params["y"])
+        except (ValueError, KeyError):
+            raise HTTPException(status_code=400, detail="Invalid tile coordinates")
         if z < 0 or z > 19:
             raise HTTPException(status_code=400, detail="Zoom level must be 0-19")
         max_coord = (1 << z) - 1
@@ -260,70 +269,64 @@ def create_api_router(container: ServiceContainer) -> APIRouter:
             return Response(content=tile_data, media_type="image/png")
         raise HTTPException(status_code=404, detail="Tile not found")
 
-    @router.post("/tiles/preload")
-    async def preload_tiles(request: dict):
-        """Estimate or start a tile preload.
-
-        Without confirm=true: returns estimate.
-        With confirm=true: starts background preload.
-        """
+    async def tiles_preload_handler(request: Request):
         services = _get_services(container)
-        bbox = request.get("bbox", [])
+        if request.method == "DELETE":
+            if services.tile_proxy:
+                services.tile_proxy.cancel_preload()
+            return JSONResponse({"status": "cancelled"})
+
+        # POST
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+        bbox = body.get("bbox", [])
         if len(bbox) != 4:
             raise HTTPException(status_code=400, detail="bbox must be [south, west, north, east]")
 
         south, west, north, east = bbox
-        min_zoom = request.get("min_zoom", 1)
-        max_zoom = min(request.get("max_zoom", 14), 16)
+        min_zoom = body.get("min_zoom", 1)
+        max_zoom = min(body.get("max_zoom", 14), 16)
 
         estimate = services.tile_proxy.estimate_preload(south, west, north, east, min_zoom, max_zoom)
 
-        if not request.get("confirm"):
-            return estimate
+        if not body.get("confirm"):
+            return JSONResponse(estimate)
 
-        # Start preload in background (tracked for proper shutdown)
         async def progress_cb(done, total):
-            await broadcast_event("preload_progress", {"done": done, "total": total}, services.ws_clients)
+            await broadcast_event(
+                "preload_progress", {"done": done, "total": total}, services.ws_clients
+            )
 
-        task = asyncio.create_task(services.tile_proxy.preload(south, west, north, east, min_zoom, max_zoom, progress_cb))
+        task = asyncio.create_task(
+            services.tile_proxy.preload(south, west, north, east, min_zoom, max_zoom, progress_cb)
+        )
         services.background_tasks.append(task)
-        return {"status": "started", **estimate}
+        return JSONResponse({"status": "started", **estimate})
 
-    @router.delete("/tiles/preload")
-    async def cancel_preload():
-        """Cancel an in-progress tile preload."""
-        services = _get_services(container)
-        if services.tile_proxy:
-            services.tile_proxy.cancel_preload()
-        return {"status": "cancelled"}
-
-    @router.delete("/storage")
-    async def wipe_storage():
-        """Wipe the packet database and recreate empty tables.
-
-        Safe to call at runtime — no restart required.
-        """
+    async def wipe_storage(request: Request):
         services = _get_services(container)
         await services.storage.reset()
         await broadcast_event("storage_reset", {}, services.ws_clients)
-        return {"status": "ok"}
+        return JSONResponse({"status": "ok"})
 
-    # --- Decode Endpoint ---
-
-    class DecodeRequest(BaseModel):
-        raw_packet: str
-
-    @router.post("/decode")
-    async def decode_packet(req: DecodeRequest):
-        """Decode a raw APRS packet and return structured JSON result."""
+    async def decode_packet(request: Request):
         services = _get_services(container)
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
+        raw_packet = body.get("raw_packet", "")
+        if not raw_packet:
+            raise HTTPException(status_code=400, detail="raw_packet is required")
 
-        result = _decode(req.raw_packet)
+        result = _decode(raw_packet)
 
         if not result["success"]:
-            return result
+            return JSONResponse(result)
 
-        # Look up path station positions from DB
         path_stations = {}
         path_list = result["sections"].get("station", {}).get("path", [])
         if path_list:
@@ -339,64 +342,27 @@ def create_api_router(container: ServiceContainer) -> APIRouter:
 
             if real_calls:
                 try:
-                    path_stations = (
-                        await services.storage.get_stations_by_callsigns(real_calls)
-                    )
+                    path_stations = await services.storage.get_stations_by_callsigns(real_calls)
                 except Exception:
                     LOG.exception("Failed to look up path station positions")
 
         result["path_stations"] = path_stations
-        return result
+        return JSONResponse(result)
 
-    @router.get("/weather/{callsign}")
-    async def get_weather(
-        callsign: str,
-        hours: int = Query(24, ge=1, le=168),
-        limit: int = Query(500, le=2000),
-    ):
-        """Get weather reports for a station.
-
-        Returns historical weather data for charting.
-        """
+    async def get_weather(request: Request):
         services = _get_services(container)
+        callsign = request.path_params["callsign"]
+        hours = _qint(request, "hours", 24, min_val=1, max_val=168)
+        limit = _qint(request, "limit", 500, max_val=2000)
         since = time.time() - (hours * 3600)
         reports = await services.storage.get_weather_reports(
             callsign=callsign, since=since, limit=limit
         )
-        return {"callsign": callsign, "reports": reports}
+        return JSONResponse({"callsign": callsign, "reports": reports})
 
-    @router.get("/station/{callsign}/gpx")
-    async def get_station_gpx(
-        callsign: str,
-        hours: int = Query(24, ge=1, le=168),
-    ):
-        """Export a station's position track as a GPX file.
-
-        Returns a downloadable GPX 1.1 XML file containing all recorded
-        positions for the station within the specified time window.
-        """
-        services = _get_services(container)
-        since = time.time() - (hours * 3600)
-        track = await services.storage.get_station_track(callsign, limit=5000, since=since)
-
-        if not track:
-            raise HTTPException(status_code=404, detail="No track data for station")
-
-        gpx_xml = _generate_gpx(callsign, track)
-        filename = f"{callsign.replace(' ', '_')}_{hours}h.gpx"
-        return Response(
-            content=gpx_xml,
-            media_type="application/gpx+xml",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-        )
-
-    @router.get("/changelog")
-    async def get_changelog():
-        """Serve the CHANGELOG.md content as plain text."""
-        # Look for CHANGELOG.md relative to the package root
+    async def get_changelog(request: Request):
         changelog_path = Path(__file__).resolve().parent.parent.parent / "CHANGELOG.md"
         if not changelog_path.exists():
-            # Fallback: check cwd
             changelog_path = Path("CHANGELOG.md")
         if changelog_path.exists():
             return Response(
@@ -405,14 +371,28 @@ def create_api_router(container: ServiceContainer) -> APIRouter:
             )
         raise HTTPException(status_code=404, detail="Changelog not found")
 
-    return router
+    # Route ordering: specific paths before parameterised ones
+    return [
+        Route("/packets", get_packets),
+        Route("/stations", get_stations),
+        Route("/stations/positions", get_station_positions),
+        Route("/stations/tracks", get_station_tracks),
+        Route("/station/{callsign}/gpx", get_station_gpx),
+        Route("/station/{callsign}", get_station),
+        Route("/stats", get_stats),
+        Route("/config", config_handler, methods=["GET", "PUT"]),
+        Route("/tiles/{z}/{x}/{y}.png", get_tile),
+        Route("/tiles/preload", tiles_preload_handler, methods=["POST", "DELETE"]),
+        Route("/storage", wipe_storage, methods=["DELETE"]),
+        Route("/decode", decode_packet, methods=["POST"]),
+        Route("/weather/{callsign}", get_weather),
+        Route("/changelog", get_changelog),
+    ]
 
 
-def create_ws_router(container: ServiceContainer, path: str = "/ws") -> APIRouter:
-    """Create the WebSocket router. Accepts a custom path for hosted mounting."""
-    router = APIRouter()
+def create_ws_handler(container: ServiceContainer):
+    """Return a WebSocket handler function."""
 
-    @router.websocket(path)
     async def websocket_endpoint(ws: WebSocket):
         services = container.services
         if services is None:
@@ -424,26 +404,19 @@ def create_ws_router(container: ServiceContainer, path: str = "/ws") -> APIRoute
         LOG.info(f"WebSocket client connected ({len(services.ws_clients)} total)")
 
         try:
-            # Send initial burst of recent packets
             recent = await services.storage.query_packets(limit=50)
-            for p in reversed(recent):  # Oldest first for initial load
+            for p in reversed(recent):
                 await enrich_with_bearing(p, services)
                 await ws.send_json({"event": "packet", "data": p})
 
-            # Send current status
-            await ws.send_json(
-                {
-                    "event": "status",
-                    "data": {
-                        "agw_connected": services.agw_reader.connected if services.agw_reader else False,
-                        "log_tailer_active": services.log_tailer.active if services.log_tailer else False,
-                    },
-                }
-            )
+            await ws.send_json({
+                "event": "status",
+                "data": {
+                    "agw_connected": services.agw_reader.connected if services.agw_reader else False,
+                    "log_tailer_active": services.log_tailer.active if services.log_tailer else False,
+                },
+            })
 
-            # Keep-alive: short receive timeout forces the ASGI handler
-            # to cycle frequently, which flushes any buffered outbound
-            # WebSocket frames that were queued by broadcast_event.
             while True:
                 try:
                     await asyncio.wait_for(ws.receive_text(), timeout=0.1)
@@ -457,21 +430,17 @@ def create_ws_router(container: ServiceContainer, path: str = "/ws") -> APIRoute
             services.ws_clients.discard(ws)
             LOG.info(f"WebSocket client disconnected ({len(services.ws_clients)} total)")
 
-    return router
+    return websocket_endpoint
 
 
-def create_index_router(static_dir: str | Path) -> APIRouter:
-    """Create the index route that serves the SPA HTML. Only used by standalone app."""
-    router = APIRouter()
-    static_dir = str(static_dir)
+def create_index_handler(static_dir: str):
+    """Return a handler that serves the SPA index.html."""
 
-    @router.get("/")
-    async def index():
-        """Serve the main page."""
-        index_path = os.path.join(static_dir, "index.html")
+    async def index(request: Request):
+        index_path = os.path.join(str(static_dir), "index.html")
         if os.path.exists(index_path):
             with open(index_path) as f:
                 return HTMLResponse(content=f.read())
         return HTMLResponse(content="<h1>Direwolf Dashboard</h1><p>Static files not found.</p>")
 
-    return router
+    return index

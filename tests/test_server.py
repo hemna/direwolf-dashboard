@@ -1,11 +1,11 @@
-"""Tests for FastAPI server REST endpoints."""
+"""Tests for Starlette server REST endpoints."""
 
 import asyncio
 import time
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from fastapi.testclient import TestClient
+from starlette.testclient import TestClient
 
 from direwolf_dashboard.config import Config
 from direwolf_dashboard.server import create_app
@@ -19,29 +19,44 @@ _test_container: ServiceContainer | None = None
 
 def _create_test_app(config: Config, config_path: str) -> tuple:
     """Create app and return (app, container) for test manipulation."""
-    from direwolf_dashboard.lifecycle import ServiceContainer
-    from direwolf_dashboard.routers import create_api_router, create_ws_router, create_index_router
-
     import os
     from contextlib import asynccontextmanager
-    from fastapi import FastAPI
-    from fastapi.staticfiles import StaticFiles
+
+    from starlette.applications import Starlette
+    from starlette.exceptions import HTTPException
+    from starlette.requests import Request
+    from starlette.responses import JSONResponse
+    from starlette.routing import Mount, Route, WebSocketRoute
+    from starlette.staticfiles import StaticFiles
+
+    from direwolf_dashboard.lifecycle import ServiceContainer
+    from direwolf_dashboard.routers import create_api_routes, create_ws_handler, create_index_handler
 
     container = ServiceContainer()
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI):
+    async def lifespan(app: Starlette):
         # Tests populate container.services manually, so lifespan is a no-op
         yield
 
-    app = FastAPI(title="Direwolf Dashboard", lifespan=lifespan)
-    app.include_router(create_api_router(container), prefix="/api")
-    app.include_router(create_ws_router(container, path="/ws"))
+    async def _json_error_handler(request: Request, exc: HTTPException) -> JSONResponse:
+        return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
 
     static_dir = os.path.join(os.path.dirname(__file__), "..", "src", "direwolf_dashboard", "static")
+
+    routes = [
+        Mount("/api", routes=create_api_routes(container)),
+        WebSocketRoute("/ws", create_ws_handler(container)),
+    ]
     if os.path.exists(static_dir):
-        app.mount("/static", StaticFiles(directory=static_dir), name="static")
-    app.include_router(create_index_router(static_dir))
+        routes.append(Mount("/static", StaticFiles(directory=static_dir)))
+    routes.append(Route("/", create_index_handler(static_dir)))
+
+    app = Starlette(
+        lifespan=lifespan,
+        routes=routes,
+        exception_handlers={HTTPException: _json_error_handler},
+    )
 
     return app, container
 
