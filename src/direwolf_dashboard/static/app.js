@@ -1495,6 +1495,8 @@
                 packet_count: (stations[packet.from_call]?.data?.packet_count || 0) + 1,
                 last_seen: packet.timestamp,
                 last_path: packet.path || [],
+                type: packet.type || '',
+                tx: packet.tx || false,
             });
             if (!packet.position_from_db) {
                 updateStationTrack(packet.from_call, packet.latitude, packet.longitude);
@@ -1713,6 +1715,26 @@
         const rows = document.querySelectorAll('.log-row');
         rows.forEach(row => {
             applyFilterToRow(row, callsign, type, txrx);
+        });
+
+        // Filter map markers
+        Object.keys(stations).forEach(cs => {
+            const s = stations[cs];
+            let visible = true;
+            if (callsign && !cs.toUpperCase().includes(callsign)) visible = false;
+            if (type && s.data.type && s.data.type !== type) visible = false;
+            if (txrx && s.data.tx !== undefined) {
+                const txVal = s.data.tx ? 'tx' : 'rx';
+                if (txVal !== txrx) visible = false;
+            }
+
+            if (visible) {
+                if (!map.hasLayer(s.marker)) map.addLayer(s.marker);
+                if (!map.hasLayer(s.track)) map.addLayer(s.track);
+            } else {
+                if (map.hasLayer(s.marker)) map.removeLayer(s.marker);
+                if (map.hasLayer(s.track)) map.removeLayer(s.track);
+            }
         });
     }
 
