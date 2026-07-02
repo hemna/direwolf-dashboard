@@ -362,6 +362,15 @@ def _build_human_info(parsed: dict) -> str:
     if comment and not message_text:
         parts.append(comment)
 
+    # Telemetry
+    telemetry = parsed.get("telemetry")
+    if telemetry and isinstance(telemetry, dict):
+        seq = telemetry.get("seq", "")
+        vals = telemetry.get("vals", [])
+        bits = telemetry.get("bits", "")
+        vals_str = ",".join(str(int(v)) if v == int(v) else str(v) for v in vals)
+        parts.append(f"T#{seq:03d},{vals_str},{bits}" if isinstance(seq, int) else f"T#{seq},{vals_str},{bits}")
+
     return " ".join(parts) if parts else ""
 
 

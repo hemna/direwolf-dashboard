@@ -27,11 +27,7 @@ wheels = [
 [[package]]
 name = "aprslib"
 version = "0.7.2"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/15/2b/3c051f7bf65cb684040dfc13713d8836b72615f3b811107736aee59cab0d/aprslib-0.7.2.tar.gz", hash = "sha256:c20d2568ab8728a0526b4c95952c6022433d462674abdfb0fd86b2e50ed3c097", size = 25826, upload-time = "2022-07-10T12:45:13.214Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d7/b4/4b82e41dc007cfa68ee076ef905b823f841e4ce868fe7ee8b22cfe26796a/aprslib-0.7.2-py2.py3-none-any.whl", hash = "sha256:db09eac4c5f44b172e15399350147370fdafdd8f6befd69b697fbced8c83e7c6", size = 44746, upload-time = "2022-07-10T12:45:11.607Z" },
-]
+source = { git = "https://github.com/hemna/aprs-python.git?rev=telemetry#09cd7a2829a2e9d28ee1566881c843cc4769e590" }
 
 [[package]]
 name = "certifi"
@@ -88,7 +84,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiosqlite", specifier = ">=0.19.0" },
-    { name = "aprslib", specifier = ">=0.7.0" },
+    { name = "aprslib", git = "https://github.com/hemna/aprs-python.git?rev=telemetry" },
     { name = "click", specifier = ">=8.1.0" },
     { name = "haversine", specifier = ">=2.8.0" },
     { name = "httpx", specifier = ">=0.25.0" },
