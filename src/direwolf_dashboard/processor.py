@@ -254,16 +254,59 @@ def packet_to_dict(
         if addressee:
             packet["to_call"] = addressee
     else:
-        packet["type"] = "RawPacket"
-        packet["path"] = []
+        packet["type"] = _classify_from_raw(aprs_string)
+        # Try to extract the path from the raw APRS string (FROM>TO,PATH:payload)
+        packet["path"] = _extract_path_from_raw(aprs_string)
         packet["msg_no"] = ""
-        packet["human_info"] = payload
+        packet["human_info"] = _extract_payload(aprs_string)
         packet["comment"] = ""
 
     # Generate compact log HTML
     packet["compact_log"] = format_compact_log(packet)
 
     return packet
+
+
+def _classify_from_raw(aprs_string: str) -> str:
+    """Classify packet type from raw APRS string when aprslib can't parse it."""
+    payload = _extract_payload(aprs_string)
+    if payload.startswith("T#") or payload.startswith("T "):
+        return "TelemetryPacket"
+    if payload.startswith(":"):
+        return "MessagePacket"
+    if payload.startswith("!") or payload.startswith("/") or payload.startswith("@"):
+        return "GPSPacket"
+    if payload.startswith(">"):
+        return "StatusPacket"
+    if payload.startswith(";"):
+        return "ObjectPacket"
+    return "RawPacket"
+
+
+def _extract_path_from_raw(aprs_string: str) -> list[str]:
+    """Extract the digipeater path from a raw APRS string."""
+    # Format: FROM>TO,HOP1,HOP2:payload
+    colon_pos = aprs_string.find(":")
+    if colon_pos < 0:
+        return []
+    header = aprs_string[:colon_pos]
+    gt_pos = header.find(">")
+    if gt_pos < 0:
+        return []
+    after_from = header[gt_pos + 1:]
+    parts = after_from.split(",")
+    # First element is the destination (tocall), rest is the path
+    if len(parts) > 1:
+        return parts[1:]
+    return []
+
+
+def _extract_payload(aprs_string: str) -> str:
+    """Extract the information field (after the first ':') from a raw APRS string."""
+    colon_pos = aprs_string.find(":")
+    if colon_pos < 0:
+        return aprs_string
+    return aprs_string[colon_pos + 1:]
 
 
 def _classify_packet_type(parsed: dict) -> str:
