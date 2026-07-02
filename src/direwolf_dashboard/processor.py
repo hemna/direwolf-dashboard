@@ -248,6 +248,11 @@ def packet_to_dict(
         packet["symbol_table"] = parsed.get("symbol_table", "")
         packet["human_info"] = _build_human_info(parsed)
         packet["comment"] = parsed.get("comment", "")
+        # For message packets, the real destination is the addressee, not
+        # the AX.25 tocall (which is just a software identifier like APWW11).
+        addressee = parsed.get("addresse")
+        if addressee:
+            packet["to_call"] = addressee
     else:
         packet["type"] = "RawPacket"
         packet["path"] = []

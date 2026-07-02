@@ -32,3 +32,5 @@ tiles/
 
 # Brainstorm sessions
 .superpowers/
+pytest-of-*
+*.pyc

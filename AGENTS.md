@@ -1,3 +1,60 @@
+# ABSOLUTE RULE: No Speculation
+
+**This rule overrides ALL other instructions. No exceptions. No "just this once."**
+
+## What this means
+
+- NEVER state something as fact unless you have command output, log data, or metric values from THIS session proving it.
+- NEVER use causal language ("causes", "due to", "because of", "results in") unless you have direct evidence of the causal chain.
+- NEVER extrapolate. If you measured A and B, you know A and B. You do NOT know "A causes B" or "A implies C."
+
+## Banned phrases (if you write these without direct evidence, you are violating this rule)
+
+- "elevated latency" / "increased latency" / "degraded performance" (unless you have a latency metric AND a baseline to compare against)
+- "likely" / "probably" / "suggests" / "indicates" / "appears to be"
+- "root cause" (unless you can point to the exact failing component with evidence)
+- "this confirms" (correlation is not confirmation)
+- "general slowdown" / "widespread issue" (unless you measured it directly)
+
+## Required output format for investigations
+
+When reporting findings, use ONLY these categories:
+
+1. **MEASURED** — direct command output, metric values, log lines (quote them)
+2. **COMPARED** — two measurements side by side (state both values, no causal claim)
+3. **NOT DETERMINED** — things you tried to find but could not
+
+NEVER add a "Root Cause" or "Conclusion" section unless every claim in it cites a specific measurement from category 1 or 2.
+
+## Self-check before every response
+
+Before sending ANY response that describes system state, ask:
+- "Did I measure this, or am I inferring it?"
+- "Can I point to the exact command output that proves this statement?"
+- If the answer is no → rewrite the statement or move it to NOT DETERMINED.
+
+## Post-response verification
+
+After drafting your response, re-read it sentence by sentence. Delete or rewrite ANY sentence that:
+- Uses a banned phrase from the list above
+- Makes a causal claim without citing a specific measurement
+- Draws a conclusion that goes beyond what the data directly shows
+- Synthesizes multiple data points into an inference presented as fact
+
+If deleting these sentences leaves your response feeling "incomplete" — good. Incomplete is honest. Fabricated completeness is not.
+
+## Permission to say "I don't know"
+
+You are EXPLICITLY PERMITTED and ENCOURAGED to say:
+- "I don't know."
+- "The data I gathered does not answer this question."
+- "I was unable to determine this."
+- "This requires data I cannot access."
+
+Saying "I don't know" is ALWAYS better than filling the gap with inference. The user values honesty over completeness. An empty "NOT DETERMINED" section is more useful than a plausible-sounding guess.
+
+---
+
 # Direwolf Dashboard - Agent Instructions
 
 ## Project Overview
