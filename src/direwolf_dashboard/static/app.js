@@ -842,12 +842,11 @@
 
         map = L.map('map').setView([lat, lon], zoom);
 
-        // Persist map view across page refreshes
+        // Persist map center across page refreshes (zoom is always from config)
         map.on('moveend', function () {
             var c = map.getCenter();
             localStorage.setItem('dw-map-lat', c.lat);
             localStorage.setItem('dw-map-lng', c.lng);
-            localStorage.setItem('dw-map-zoom', map.getZoom());
         });
 
         // Station click overlay: path lines, distance, log highlight
@@ -2311,12 +2310,12 @@
 
     // --- Cold Start / Map Centering ---
     async function initMapCenter() {
-        // Priority 0: restore last view from localStorage
+        // Priority 0: restore last center from localStorage (zoom always from config)
         var savedLat = localStorage.getItem('dw-map-lat');
         var savedLng = localStorage.getItem('dw-map-lng');
-        var savedZoom = localStorage.getItem('dw-map-zoom');
-        if (savedLat !== null && savedLng !== null && savedZoom !== null) {
-            map.setView([parseFloat(savedLat), parseFloat(savedLng)], parseInt(savedZoom));
+        if (savedLat !== null && savedLng !== null) {
+            const zoom = config.station?.zoom || 12;
+            map.setView([parseFloat(savedLat), parseFloat(savedLng)], zoom);
             return;
         }
 
