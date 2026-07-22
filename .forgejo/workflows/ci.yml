@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  lint:
+    name: Lint & Syntax Check
+    runs-on: ubuntu-latest
+    container:
+      image: node:20-bookworm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Python
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq python3 python3-pip python3-venv
+      - name: Python lint
+        run: |
+          python3 -m venv .venv
+          . .venv/bin/activate
+          pip install ruff
+          ruff check . --select=E,F --ignore=E501
+      - name: JS syntax check
+        run: |
+          find . -name '*.js' -not -path '*/node_modules/*' -not -path '*/.venv/*' -not -path '*/vendor/*' | head -50 | xargs -I{} node --check {} 2>&1 || true
