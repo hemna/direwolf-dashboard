@@ -316,6 +316,7 @@ async def _broadcast_consumer(services: DirewolfServices) -> None:
                             symbol=packet.get("symbol"),
                             symbol_table=packet.get("symbol_table"),
                             comment=packet.get("comment"),
+                            path=packet.get("path") or None,
                         )
                         # Invalidate the my_position cache if this packet is from
                         # the callsign we're tracking as "my position".
