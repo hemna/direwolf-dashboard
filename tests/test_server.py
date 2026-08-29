@@ -82,10 +82,10 @@ async def test_app(tmp_path):
     log_tailer = MagicMock()
     log_tailer.active = False
     tile_proxy = MagicMock()
-    tile_proxy.get_cache_stats.return_value = {
+    tile_proxy.get_cache_stats = AsyncMock(return_value={
         "tile_count": 0,
         "cache_size_mb": 0,
-    }
+    })
 
     container.services = DirewolfServices(
         config=config,

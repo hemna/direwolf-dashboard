@@ -165,6 +165,8 @@ def create_api_routes(container: ServiceContainer) -> list:
         services = _get_services(container)
         db_stats = await services.storage.get_stats()
         db_stats.update(services.get_stats_dict())
+        if services.tile_proxy:
+            db_stats["tile_cache"] = await services.tile_proxy.get_cache_stats()
         return JSONResponse(db_stats)
 
     async def config_handler(request: Request):
