@@ -39,6 +39,73 @@
     let logViewState = 'visible';
     let resizeEnabled = true;
 
+    // --- Log Colors (#35) ---
+    const LOG_COLORS_KEY = 'dw-log-colors';
+    // Mapping: input id suffix -> CSS variable name
+    const LOG_COLOR_MAP = {
+        'rx':         '--log-rx',
+        'tx':         '--log-tx',
+        'type':       '--log-type',
+        'comment':    '--log-comment',
+        'human-info': '--log-human-info',
+        'bearing':    '--log-bearing',
+        'distance':   '--log-distance',
+        'dim':        '--log-dim',
+    };
+
+    /** Return stored log colors from localStorage, or empty object. */
+    function _getStoredLogColors() {
+        try { return JSON.parse(localStorage.getItem(LOG_COLORS_KEY) || '{}'); }
+        catch { return {}; }
+    }
+
+    /** Apply a colors object {varName: hexColor} to :root. */
+    function _applyLogColors(colors) {
+        const root = document.documentElement;
+        Object.entries(colors).forEach(([varName, val]) => {
+            if (val) root.style.setProperty(varName, val);
+            else     root.style.removeProperty(varName);
+        });
+    }
+
+    /** Read color inputs from settings and save to localStorage + apply. */
+    function _saveLogColors() {
+        const colors = {};
+        Object.keys(LOG_COLOR_MAP).forEach(suffix => {
+            const el = document.getElementById('lc-' + suffix);
+            if (el) colors[LOG_COLOR_MAP[suffix]] = el.value;
+        });
+        localStorage.setItem(LOG_COLORS_KEY, JSON.stringify(colors));
+        _applyLogColors(colors);
+    }
+
+    /** Reset all log color overrides — removes custom properties so theme defaults apply. */
+    function _resetLogColors() {
+        localStorage.removeItem(LOG_COLORS_KEY);
+        const root = document.documentElement;
+        Object.values(LOG_COLOR_MAP).forEach(v => root.style.removeProperty(v));
+        _populateLogColorInputs();
+    }
+
+    /** Populate color inputs from current computed values (theme + any overrides). */
+    function _populateLogColorInputs() {
+        const stored = _getStoredLogColors();
+        Object.keys(LOG_COLOR_MAP).forEach(suffix => {
+            const el = document.getElementById('lc-' + suffix);
+            if (!el) return;
+            const varName = LOG_COLOR_MAP[suffix];
+            if (stored[varName]) {
+                el.value = stored[varName];
+            } else {
+                // Read the current computed value from :root (theme default)
+                const computed = getComputedStyle(document.documentElement)
+                    .getPropertyValue(varName).trim();
+                // color inputs require a valid hex color
+                try { el.value = computed || '#888888'; } catch { el.value = '#888888'; }
+            }
+        });
+    }
+
     // --- Animation state ---
     const stationPositionCache = {};
     const POSITION_CACHE_MAX = 1000;
@@ -774,6 +841,9 @@
 
     // --- Init ---
     document.addEventListener('DOMContentLoaded', async () => {
+        // Apply saved log color overrides immediately
+        _applyLogColors(_getStoredLogColors());
+
         // Init theme toggle
         var themeBtn = document.getElementById('btn-theme');
         if (themeBtn) themeBtn.addEventListener('click', toggleTheme);
@@ -1593,14 +1663,14 @@
         const distMiles = packet.distance_miles != null ? packet.distance_miles : null;
 
         const rxColor = 'var(--log-rx)';
-        const txColor = 'var(--danger)';
+        const txColor = 'var(--log-tx)';
         const arrowColor = tx ? txColor : rxColor;
         const typeColor = 'var(--log-type)';
-        const fromColor = 'var(--danger)';
+        const fromColor = 'var(--log-tx)';
         const toColor = 'var(--log-comment)';
         const dimColor = 'var(--log-dim)';
-        const bearingColor = '#FFA900';
-        const distColor = '#FF5733';
+        const bearingColor = 'var(--log-bearing)';
+        const distColor = 'var(--log-distance)';
 
         const indicator = tx
             ? `<span style="color:${txColor}">TX&#x2191;</span>`
@@ -1624,7 +1694,7 @@
             html += ` <span style="color:${dimColor}">via ${esc(via)}</span>`;
         }
         if (humanInfo) {
-            html += ` : <span style="color:#DAA520">${esc(humanInfo)}</span>`;
+            html += ` : <span style="color:var(--log-human-info)">${esc(humanInfo)}</span>`;
         }
         if (bearing && distMiles != null) {
             html += ` : <span style="color:${bearingColor}">${esc(bearing)}</span>`
@@ -1856,6 +1926,10 @@
 
         btnSave.addEventListener('click', saveSettings);
 
+        // Reset log colors button
+        const btnResetColors = document.getElementById('btn-reset-log-colors');
+        if (btnResetColors) btnResetColors.addEventListener('click', _resetLogColors);
+
         // Tile mode toggle
         document.getElementById('cfg-tile-mode').addEventListener('change', (e) => {
             const preloadSection = document.getElementById('preload-section');
@@ -1915,6 +1989,9 @@
         // Packet log settings
         document.getElementById('cfg-show-timestamps').checked = showTimestamps;
 
+        // Log color inputs
+        _populateLogColorInputs();
+
         // Show/hide preload section
         if (config.tiles?.cache_mode === 'preload') {
             document.getElementById('preload-section').classList.remove('hidden');
@@ -1953,6 +2030,9 @@
                 show_timestamps: document.getElementById('cfg-show-timestamps').checked,
             },
         };
+
+        // Save log colors (localStorage-only, not in the backend config)
+        _saveLogColors();
 
         const feedback = document.getElementById('settings-feedback');
         try {

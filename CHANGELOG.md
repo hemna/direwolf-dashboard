@@ -5,6 +5,15 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Added
+- **Configurable packet log colors** (`Settings → Log Colors`) — all 8 compact-log
+  color slots (RX, TX, type, comment, human info, bearing, distance, dim) are now editable
+  via `<input type="color">` pickers in the Settings modal.  Colors are saved to
+  `localStorage` and applied as CSS custom properties on `:root` so they survive page
+  reloads.  A "Reset to Defaults" button removes all overrides and restores theme
+  defaults.  All colors now use named CSS variables (`--log-tx`, `--log-bearing`, etc.)
+  throughout the code — no more hardcoded hex literals in `renderCompactLog()`.
+  Closes #35.
+
 - **Station List panel** (`S` key / 📋 toolbar button) — sortable table of all heard
   stations showing callsign (with APRS symbol icon), last heard (live age refresh every
   30 s), packet count, and lat/lon.  Clicking a callsign or the "Focus" button closes

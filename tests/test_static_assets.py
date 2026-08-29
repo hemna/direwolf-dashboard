@@ -169,3 +169,41 @@ def test_csv_export_escaping_in_app_js():
     assert 'v.replace(/"/g, \'""\')'  in content, \
         "_exportStationsCsv must escape double-quotes per RFC 4180"
     assert "text/csv" in content, "CSV export must set correct MIME type"
+
+
+def test_log_color_vars_in_css():
+    """Verify all log color CSS custom properties are defined in style.css."""
+    css = (
+        Path(direwolf_dashboard.__file__).parent / "static" / "style.css"
+    )
+    content = css.read_text(encoding="utf-8")
+    required_vars = [
+        '--log-rx', '--log-tx', '--log-type', '--log-comment',
+        '--log-human-info', '--log-bearing', '--log-distance', '--log-dim',
+    ]
+    for var in required_vars:
+        assert var in content, f"CSS variable {var} not defined in style.css"
+
+
+def test_log_color_map_in_app_js():
+    """Verify LOG_COLOR_MAP and log color functions are defined in app.js."""
+    app_js = (
+        Path(direwolf_dashboard.__file__).parent / "static" / "app.js"
+    )
+    content = app_js.read_text(encoding="utf-8")
+    assert "LOG_COLOR_MAP" in content, "LOG_COLOR_MAP must be defined in app.js"
+    assert "function _applyLogColors" in content, "_applyLogColors must be defined"
+    assert "function _saveLogColors" in content, "_saveLogColors must be defined"
+    assert "function _resetLogColors" in content, "_resetLogColors must be defined"
+    assert "LOG_COLORS_KEY" in content, "LOG_COLORS_KEY must be defined"
+
+
+def test_log_color_settings_html():
+    """Verify log color inputs are present in the Settings modal."""
+    html = (
+        Path(direwolf_dashboard.__file__).parent / "static" / "index.html"
+    )
+    content = html.read_text(encoding="utf-8")
+    assert 'id="lc-rx"' in content, "lc-rx color input must be in settings"
+    assert 'id="lc-tx"' in content, "lc-tx color input must be in settings"
+    assert 'id="btn-reset-log-colors"' in content, "btn-reset-log-colors must be in settings"
