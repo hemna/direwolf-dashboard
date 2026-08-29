@@ -33,6 +33,7 @@
         <div class="toolbar-right">
             <button id="btn-station-list" title="Station List (S)">&#x1F4CB;</button>
             <button id="btn-weather-panel" title="Weather Stations (W)">&#x26C5;</button>
+            <button id="btn-messages-panel" title="APRS Messages (M)">&#x1F4AC;</button>
             <button id="btn-drop-pin" title="Drop Pin - set my position">&#x1F4CC;</button>
             <button id="btn-decode" title="Decode APRS Packet (Ctrl+K)">&#x1F4E1;</button>
             <button id="btn-keyboard-help" title="Keyboard shortcuts (?)">&#x2328;</button>
@@ -324,6 +325,29 @@
         </div>
     </div>
 
+    <!-- Messages Panel Modal (#31) -->
+    <div id="messages-panel-modal" class="modal hidden">
+        <div class="modal-content messages-panel-modal-content">
+            <div class="modal-header">
+                <h2>&#x1F4AC; APRS Messages</h2>
+                <div class="modal-header-actions">
+                    <label class="messages-my-call-label" for="messages-my-callsign">My Call:</label>
+                    <input type="text" id="messages-my-callsign" placeholder="WB4BOR" maxlength="9" />
+                    <button id="btn-close-messages-panel">&times;</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div class="station-list-controls">
+                    <input type="search" id="messages-search" placeholder="Filter by callsign…" />
+                    <span id="messages-panel-count" class="station-list-count"></span>
+                </div>
+                <div id="messages-panel-container">
+                    <div id="messages-thread-list"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Weather Panel Modal -->
     <div id="weather-panel-modal" class="modal hidden">
         <div class="modal-content weather-panel-modal-content">
@@ -403,6 +427,7 @@
                         <tr><td><kbd>L</kbd></td><td>Cycle packet log: expanded → hidden → expanded</td></tr>
                         <tr><td><kbd>S</kbd></td><td>Open / close Station List</td></tr>
                         <tr><td><kbd>W</kbd></td><td>Open / close Weather Stations panel</td></tr>
+                        <tr><td><kbd>M</kbd></td><td>Open / close APRS Messages panel</td></tr>
                         <tr><td><kbd>Ctrl</kbd>+<kbd>K</kbd></td><td>Open Decode APRS Packet</td></tr>
                         <tr><td><kbd>Ctrl</kbd>+<kbd>F</kbd></td><td>Focus packet log search</td></tr>
                         <tr><td><kbd>?</kbd></td><td>Show this keyboard shortcuts help</td></tr>

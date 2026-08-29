@@ -21,6 +21,7 @@ class TestCreateApiRoutes:
         paths = {route.path for route in routes}
         expected = {
             "/packets",
+            "/messages",
             "/stations",
             "/station/{callsign}",
             "/stations/positions",
@@ -192,3 +193,63 @@ class TestStationsEndpointWeather:
         by_cs = {s["callsign"]: s for s in data}
         assert "last_weather" in by_cs["W1WX"]
         assert "last_weather" not in by_cs["W1ABC"]
+
+
+class TestMessagesEndpoint:
+    """Tests for the /api/messages endpoint."""
+
+    def _make_services(self, packets):
+        services = mock.MagicMock()
+        storage = mock.MagicMock()
+        storage.query_packets = mock.AsyncMock(return_value=packets)
+        services.storage = storage
+        return services
+
+    def test_messages_route_registered(self):
+        """The /messages route must be registered."""
+        container = ServiceContainer()
+        routes = create_api_routes(container)
+        paths = {route.path for route in routes}
+        assert "/messages" in paths, "/messages route must be registered"
+
+    def test_messages_returns_200_empty(self):
+        """Returns 200 with empty list when no messages exist."""
+        container = ServiceContainer()
+        container.services = self._make_services(packets=[])
+        client = TestClient(_build_test_app(container), raise_server_exceptions=False)
+        resp = client.get("/api/messages")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_messages_returns_message_packets(self):
+        """Returns message packets from storage."""
+        msg = {
+            "timestamp": 1234567890.0,
+            "type": "MessagePacket",
+            "from_call": "W1ABC",
+            "to_call": "W2DEF",
+            "comment": "Hello World",
+            "msg_no": "001",
+            "tx": False,
+        }
+        container = ServiceContainer()
+        container.services = self._make_services(packets=[msg])
+        client = TestClient(_build_test_app(container), raise_server_exceptions=False)
+        resp = client.get("/api/messages")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["from_call"] == "W1ABC"
+        assert data[0]["comment"] == "Hello World"
+
+    def test_messages_calls_query_packets_with_message_type(self):
+        """The endpoint passes packet_type='MessagePacket' to query_packets."""
+        container = ServiceContainer()
+        container.services = self._make_services(packets=[])
+        client = TestClient(_build_test_app(container), raise_server_exceptions=False)
+        client.get("/api/messages")
+        container.services.storage.query_packets.assert_called_once()
+        _, kwargs = container.services.storage.query_packets.call_args
+        assert kwargs.get("packet_type") == "MessagePacket" or \
+               container.services.storage.query_packets.call_args[0][2] == "MessagePacket" or \
+               "MessagePacket" in str(container.services.storage.query_packets.call_args)

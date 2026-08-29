@@ -303,3 +303,39 @@ def test_weather_popup_inline_in_app_js():
     assert "popup-weather" in (
         Path(direwolf_dashboard.__file__).parent / "static" / "style.css"
     ).read_text(encoding="utf-8"), "popup-weather class must be defined in style.css"
+
+
+def test_messages_panel_modal_in_html():
+    """Verify messages-panel-modal HTML is present in index.html."""
+    html = (
+        Path(direwolf_dashboard.__file__).parent / "static" / "index.html"
+    )
+    content = html.read_text(encoding="utf-8")
+    assert 'id="messages-panel-modal"' in content, "messages-panel-modal must be in index.html"
+    assert 'id="messages-thread-list"' in content, "messages-thread-list must be in index.html"
+    assert 'id="btn-messages-panel"' in content, "btn-messages-panel toolbar button must be in index.html"
+    assert 'id="messages-my-callsign"' in content, "messages-my-callsign input must be in index.html"
+
+
+def test_messages_panel_functions_in_app_js():
+    """Verify messages panel functions are defined in app.js."""
+    app_js = (
+        Path(direwolf_dashboard.__file__).parent / "static" / "app.js"
+    )
+    content = app_js.read_text(encoding="utf-8")
+    assert "function initMessagesPanelModal" in content, "initMessagesPanelModal must be defined"
+    assert "function _loadMessagesData" in content, "_loadMessagesData must be defined"
+    assert "function _renderMessageThreads" in content, "_renderMessageThreads must be defined"
+    assert "MESSAGES_MY_CALL_KEY" in content, "MESSAGES_MY_CALL_KEY localStorage key must be defined"
+
+
+def test_messages_panel_highlights_mine():
+    """Verify messages panel has logic to highlight threads addressed to my callsign."""
+    app_js = (
+        Path(direwolf_dashboard.__file__).parent / "static" / "app.js"
+    )
+    content = app_js.read_text(encoding="utf-8")
+    assert "messages-thread-mine" in content, \
+        "messages-thread-mine CSS class must be applied to threads addressed to my callsign"
+    assert "addressed_to_me" in content, \
+        "_renderMessageThreads must track addressed_to_me for thread highlighting"

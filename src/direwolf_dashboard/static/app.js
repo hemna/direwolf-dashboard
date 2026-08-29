@@ -860,6 +860,7 @@
         initChangelogModal();
         initStationListModal();
         initWeatherPanelModal();
+        initMessagesPanelModal();
         initKeyboardHelpModal();
         await loadConfig();
         initMap();
@@ -3902,6 +3903,153 @@
                 if (ts) td.textContent = formatAge(ts);
             });
         }, 30000);
+    }
+
+    // -----------------------------------------------------------------------
+    // Messages Panel (#31)
+    // -----------------------------------------------------------------------
+
+    let _mpFilter = '';
+    let _mpData = [];
+    const MESSAGES_MY_CALL_KEY = 'direwolf_messages_my_call';
+
+    function initMessagesPanelModal() {
+        const modal       = document.getElementById('messages-panel-modal');
+        const btnOpen     = document.getElementById('btn-messages-panel');
+        const btnClose    = document.getElementById('btn-close-messages-panel');
+        const searchInput = document.getElementById('messages-search');
+        const myCallInput = document.getElementById('messages-my-callsign');
+
+        if (!modal) return;
+
+        // Restore saved "my call" from localStorage
+        if (myCallInput) {
+            const saved = localStorage.getItem(MESSAGES_MY_CALL_KEY) || '';
+            myCallInput.value = saved;
+            myCallInput.addEventListener('change', () => {
+                localStorage.setItem(MESSAGES_MY_CALL_KEY, myCallInput.value.trim().toUpperCase());
+                _renderMessageThreads();
+            });
+        }
+
+        function openModal() {
+            _mpFilter = '';
+            if (searchInput) searchInput.value = '';
+            modal.classList.remove('hidden');
+            _loadMessagesData();
+        }
+
+        function closeModal() {
+            modal.classList.add('hidden');
+        }
+
+        if (btnOpen)  btnOpen.addEventListener('click', openModal);
+        if (btnClose) btnClose.addEventListener('click', closeModal);
+        modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
+        if (searchInput) {
+            searchInput.addEventListener('input', (e) => {
+                _mpFilter = e.target.value;
+                _renderMessageThreads();
+            });
+        }
+
+        // M key shortcut
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'm' || e.key === 'M') {
+                const tag = document.activeElement?.tagName;
+                if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+                if (modal.classList.contains('hidden')) openModal();
+                else closeModal();
+            }
+        });
+
+        // Auto-refresh every 30s while open
+        setInterval(() => {
+            if (modal.classList.contains('hidden')) return;
+            _loadMessagesData();
+        }, 30000);
+    }
+
+    async function _loadMessagesData() {
+        try {
+            const resp = await fetch(API_BASE + '/messages?limit=500');
+            if (!resp.ok) throw new Error('Failed to load messages');
+            _mpData = await resp.json();
+        } catch (_) {
+            _mpData = [];
+        }
+        _renderMessageThreads();
+    }
+
+    function _renderMessageThreads() {
+        const container = document.getElementById('messages-thread-list');
+        const countEl   = document.getElementById('messages-panel-count');
+        if (!container) return;
+
+        const myCallInput = document.getElementById('messages-my-callsign');
+        const myCall = (myCallInput ? myCallInput.value.trim().toUpperCase() : '') ||
+                       (config.station?.my_position?.callsign || '').toUpperCase();
+
+        const filter = _mpFilter.trim().toUpperCase();
+
+        // Group messages into threads keyed by sorted pair of callsigns
+        const threads = {};
+        for (const m of _mpData) {
+            const a = (m.from_call || '').toUpperCase();
+            const b = (m.to_call   || '').toUpperCase();
+            if (!a && !b) continue;
+            if (filter && !a.includes(filter) && !b.includes(filter)) continue;
+            const key = [a, b].sort().join('\u2194');  // ↔ separator
+            if (!threads[key]) {
+                threads[key] = { a, b, messages: [], addressed_to_me: false };
+            }
+            threads[key].messages.push(m);
+            if (myCall && (b === myCall || a === myCall)) {
+                threads[key].addressed_to_me = true;
+            }
+        }
+
+        // Sort threads: addressed-to-me first, then by most-recent timestamp
+        const threadList = Object.values(threads);
+        threadList.sort((ta, tb) => {
+            if (ta.addressed_to_me !== tb.addressed_to_me) return ta.addressed_to_me ? -1 : 1;
+            const latestA = Math.max(...ta.messages.map(m => m.timestamp || 0));
+            const latestB = Math.max(...tb.messages.map(m => m.timestamp || 0));
+            return latestB - latestA;
+        });
+
+        if (countEl) countEl.textContent = `${threadList.length} thread${threadList.length !== 1 ? 's' : ''}`;
+
+        if (threadList.length === 0) {
+            container.innerHTML = '<div class="messages-empty">No APRS messages received yet.</div>';
+            return;
+        }
+
+        container.innerHTML = threadList.map(thread => {
+            const msgs = thread.messages.slice().sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+            const highlight = thread.addressed_to_me ? ' messages-thread-mine' : '';
+            const header = `<div class="messages-thread-header${highlight}">` +
+                `<span class="messages-thread-calls">${escHtml(thread.a)} &#x2194; ${escHtml(thread.b)}</span>` +
+                `<span class="messages-thread-count">${msgs.length} msg${msgs.length !== 1 ? 's' : ''}</span>` +
+                '</div>';
+            const rows = msgs.map(m => {
+                const ts = m.timestamp ? new Date(m.timestamp * 1000).toLocaleTimeString() : '';
+                const fromMe = myCall && (m.from_call || '').toUpperCase() === myCall;
+                const cls = fromMe ? 'messages-msg messages-msg-out' : 'messages-msg messages-msg-in';
+                const msgNo = m.msg_no ? ` <span class="messages-msg-no">[${escHtml(String(m.msg_no))}]</span>` : '';
+                const text = m.comment || m.human_info || '';
+                return `<div class="${cls}">` +
+                    `<span class="messages-msg-from">${escHtml((m.from_call || '?').toUpperCase())}</span>` +
+                    `<span class="messages-msg-arrow">&#x27A1;</span>` +
+                    `<span class="messages-msg-to">${escHtml((m.to_call || '?').toUpperCase())}</span>` +
+                    `<span class="messages-msg-text">${escHtml(text)}</span>` +
+                    msgNo +
+                    `<span class="messages-msg-ts">${escHtml(ts)}</span>` +
+                    '</div>';
+            }).join('');
+            return `<div class="messages-thread">${header}${rows}</div>`;
+        }).join('');
     }
 
     // -----------------------------------------------------------------------
