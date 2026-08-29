@@ -415,6 +415,24 @@ class Storage:
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
 
+    async def get_latest_weather_by_callsign(self) -> dict[str, dict]:
+        """Return a mapping of callsign → most-recent weather report.
+
+        Uses a correlated subquery to select the single latest row per station.
+        Only stations that have at least one weather report are returned.
+        """
+        cursor = await self._db.execute(
+            """SELECT w.*
+            FROM weather_reports w
+            INNER JOIN (
+                SELECT callsign, MAX(timestamp) AS max_ts
+                FROM weather_reports
+                GROUP BY callsign
+            ) latest ON w.callsign = latest.callsign AND w.timestamp = latest.max_ts"""
+        )
+        rows = await cursor.fetchall()
+        return {row["callsign"]: dict(row) for row in rows}
+
     # ---- my_position (stored in the config table) ----
 
     async def get_my_position(self) -> Optional[dict]:

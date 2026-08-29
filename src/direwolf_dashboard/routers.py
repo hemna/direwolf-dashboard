@@ -116,7 +116,14 @@ def create_api_routes(container: ServiceContainer) -> list:
 
     async def get_stations(request: Request):
         services = _get_services(container)
-        return JSONResponse(await services.storage.get_stations())
+        stations = await services.storage.get_stations()
+        latest_weather = await services.storage.get_latest_weather_by_callsign()
+        if latest_weather:
+            for station in stations:
+                cs = station.get("callsign")
+                if cs in latest_weather:
+                    station["last_weather"] = latest_weather[cs]
+        return JSONResponse(stations)
 
     async def get_station_positions(request: Request):
         services = _get_services(container)
