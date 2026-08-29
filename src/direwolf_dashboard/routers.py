@@ -73,7 +73,7 @@ def _generate_gpx(callsign: str, track: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _qint(request: Request, name: str, default: int, min_val: int = None, max_val: int = None) -> int:
+def _qint(request: Request, name: str, default: int, min_val: Optional[int] = None, max_val: Optional[int] = None) -> int:
     """Parse an integer query parameter with optional clamping."""
     try:
         val = int(request.query_params.get(name, default))
@@ -309,6 +309,15 @@ def create_api_routes(container: ServiceContainer) -> list:
 
     async def wipe_storage(request: Request):
         services = _get_services(container)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not body.get("confirm"):
+            raise HTTPException(
+                status_code=400,
+                detail='Must include {"confirm": true} in request body',
+            )
         await services.storage.reset()
         await broadcast_event("storage_reset", {}, services.ws_clients)
         return JSONResponse({"status": "ok"})

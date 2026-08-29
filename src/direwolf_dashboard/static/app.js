@@ -1940,7 +1940,11 @@
 
     async function performClearData() {
         try {
-            var resp = await fetch(API_BASE + '/storage', { method: 'DELETE' });
+            var resp = await fetch(API_BASE + '/storage', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ confirm: true }),
+            });
             var result = await resp.json();
             if (resp.ok) {
                 clearStationsAndPackets();
