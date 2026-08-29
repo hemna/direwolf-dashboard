@@ -114,6 +114,16 @@ def create_api_routes(container: ServiceContainer) -> list:
             await enrich_with_bearing(p, services)
         return JSONResponse(packets)
 
+    async def get_messages(request: Request):
+        services = _get_services(container)
+        since = _qfloat(request, "since")
+        limit = _qint(request, "limit", 200, max_val=1000)
+        callsign = request.query_params.get("callsign") or None
+        messages = await services.storage.query_packets(
+            since=since, limit=limit, callsign=callsign, packet_type="MessagePacket"
+        )
+        return JSONResponse(messages)
+
     async def get_stations(request: Request):
         services = _get_services(container)
         stations = await services.storage.get_stations()
@@ -434,6 +444,7 @@ def create_api_routes(container: ServiceContainer) -> list:
     # Route ordering: specific paths before parameterised ones
     return [
         Route("/packets", get_packets),
+        Route("/messages", get_messages),
         Route("/stations", get_stations),
         Route("/stations/positions", get_station_positions),
         Route("/stations/tracks", get_station_tracks),

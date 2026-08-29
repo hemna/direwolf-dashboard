@@ -5,6 +5,14 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Added
+- **APRS Messages panel** — a new 💬 toolbar button (keyboard shortcut `M`) opens a
+  dedicated messages panel that groups all received `MessagePacket` entries into
+  per-conversation threads.  Threads addressed to your own callsign are highlighted in
+  blue and sorted to the top.  Enter your callsign in the "My Call" field (saved to
+  `localStorage`); the filter box narrows threads by callsign.  The panel auto-refreshes
+  every 30 seconds while open.  A new `GET /api/messages` REST endpoint backs the panel.
+  Closes #31.
+
 - **Weather Stations panel** — a new ⛅ toolbar button (keyboard shortcut `W`) opens a
   sortable, filterable table of all weather stations heard, showing their most recent
   temperature, wind speed/direction, humidity, pressure, and report age.  A "Charts"
