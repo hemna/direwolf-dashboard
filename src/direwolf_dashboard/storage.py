@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS stations (
     symbol      TEXT,
     symbol_table TEXT,
     last_comment TEXT,
+    last_path   TEXT,
     packet_count INTEGER DEFAULT 1
 );
 
@@ -95,6 +96,14 @@ class Storage:
 
         # Create tables and indexes
         await self._db.executescript(SCHEMA_SQL)
+        # Migrate existing DBs: add last_path column if it doesn't exist (#64).
+        # SQLite ALTER TABLE does not support IF NOT EXISTS, so catch the
+        # "duplicate column name" error and ignore it.
+        try:
+            await self._db.execute("ALTER TABLE stations ADD COLUMN last_path TEXT")
+            await self._db.commit()
+        except Exception:
+            pass  # Column already exists — safe to ignore
         await self._db.commit()
 
     async def close(self) -> None:
@@ -210,13 +219,15 @@ class Storage:
         symbol: Optional[str] = None,
         symbol_table: Optional[str] = None,
         comment: Optional[str] = None,
+        path: Optional[list] = None,
     ) -> None:
         """Insert or update a station record, incrementing packet_count."""
+        path_json = json.dumps(path) if path else None
         await self._db.execute(
             """INSERT INTO stations
             (callsign, last_seen, latitude, longitude, symbol, symbol_table,
-             last_comment, packet_count)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+             last_comment, last_path, packet_count)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
             ON CONFLICT(callsign) DO UPDATE SET
                 last_seen = excluded.last_seen,
                 latitude = COALESCE(excluded.latitude, stations.latitude),
@@ -224,11 +235,24 @@ class Storage:
                 symbol = COALESCE(excluded.symbol, stations.symbol),
                 symbol_table = COALESCE(excluded.symbol_table, stations.symbol_table),
                 last_comment = COALESCE(excluded.last_comment, stations.last_comment),
+                last_path = COALESCE(excluded.last_path, stations.last_path),
                 packet_count = stations.packet_count + 1
             """,
-            (callsign, last_seen, latitude, longitude, symbol, symbol_table, comment),
+            (callsign, last_seen, latitude, longitude, symbol, symbol_table, comment, path_json),
         )
         await self._db.commit()
+
+    def _station_row_to_dict(self, row) -> dict:
+        """Convert a stations DB row to a dict, deserialising JSON fields."""
+        d = dict(row)
+        if d.get("last_path"):
+            try:
+                d["last_path"] = json.loads(d["last_path"])
+            except (json.JSONDecodeError, TypeError):
+                d["last_path"] = []
+        else:
+            d["last_path"] = []
+        return d
 
     async def get_stations(self, limit: int = 2000) -> list[dict]:
         """Return known stations, most-recently-seen first.
@@ -243,7 +267,7 @@ class Storage:
             (limit,),
         )
         rows = await cursor.fetchall()
-        return [dict(row) for row in rows]
+        return [self._station_row_to_dict(row) for row in rows]
 
     async def get_station(self, callsign: str) -> Optional[dict]:
         """Return a single station record by callsign, or None."""
@@ -251,7 +275,7 @@ class Storage:
             "SELECT * FROM stations WHERE callsign = ?", (callsign,)
         )
         row = await cursor.fetchone()
-        return dict(row) if row else None
+        return self._station_row_to_dict(row) if row else None
 
     async def get_all_station_positions(self) -> list[dict]:
         """Return callsign + lat/lon for all stations with known positions."""

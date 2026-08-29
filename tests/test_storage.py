@@ -183,6 +183,34 @@ class TestStations:
         callsigns = {s["callsign"] for s in stations}
         assert callsigns == {"WB4BOR", "N3LLO", "KI4ABC"}
 
+    async def test_upsert_station_with_path(self, storage):
+        """last_path is stored as JSON and returned as a list (#64)."""
+        t = time.time()
+        path = ["N3XYZ*", "WIDE1-1", "qAR", "N3LLO-10"]
+        await storage.upsert_station("WB4BOR", t, 37.75, -77.45, path=path)
+        stations = await storage.get_stations()
+        assert len(stations) == 1
+        assert stations[0]["last_path"] == path
+
+    async def test_upsert_station_path_coalesce(self, storage):
+        """last_path is preserved across upserts that don't send a path."""
+        t = time.time()
+        path = ["N3XYZ*", "WIDE1-1"]
+        await storage.upsert_station("WB4BOR", t, 37.75, -77.45, path=path)
+        # Second upsert — no path arg
+        await storage.upsert_station("WB4BOR", t + 1, 37.76, -77.46)
+        stations = await storage.get_stations()
+        assert stations[0]["last_path"] == path
+
+    async def test_station_without_path_returns_empty_list(self, storage):
+        """A station stored without path data returns last_path=[] (#64)."""
+        await storage.upsert_station("WB4BOR", time.time(), 37.75, -77.45)
+        station = await storage.get_station("WB4BOR")
+        assert station is not None
+        assert station["last_path"] == []
+
+
+
     async def test_get_station_track(self, storage):
         t = time.time()
         for i in range(5):
