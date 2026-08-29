@@ -11,6 +11,12 @@ All notable changes to this project are documented here.
 - **Oversized AGW frames no longer crash the reader** — frames with
   `data_len > 65536` bytes now raise `ConnectionError`, triggering the existing
   reconnect loop instead of attempting a multi-megabyte heap allocation.
+- **`DELETE /api/storage` requires explicit confirmation** — the wipe endpoint
+  now requires `{"confirm": true}` in the JSON body, preventing accidental data
+  loss from errant DELETE requests (e.g. misconfigured reverse proxies).
+- **`_qint` query-parameter helper uses correct `Optional[int]` types** — fixes
+  a type annotation inconsistency where `min_val`/`max_val` were typed as `int`
+  but defaulted to `None`.
 
 ## [1.0.7] - 2026-05-29
 
