@@ -140,7 +140,7 @@ class TileProxy:
         ):
             return self._stats_cache
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         stats = await loop.run_in_executor(None, self._compute_cache_stats_sync)
         self._stats_cache = stats
         self._stats_cache_time = now
@@ -259,7 +259,7 @@ class TileProxy:
         if stats["cache_size_mb"] <= self.max_cache_mb:
             return
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._evict_cache_sync, stats["cache_size_mb"])
         # Invalidate cached stats after eviction
         self._stats_cache = None
