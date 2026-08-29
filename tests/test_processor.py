@@ -40,22 +40,31 @@ class TestBearing:
 
 class TestDegreesToCardinal:
     def test_north(self):
-        assert degrees_to_cardinal(0) == "N"
+        assert degrees_to_cardinal(0, full_string=False) == "N"
 
     def test_east(self):
-        assert degrees_to_cardinal(90) == "E"
+        assert degrees_to_cardinal(90, full_string=False) == "E"
 
     def test_south(self):
-        assert degrees_to_cardinal(180) == "S"
+        assert degrees_to_cardinal(180, full_string=False) == "S"
 
     def test_west(self):
-        assert degrees_to_cardinal(270) == "W"
+        assert degrees_to_cardinal(270, full_string=False) == "W"
 
     def test_northeast(self):
-        assert degrees_to_cardinal(45) == "NE"
+        assert degrees_to_cardinal(45, full_string=False) == "NE"
 
     def test_nnw(self):
-        assert degrees_to_cardinal(337.5) == "NNW"
+        assert degrees_to_cardinal(337.5, full_string=False) == "NNW"
+
+    def test_north_full(self):
+        assert degrees_to_cardinal(0) == "North"
+
+    def test_northeast_full(self):
+        assert degrees_to_cardinal(45) == "Northeast"
+
+    def test_nnw_full(self):
+        assert degrees_to_cardinal(337.5) == "North-Northwest"
 
 
 class TestFormatCompactLog:
