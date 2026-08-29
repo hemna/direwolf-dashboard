@@ -12,6 +12,7 @@ from direwolf_dashboard.lifecycle import (
     startup_services,
     shutdown_services,
     broadcast_event,
+    _broadcast_consumer,
 )
 
 
@@ -195,3 +196,78 @@ class TestBroadcastEvent:
         """No-op when no clients connected."""
         clients: set = set()
         await broadcast_event("test", {"key": "val"}, clients)  # Should not raise
+
+
+class TestBroadcastConsumerRollback:
+    """Tests for storage-error isolation in _broadcast_consumer."""
+
+    def _make_services(self, storage, queue):
+        return DirewolfServices(
+            config=Config(),
+            config_path=None,
+            storage=storage,
+            tile_proxy=MagicMock(),
+            processor=MagicMock(),
+            broadcast_queue=queue,
+            agw_reader=MagicMock(connected=False),
+            log_tailer=MagicMock(active=False),
+            start_time=time.time(),
+        )
+
+    async def test_rollback_called_on_insert_failure(self):
+        """When insert_packet raises, rollback() is called."""
+        mock_storage = AsyncMock()
+        mock_storage.insert_packet.side_effect = RuntimeError("disk full")
+
+        queue = asyncio.Queue()
+        await queue.put({"from_call": "TEST", "type": "GPSPacket", "timestamp": time.time()})
+
+        services = self._make_services(mock_storage, queue)
+
+        # Run one iteration: put a sentinel so the consumer exits after the first packet
+        async def run_one():
+            task = asyncio.create_task(_broadcast_consumer(services))
+            # Give the consumer time to process the one packet
+            await asyncio.sleep(0.05)
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+        await run_one()
+
+        mock_storage.rollback.assert_awaited_once()
+
+    async def test_consumer_continues_after_storage_error(self):
+        """Consumer processes subsequent packets even after a storage failure."""
+        call_count = 0
+
+        async def flaky_insert(packet):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("transient disk error")
+            return call_count  # row_id
+
+        mock_storage = AsyncMock()
+        mock_storage.insert_packet.side_effect = flaky_insert
+        mock_storage.get_station.return_value = None
+
+        queue = asyncio.Queue()
+        pkt1 = {"from_call": "CALL1", "type": "GPSPacket", "timestamp": time.time()}
+        pkt2 = {"from_call": "CALL2", "type": "GPSPacket", "timestamp": time.time()}
+        await queue.put(pkt1)
+        await queue.put(pkt2)
+
+        services = self._make_services(mock_storage, queue)
+
+        async def run_two():
+            task = asyncio.create_task(_broadcast_consumer(services))
+            await asyncio.sleep(0.1)
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+        await run_two()
+
+        # Both packets attempted — one failed, one succeeded
+        assert mock_storage.insert_packet.await_count == 2
+        # rollback was called once (for the first failure)
+        mock_storage.rollback.assert_awaited_once()

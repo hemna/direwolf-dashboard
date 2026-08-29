@@ -487,3 +487,40 @@ class TestReset:
         assert pts[0]["timestamp"] < pts[1]["timestamp"] < pts[2]["timestamp"]
         # First point should be the earliest one
         assert pts[0]["latitude"] == pytest.approx(37.75, abs=1e-9)
+
+
+class TestStorageRollback:
+    """Tests for the rollback() method."""
+
+    async def test_rollback_no_op_when_no_pending_changes(self, storage):
+        """rollback() on a clean connection is a safe no-op."""
+        # Should not raise even with nothing to roll back
+        await storage.rollback()
+
+    async def test_rollback_reverts_uncommitted_insert(self, storage):
+        """An explicit rollback reverts data inserted without commit."""
+        # Insert a packet via raw execute (not insert_packet which commits)
+        await storage._db.execute(
+            """INSERT INTO packets
+            (timestamp, type, tx, from_call, to_call)
+            VALUES (?, ?, ?, ?, ?)""",
+            (1000.0, "GPSPacket", False, "TEST1", "APRS"),
+        )
+        # Row should be visible within the connection before rollback
+        cursor = await storage._db.execute("SELECT COUNT(*) FROM packets")
+        row = await cursor.fetchone()
+        assert row[0] == 1
+
+        # Roll back without committing
+        await storage.rollback()
+
+        # Row must be gone
+        cursor = await storage._db.execute("SELECT COUNT(*) FROM packets")
+        row = await cursor.fetchone()
+        assert row[0] == 0
+
+    async def test_rollback_safe_when_storage_none(self):
+        """rollback() on a Storage with _db=None does not raise."""
+        s = Storage(":memory:")
+        # _db is None — rollback must be a no-op
+        await s.rollback()
