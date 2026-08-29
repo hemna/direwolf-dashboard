@@ -113,12 +113,13 @@ class Config:
     packet_log: PacketLogConfig = field(default_factory=PacketLogConfig)
 
     def __post_init__(self):
-        if not self.data_dir:
-            self.data_dir = _resolve_data_dir()
-        self.data_dir = os.path.expanduser(self.data_dir)
-        # Resolve sub-config defaults that depend on data_dir
-        self.storage.resolve_defaults(self.data_dir)
-        self.tiles.resolve_defaults(self.data_dir)
+        if self.data_dir:
+            self.data_dir = os.path.expanduser(self.data_dir)
+            # Only resolve sub-config path defaults when we have a real data_dir.
+            # When data_dir is empty, callers are responsible for setting it
+            # (e.g. load_config calls _resolve_data_dir() once and passes it in).
+            self.storage.resolve_defaults(self.data_dir)
+            self.tiles.resolve_defaults(self.data_dir)
 
     def to_dict(self) -> dict:
         """Convert config to a JSON-serializable dict."""
@@ -210,6 +211,12 @@ def load_config(path: Optional[str] = None) -> Config:
         # Create config file with defaults
         first_config = _dict_to_config(merged)
         save_config(first_config, path)
+
+    # Resolve data_dir exactly once — here, not inside Config.__post_init__.
+    # This avoids filesystem I/O on every Config() construction (e.g. in tests,
+    # CLI check command, and the default-config object created above).
+    if not merged.get("data_dir"):
+        merged["data_dir"] = _resolve_data_dir()
 
     return _dict_to_config(merged)
 
