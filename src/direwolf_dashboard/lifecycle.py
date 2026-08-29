@@ -345,15 +345,6 @@ async def _broadcast_consumer(services: DirewolfServices) -> None:
                     pkt_id = packet.get("id", "?")
                     LOG.debug(f"[TIMING] pkt#{pkt_id} DB+enrich done at {t2:.3f} (+{t2 - t0:.3f}s)")
 
-                    # Append bearing/distance to compact_log if present
-                    if packet.get("bearing") and packet.get("compact_log"):
-                        dist = packet.get("distance_miles", 0)
-                        bearing_html = (
-                            f' : <span style="color:#FFA900">{packet["bearing"]}</span>'
-                            f'<span style="color:#FF5733">@{dist:.2f}miles</span>'
-                        )
-                        packet["compact_log"] += bearing_html
-
                 except Exception as db_err:
                     # Roll back any uncommitted transaction so the connection stays
                     # in a clean state for the next packet.  Log the error but do

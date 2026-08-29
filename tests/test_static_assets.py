@@ -98,3 +98,27 @@ def test_popup_buttons_use_addeventlistener():
         "old onclick='...gpx' pattern must be removed"
     assert "window._dropPinFromPopup" not in content, \
         "dead _dropPinFromPopup global must be removed"
+
+
+def test_render_compact_log_function_defined():
+    """Verify renderCompactLog function is defined in app.js."""
+    app_js = (
+        Path(direwolf_dashboard.__file__).parent / "static" / "app.js"
+    )
+    content = app_js.read_text(encoding="utf-8")
+    assert "function renderCompactLog(" in content, \
+        "renderCompactLog() must be defined in app.js"
+
+
+def test_addlogrow_uses_render_compact_log():
+    """Verify addLogRow calls renderCompactLog instead of reading packet.compact_log."""
+    app_js = (
+        Path(direwolf_dashboard.__file__).parent / "static" / "app.js"
+    )
+    content = app_js.read_text(encoding="utf-8")
+    # renderCompactLog must be called inside addLogRow
+    assert "renderCompactLog(packet)" in content, \
+        "addLogRow must call renderCompactLog(packet)"
+    # The old pattern of trusting packet.compact_log must be gone
+    assert "packet.compact_log" not in content, \
+        "app.js must not reference packet.compact_log directly"

@@ -34,6 +34,14 @@ All notable changes to this project are documented here.
   "my position". On a busy APRS channel this removes hundreds of `get_my_position` /
   `get_station` DB calls per minute.
 
+### Refactored
+- **Compact log HTML moved to frontend** — `format_compact_log()` in `processor.py`
+  and the bearing HTML mutation in `lifecycle._broadcast_consumer` are removed.
+  `renderCompactLog(packet)` in `app.js` now builds the log row HTML using CSS
+  variables (`--log-rx`, `--log-type`, `--log-comment`, etc.), so colors
+  automatically respect the active theme. The `compact_log` DB column is retained
+  for backward compatibility but no longer written with HTML. Closes #28.
+
 ## [1.0.8] - 2026-08-29
 
 ### Fixed
