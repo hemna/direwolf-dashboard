@@ -230,10 +230,17 @@ class Storage:
         )
         await self._db.commit()
 
-    async def get_stations(self) -> list[dict]:
-        """Return all known stations."""
+    async def get_stations(self, limit: int = 2000) -> list[dict]:
+        """Return known stations, most-recently-seen first.
+
+        Args:
+            limit: Maximum rows to return. Defaults to 2000 so a busy
+                   digipeater with thousands of callsigns doesn't saturate
+                   the Pi Zero 2W on every stations-panel refresh. (#61)
+        """
         cursor = await self._db.execute(
-            "SELECT * FROM stations ORDER BY last_seen DESC"
+            "SELECT * FROM stations ORDER BY last_seen DESC LIMIT ?",
+            (limit,),
         )
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
