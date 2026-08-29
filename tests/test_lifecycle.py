@@ -357,3 +357,40 @@ class TestResolveMyPositionCache:
         assert result is None
         assert services._my_position_cache is None
         assert services._my_position_dirty is False
+
+
+class TestHousekeepingJitter:
+    """Tests for jitter in _housekeeping_loop sleep interval."""
+
+    async def test_housekeeping_sleep_has_jitter(self):
+        """Sleep duration must be within 3420–3780 s (3600 ± 5%)."""
+        from direwolf_dashboard.lifecycle import _housekeeping_loop
+
+        mock_storage = AsyncMock()
+        mock_storage.housekeep.return_value = 0
+
+        services = DirewolfServices(
+            config=MagicMock(),
+            config_path=None,
+            storage=mock_storage,
+            tile_proxy=MagicMock(),
+            processor=MagicMock(),
+            broadcast_queue=asyncio.Queue(),
+            agw_reader=MagicMock(connected=False),
+            log_tailer=MagicMock(active=False),
+            start_time=time.time(),
+        )
+
+        sleep_durations = []
+
+        async def capture_sleep(duration):
+            sleep_durations.append(duration)
+            raise asyncio.CancelledError()
+
+        with patch("direwolf_dashboard.lifecycle.asyncio.sleep", side_effect=capture_sleep):
+            with pytest.raises(asyncio.CancelledError):
+                await _housekeeping_loop(services, retention_days=7)
+
+        assert len(sleep_durations) == 1
+        duration = sleep_durations[0]
+        assert 3420 <= duration <= 3780, f"Sleep duration {duration} outside jitter range [3420, 3780]"
