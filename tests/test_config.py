@@ -282,3 +282,33 @@ class TestUpdateConfig:
 
         assert new_config.station.latitude == 37.75
         assert not hasattr(new_config.station, "my_position")
+
+
+class TestConfigPostInitIsolated:
+    """Issue #11: Config() with no data_dir must not touch the filesystem."""
+
+    def test_config_no_args_has_empty_db_path(self):
+        """Config() with no args should NOT call _resolve_data_dir — db_path stays empty."""
+        config = Config()
+        assert config.storage.db_path == ""
+
+    def test_config_no_args_has_empty_cache_dir(self):
+        """Config() with no args — cache_dir stays empty."""
+        config = Config()
+        assert config.tiles.cache_dir == ""
+
+    def test_config_no_args_does_not_create_directories(self, tmp_path, monkeypatch):
+        """Constructing Config() must not create any directories."""
+        # Redirect home so that if _resolve_data_dir were called it would write here
+        monkeypatch.setenv("HOME", str(tmp_path))
+        Config()
+        # tmp_path should remain empty (no subdirs created by Config())
+        created = list(tmp_path.iterdir())
+        assert created == [], f"Config() created unexpected directories: {created}"
+
+    def test_load_config_resolves_non_empty_paths(self, tmp_path):
+        """load_config() should produce non-empty db_path and cache_dir."""
+        config_path = str(tmp_path / "config.yaml")
+        config = load_config(config_path)
+        assert config.storage.db_path != ""
+        assert config.tiles.cache_dir != ""
