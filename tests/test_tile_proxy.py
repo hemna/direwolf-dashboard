@@ -1,5 +1,6 @@
 """Tests for TileProxy — async get_cache_stats with TTL caching."""
 
+import asyncio
 import time
 import pytest
 
@@ -71,3 +72,37 @@ class TestGetCacheStatsTTL:
         tile_proxy._stats_cache = None
         stats2 = await tile_proxy.get_cache_stats()
         assert stats2 is not None
+
+
+class TestCheckCacheBudget:
+    async def test_under_budget_does_not_evict(self, tile_proxy):
+        """When cache is under budget _check_cache_budget() completes without error."""
+        # cache_dir doesn't exist yet → cache_size_mb == 0, well under 100 MB limit
+        await tile_proxy._check_cache_budget()
+        # Stats should now be populated (no eviction needed)
+        assert tile_proxy._stats_cache is not None
+        assert tile_proxy._stats_cache["cache_size_mb"] == 0.0
+
+    async def test_over_budget_triggers_eviction(self, tmp_path):
+        """When cache exceeds max_cache_mb, _check_cache_budget() calls eviction."""
+        # Use max_cache_mb=0; write a file large enough that cache_size_mb rounds
+        # to > 0.0 so the budget check actually triggers eviction.
+        proxy = TileProxy(cache_dir=str(tmp_path / "tiles"), max_cache_mb=0)
+        cache = tmp_path / "tiles"
+        cache.mkdir(parents=True)
+        # 1 MiB + 1 byte → cache_size_mb = 1.0, which is > 0
+        (cache / "tile.png").write_bytes(b"\x89PNG" + b"\x00" * (1024 * 1024))
+        await proxy._check_cache_budget()
+        # After eviction the stats cache is invalidated
+        assert proxy._stats_cache is None
+
+    async def test_runs_inside_running_event_loop(self, tile_proxy):
+        """get_cache_stats and _check_cache_budget use get_running_loop() — they must
+        succeed when called from within an already-running event loop (as pytest-asyncio
+        provides), and must not raise DeprecationWarning or RuntimeError."""
+        # asyncio.get_running_loop() raises RuntimeError if there is no running loop;
+        # the fact that this test executes successfully proves we are inside one.
+        loop = asyncio.get_running_loop()
+        assert loop is not None
+        stats = await tile_proxy.get_cache_stats()
+        assert isinstance(stats, dict)

@@ -4,6 +4,9 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Fixed
+- **`asyncio.get_event_loop()` replaced with `asyncio.get_running_loop()`** in `tile_proxy.py` — eliminates `DeprecationWarning` on Python 3.10+ and `RuntimeError` on Python 3.12 when called from within a running event loop. Both call sites in `get_cache_stats()` and `_check_cache_budget()` are affected. Closes #20.
+
 ## [1.0.8] - 2026-08-29
 
 ### Fixed
