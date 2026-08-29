@@ -5,6 +5,11 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Added
+- **Packet log full-text search** — a Search input in the Filters overlay lets users
+  type any term (callsign, raw packet data, comment, human-readable info) to live-filter
+  the log rows.  `Ctrl+F` / `Cmd+F` jumps focus to the search box.  The search term is
+  applied alongside the existing callsign / type / TX-RX filters.  Closes #32.
+
 - **Audio level / signal quality indicator in packet log** — RX packets that carry an
   `audio_level` value (from the Direwolf log tailer) now show a 5-bar signal-strength
   icon inline in the compact log row.  Bar height scales with level (0–100 → 1–5 bars).

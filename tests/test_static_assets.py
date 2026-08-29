@@ -219,3 +219,52 @@ def test_audio_level_signal_bars_in_app_js():
     assert "signal-bar" in content, "signal-bar class must be in app.js"
     assert "audio_level" in content, "audio_level must be referenced in app.js"
     assert "Audio level:" in content, "Audio level tooltip must be in app.js"
+
+
+def test_packet_search_input_in_filter_overlay():
+    """Verify the full-text search input is present in the filter overlay HTML in app.js."""
+    app_js = (
+        Path(direwolf_dashboard.__file__).parent / "static" / "app.js"
+    )
+    content = app_js.read_text(encoding="utf-8")
+    assert 'id="filter-search"' in content, \
+        "filter-search input must be in the filter overlay (initFilterOverlay)"
+    assert 'placeholder="Search log..."' in content, \
+        "filter-search placeholder text must be 'Search log...'"
+
+
+def test_packet_search_dataset_set_in_addlogrow():
+    """Verify addLogRow sets row.dataset.search for full-text filtering."""
+    app_js = (
+        Path(direwolf_dashboard.__file__).parent / "static" / "app.js"
+    )
+    content = app_js.read_text(encoding="utf-8")
+    assert "row.dataset.search" in content, \
+        "addLogRow must set row.dataset.search for searchable text"
+    assert "packet.raw_packet" in content, \
+        "dataset.search must include packet.raw_packet"
+
+
+def test_apply_filter_to_row_checks_search():
+    """Verify applyFilterToRow applies the search filter to rows."""
+    app_js = (
+        Path(direwolf_dashboard.__file__).parent / "static" / "app.js"
+    )
+    content = app_js.read_text(encoding="utf-8")
+    # applyFilterToRow must accept a search param and use dataset.search
+    assert "row.dataset.search" in content, \
+        "applyFilterToRow must check row.dataset.search"
+    assert "filter-search" in content, \
+        "applyFilterToRow must read filter-search element when search param is undefined"
+
+
+def test_ctrl_f_focuses_search_input():
+    """Verify Ctrl+F / Cmd+F keyboard shortcut is wired to focus filter-search."""
+    app_js = (
+        Path(direwolf_dashboard.__file__).parent / "static" / "app.js"
+    )
+    content = app_js.read_text(encoding="utf-8")
+    assert "e.key === 'f'" in content or 'e.key === "f"' in content, \
+        "Ctrl+F / Cmd+F shortcut must be wired in initFilters"
+    assert "searchEl.focus()" in content, \
+        "Ctrl+F handler must call searchEl.focus()"
