@@ -8,6 +8,9 @@ All notable changes to this project are documented here.
 - **Tile proxy `os.walk` no longer blocks the event loop** — `get_cache_stats()`
   and cache eviction now run in a thread-pool executor, preventing SD card I/O
   from stalling packet processing on Raspberry Pi. Stats are cached for 60 s.
+- **Oversized AGW frames no longer crash the reader** — frames with
+  `data_len > 65536` bytes now raise `ConnectionError`, triggering the existing
+  reconnect loop instead of attempting a multi-megabyte heap allocation.
 
 ## [1.0.7] - 2026-05-29
 
