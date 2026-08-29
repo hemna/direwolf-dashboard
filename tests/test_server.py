@@ -3,7 +3,7 @@
 import asyncio
 import time
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from starlette.testclient import TestClient
 
@@ -384,3 +384,17 @@ class TestMyPositionValidation:
                 json={"station": {"my_position": {"type": "invalid"}}},
             )
             assert response.status_code == 400
+
+
+class TestStatsTileCache:
+    """Verify /api/stats includes tile_cache from async get_cache_stats."""
+
+    async def test_stats_includes_tile_cache(self, test_app):
+        app, storage = test_app
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.get("/api/stats")
+            assert response.status_code == 200
+            data = response.json()
+            assert "tile_cache" in data
+            assert "tile_count" in data["tile_cache"]
+            assert "cache_size_mb" in data["tile_cache"]
