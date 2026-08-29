@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [1.0.8] - 2026-08-29
+
 ### Fixed
 - **Tile proxy `os.walk` no longer blocks the event loop** — `get_cache_stats()`
   and cache eviction now run in a thread-pool executor, preventing SD card I/O
