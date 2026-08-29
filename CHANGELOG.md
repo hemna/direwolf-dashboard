@@ -4,6 +4,37 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-08-29
+
+### Fixed
+- **XSS in map popup** — `callsign`, `last_comment`, and digipeater path hops are now
+  HTML-escaped before being inserted into `popupDiv.innerHTML` in `updateStationPopup()`.
+  A crafted APRS comment like `<img src=x onerror=alert(1)>` could previously execute
+  JavaScript in the operator's browser.  Closes #59.
+
+- **`escHtml()` missing quote escape** — the function now escapes `"` → `&quot;` in
+  addition to `&`, `<`, `>` so it is safe in double-quoted HTML attribute contexts
+  (e.g. `data-cs="…"`, `data-ts="…"`).  Closes #60.
+
+- **Unbounded `GET /api/stations` query** — `Storage.get_stations()` now applies a
+  default `LIMIT 2000` so a busy digipeater with thousands of unique callsigns cannot
+  saturate the Pi Zero 2W's RAM on every stations-panel or weather-panel refresh.
+  Closes #61.
+
+- **Modal refresh timers not stored** — the three `setInterval` handles for the
+  station-list age refresh, messages-panel auto-refresh, and weather-panel auto-refresh
+  are now stored in module-scope variables (`_slAgeTimer`, `_mpRefreshTimer`,
+  `_wpRefreshTimer`) and cleared before reassignment, preventing timer accumulation.
+  Closes #62.
+
+### Added
+- **Persist `last_path` in stations table** — the digipeater path of each incoming
+  position packet is now stored in a new `last_path` column (JSON-encoded text) in the
+  `stations` table.  Existing databases are migrated automatically via
+  `ALTER TABLE ADD COLUMN` on startup.  Because `GET /api/stations` now returns
+  `last_path` as a parsed list, the map popup's path overlay is populated immediately
+  on page load — no need to wait for a new packet from each station.  Closes #64.
+
 ## [1.1.0] - 2026-08-29
 
 ### Added
