@@ -525,3 +525,76 @@ class TestStorageRollback:
         s = Storage(":memory:")
         # _db is None — rollback must be a no-op
         await s.rollback()
+
+
+class TestWeatherReports:
+    """Tests for weather report storage and retrieval."""
+
+    async def test_insert_and_get_weather_report(self, storage):
+        """Insert a weather report and retrieve it."""
+        ts = time.time()
+        report = {
+            "timestamp": ts,
+            "callsign": "W1WX",
+            "temperature": 72.5,
+            "humidity": 65.0,
+            "pressure": 1013.2,
+            "wind_speed": 10.0,
+            "wind_direction": 270.0,
+        }
+        rid = await storage.insert_weather_report(report)
+        assert rid > 0
+
+        reports = await storage.get_weather_reports("W1WX")
+        assert len(reports) == 1
+        assert reports[0]["temperature"] == pytest.approx(72.5)
+        assert reports[0]["callsign"] == "W1WX"
+
+    async def test_get_latest_weather_by_callsign_empty(self, storage):
+        """With no reports, returns empty dict."""
+        result = await storage.get_latest_weather_by_callsign()
+        assert result == {}
+
+    async def test_get_latest_weather_by_callsign_single(self, storage):
+        """With one report, returns that report for the callsign."""
+        ts = time.time()
+        await storage.insert_weather_report({
+            "timestamp": ts,
+            "callsign": "W1WX",
+            "temperature": 68.0,
+            "wind_speed": 5.0,
+        })
+        result = await storage.get_latest_weather_by_callsign()
+        assert "W1WX" in result
+        assert result["W1WX"]["temperature"] == pytest.approx(68.0)
+
+    async def test_get_latest_weather_by_callsign_returns_most_recent(self, storage):
+        """With multiple reports, the most recent is returned per callsign."""
+        ts = time.time()
+        await storage.insert_weather_report({
+            "timestamp": ts - 3600,
+            "callsign": "W1WX",
+            "temperature": 60.0,
+        })
+        await storage.insert_weather_report({
+            "timestamp": ts,
+            "callsign": "W1WX",
+            "temperature": 75.0,  # most recent
+        })
+        result = await storage.get_latest_weather_by_callsign()
+        assert result["W1WX"]["temperature"] == pytest.approx(75.0)
+
+    async def test_get_latest_weather_by_callsign_multiple_stations(self, storage):
+        """Returns the latest report for each distinct callsign."""
+        ts = time.time()
+        await storage.insert_weather_report({
+            "timestamp": ts, "callsign": "W1WX", "temperature": 70.0,
+        })
+        await storage.insert_weather_report({
+            "timestamp": ts, "callsign": "KD9WXY", "temperature": 55.0,
+        })
+        result = await storage.get_latest_weather_by_callsign()
+        assert "W1WX" in result
+        assert "KD9WXY" in result
+        assert result["W1WX"]["temperature"] == pytest.approx(70.0)
+        assert result["KD9WXY"]["temperature"] == pytest.approx(55.0)

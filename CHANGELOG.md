@@ -5,6 +5,15 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Added
+- **Weather Stations panel** — a new ⛅ toolbar button (keyboard shortcut `W`) opens a
+  sortable, filterable table of all weather stations heard, showing their most recent
+  temperature, wind speed/direction, humidity, pressure, and report age.  A "Charts"
+  button in each row opens the existing weather history modal.  Weather station popups
+  on the map now also show the current conditions (temp, wind, humidity) inline — no
+  extra click needed.  The `/api/stations` response is augmented with a `last_weather`
+  field for stations that have weather reports.  Keyboard shortcut help updated with
+  `W` and `Ctrl+F` entries.  Closes #38.
+
 - **Packet log full-text search** — a Search input in the Filters overlay lets users
   type any term (callsign, raw packet data, comment, human-readable info) to live-filter
   the log rows.  `Ctrl+F` / `Cmd+F` jumps focus to the search box.  The search term is

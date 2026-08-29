@@ -32,6 +32,7 @@
         </div>
         <div class="toolbar-right">
             <button id="btn-station-list" title="Station List (S)">&#x1F4CB;</button>
+            <button id="btn-weather-panel" title="Weather Stations (W)">&#x26C5;</button>
             <button id="btn-drop-pin" title="Drop Pin - set my position">&#x1F4CC;</button>
             <button id="btn-decode" title="Decode APRS Packet (Ctrl+K)">&#x1F4E1;</button>
             <button id="btn-keyboard-help" title="Keyboard shortcuts (?)">&#x2328;</button>
@@ -323,6 +324,38 @@
         </div>
     </div>
 
+    <!-- Weather Panel Modal -->
+    <div id="weather-panel-modal" class="modal hidden">
+        <div class="modal-content weather-panel-modal-content">
+            <div class="modal-header">
+                <h2>&#x26C5; Weather Stations</h2>
+                <button id="btn-close-weather-panel">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="station-list-controls">
+                    <input type="search" id="weather-panel-search" placeholder="Filter by callsign…" />
+                    <span id="weather-panel-count" class="station-list-count"></span>
+                </div>
+                <div id="weather-panel-container">
+                    <table id="weather-panel-table" class="station-list-table weather-panel-table">
+                        <thead>
+                            <tr>
+                                <th data-sort="callsign" class="sortable sort-asc">Callsign</th>
+                                <th data-sort="temperature" class="sortable">Temp (&deg;F)</th>
+                                <th data-sort="wind_speed" class="sortable">Wind</th>
+                                <th data-sort="humidity" class="sortable">Humidity</th>
+                                <th data-sort="pressure" class="sortable">Pressure</th>
+                                <th data-sort="timestamp" class="sortable">Last Report</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="weather-panel-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Station List Modal -->
     <div id="station-list-modal" class="modal hidden">
         <div class="modal-content station-list-modal-content">
@@ -369,7 +402,9 @@
                     <tbody>
                         <tr><td><kbd>L</kbd></td><td>Cycle packet log: expanded → hidden → expanded</td></tr>
                         <tr><td><kbd>S</kbd></td><td>Open / close Station List</td></tr>
+                        <tr><td><kbd>W</kbd></td><td>Open / close Weather Stations panel</td></tr>
                         <tr><td><kbd>Ctrl</kbd>+<kbd>K</kbd></td><td>Open Decode APRS Packet</td></tr>
+                        <tr><td><kbd>Ctrl</kbd>+<kbd>F</kbd></td><td>Focus packet log search</td></tr>
                         <tr><td><kbd>?</kbd></td><td>Show this keyboard shortcuts help</td></tr>
                         <tr><td><kbd>Esc</kbd></td><td>Close any open modal</td></tr>
                     </tbody>

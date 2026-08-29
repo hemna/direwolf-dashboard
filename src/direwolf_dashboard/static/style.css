@@ -1526,6 +1526,12 @@ button.secondary:hover {
     margin: 2px 0 4px;
     font-variant-numeric: tabular-nums;
 }
+.popup-weather {
+    font-size: 11px;
+    color: var(--log-human-info, #a8d8a8);
+    margin: 2px 0 4px;
+    font-variant-numeric: tabular-nums;
+}
 
 /* Map overlay: distance label */
 .distance-label {
@@ -2453,3 +2459,29 @@ kbd {
 /* Colour top bars yellow/red for strong signals */
 .log-signal .signal-bar:nth-child(4).active { background: var(--warning, #f39c12); }
 .log-signal .signal-bar:nth-child(5).active { background: var(--danger, #e74c3c); }
+
+/* =========================================================
+   Weather Panel Modal (#38)
+   ========================================================= */
+.weather-panel-modal-content {
+    width: min(920px, 96vw);
+    max-height: 88vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.weather-panel-modal-content .modal-body {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 0 16px 16px;
+}
+
+.weather-panel-table th,
+.weather-panel-table td {
+    white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+    .weather-panel-modal-content { width: 100%; }
+}

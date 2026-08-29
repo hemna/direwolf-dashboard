@@ -268,3 +268,38 @@ def test_ctrl_f_focuses_search_input():
         "Ctrl+F / Cmd+F shortcut must be wired in initFilters"
     assert "searchEl.focus()" in content, \
         "Ctrl+F handler must call searchEl.focus()"
+
+
+def test_weather_panel_modal_in_html():
+    """Verify weather-panel-modal HTML is present in index.html."""
+    html = (
+        Path(direwolf_dashboard.__file__).parent / "static" / "index.html"
+    )
+    content = html.read_text(encoding="utf-8")
+    assert 'id="weather-panel-modal"' in content, "weather-panel-modal must be in index.html"
+    assert 'id="weather-panel-body"' in content, "weather-panel-body must be in index.html"
+    assert 'id="btn-weather-panel"' in content, "btn-weather-panel toolbar button must be in index.html"
+
+
+def test_weather_panel_functions_in_app_js():
+    """Verify weather panel functions are defined in app.js."""
+    app_js = (
+        Path(direwolf_dashboard.__file__).parent / "static" / "app.js"
+    )
+    content = app_js.read_text(encoding="utf-8")
+    assert "function initWeatherPanelModal" in content, "initWeatherPanelModal must be defined"
+    assert "function _loadWeatherPanelData" in content, "_loadWeatherPanelData must be defined"
+    assert "function _renderWeatherTable" in content, "_renderWeatherTable must be defined"
+
+
+def test_weather_popup_inline_in_app_js():
+    """Verify popup shows inline weather summary from last_weather field."""
+    app_js = (
+        Path(direwolf_dashboard.__file__).parent / "static" / "app.js"
+    )
+    content = app_js.read_text(encoding="utf-8")
+    assert "d.last_weather" in content, "popup must check d.last_weather"
+    assert "popup-weather" in content, "popup must use popup-weather CSS class"
+    assert "popup-weather" in (
+        Path(direwolf_dashboard.__file__).parent / "static" / "style.css"
+    ).read_text(encoding="utf-8"), "popup-weather class must be defined in style.css"

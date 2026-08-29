@@ -3,6 +3,7 @@
 import time
 import unittest.mock as mock
 
+import pytest
 from starlette.applications import Starlette
 from starlette.routing import Mount
 from starlette.testclient import TestClient
@@ -129,3 +130,65 @@ class TestHealthEndpoint:
         assert resp.status_code == 503
         data = resp.json()
         assert data["status"] == "degraded"
+
+
+class TestStationsEndpointWeather:
+    """Tests that /api/stations augments weather stations with last_weather."""
+
+    def _make_services(self, stations, weather_by_cs):
+        """Build a mock services where storage returns given data."""
+        services = mock.MagicMock()
+        storage = mock.MagicMock()
+        storage.get_stations = mock.AsyncMock(return_value=stations)
+        storage.get_latest_weather_by_callsign = mock.AsyncMock(return_value=weather_by_cs)
+        services.storage = storage
+        return services
+
+    def test_stations_with_no_weather(self):
+        """When no weather reports exist, stations are returned without last_weather."""
+        container = ServiceContainer()
+        container.services = self._make_services(
+            stations=[{"callsign": "W1ABC", "symbol": ">"}],
+            weather_by_cs={},
+        )
+        client = TestClient(_build_test_app(container), raise_server_exceptions=False)
+        resp = client.get("/api/stations")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert "last_weather" not in data[0]
+
+    def test_stations_weather_station_gets_last_weather(self):
+        """A weather station callsign present in latest_weather gets last_weather injected."""
+        wx = {"callsign": "W1WX", "temperature": 72.5, "wind_speed": 10.0, "timestamp": 1234567890.0}
+        container = ServiceContainer()
+        container.services = self._make_services(
+            stations=[{"callsign": "W1WX", "symbol": "_"}],
+            weather_by_cs={"W1WX": wx},
+        )
+        client = TestClient(_build_test_app(container), raise_server_exceptions=False)
+        resp = client.get("/api/stations")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert "last_weather" in data[0]
+        assert data[0]["last_weather"]["temperature"] == pytest.approx(72.5)
+
+    def test_stations_non_weather_not_affected(self):
+        """Stations without weather data are not modified even when other stations have weather."""
+        wx = {"callsign": "W1WX", "temperature": 72.5, "timestamp": 1234567890.0}
+        container = ServiceContainer()
+        container.services = self._make_services(
+            stations=[
+                {"callsign": "W1WX", "symbol": "_"},
+                {"callsign": "W1ABC", "symbol": ">"},
+            ],
+            weather_by_cs={"W1WX": wx},
+        )
+        client = TestClient(_build_test_app(container), raise_server_exceptions=False)
+        resp = client.get("/api/stations")
+        assert resp.status_code == 200
+        data = resp.json()
+        by_cs = {s["callsign"]: s for s in data}
+        assert "last_weather" in by_cs["W1WX"]
+        assert "last_weather" not in by_cs["W1ABC"]

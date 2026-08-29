@@ -859,6 +859,7 @@
         initAboutModal();
         initChangelogModal();
         initStationListModal();
+        initWeatherPanelModal();
         initKeyboardHelpModal();
         await loadConfig();
         initMap();
@@ -1076,6 +1077,22 @@
                 html += `<div class="popup-path">&#8594; ${hops.join(' &rsaquo; ')}</div>`;
             } else if (pathInfo.isTcpip) {
                 html += `<div class="popup-path">&#8594; TCPIP (internet)</div>`;
+            }
+        }
+
+        // Inline weather summary for weather stations (#38)
+        if (d.last_weather) {
+            const w = d.last_weather;
+            const parts = [];
+            if (w.temperature != null) parts.push(`${w.temperature.toFixed(1)}&thinsp;&deg;F`);
+            if (w.wind_speed != null) {
+                let wind = `${w.wind_speed.toFixed(0)}&thinsp;mph`;
+                if (w.wind_direction != null) wind += ` @ ${w.wind_direction.toFixed(0)}&deg;`;
+                parts.push(wind);
+            }
+            if (w.humidity != null) parts.push(`${w.humidity.toFixed(0)}% RH`);
+            if (parts.length > 0) {
+                html += `<div class="popup-weather">&#127777; ${parts.join(' &nbsp; ')}</div>`;
             }
         }
 
@@ -3885,6 +3902,149 @@
                 if (ts) td.textContent = formatAge(ts);
             });
         }, 30000);
+    }
+
+    // -----------------------------------------------------------------------
+    // Weather Panel Modal (#38)
+    // -----------------------------------------------------------------------
+
+    let _wpSortKey = 'callsign';
+    let _wpSortAsc = true;
+    let _wpFilter = '';
+    let _wpData = [];
+
+    function initWeatherPanelModal() {
+        const modal     = document.getElementById('weather-panel-modal');
+        const btnOpen   = document.getElementById('btn-weather-panel');
+        const btnClose  = document.getElementById('btn-close-weather-panel');
+        const searchInput = document.getElementById('weather-panel-search');
+        const thead     = document.querySelector('#weather-panel-table thead');
+
+        if (!modal) return;
+
+        function openModal() {
+            _wpFilter = '';
+            if (searchInput) searchInput.value = '';
+            modal.classList.remove('hidden');
+            _loadWeatherPanelData();
+        }
+
+        function closeModal() {
+            modal.classList.add('hidden');
+        }
+
+        if (btnOpen)  btnOpen.addEventListener('click', openModal);
+        if (btnClose) btnClose.addEventListener('click', closeModal);
+        modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
+        // Column sort
+        if (thead) {
+            thead.addEventListener('click', (e) => {
+                const th = e.target.closest('th[data-sort]');
+                if (!th) return;
+                const key = th.dataset.sort;
+                if (_wpSortKey === key) {
+                    _wpSortAsc = !_wpSortAsc;
+                } else {
+                    _wpSortKey = key;
+                    _wpSortAsc = true;
+                }
+                thead.querySelectorAll('th[data-sort]').forEach(t => {
+                    t.classList.remove('sort-asc', 'sort-desc');
+                    if (t.dataset.sort === _wpSortKey) {
+                        t.classList.add(_wpSortAsc ? 'sort-asc' : 'sort-desc');
+                    }
+                });
+                _renderWeatherTable();
+            });
+        }
+
+        if (searchInput) {
+            searchInput.addEventListener('input', (e) => {
+                _wpFilter = e.target.value;
+                _renderWeatherTable();
+            });
+        }
+
+        // W key shortcut
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'w' || e.key === 'W') {
+                const tag = document.activeElement?.tagName;
+                if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+                if (modal.classList.contains('hidden')) openModal();
+                else closeModal();
+            }
+        });
+
+        // Live refresh every 60s
+        setInterval(() => {
+            if (modal.classList.contains('hidden')) return;
+            _loadWeatherPanelData();
+        }, 60000);
+    }
+
+    async function _loadWeatherPanelData() {
+        try {
+            const resp = await fetch(API_BASE + '/stations');
+            if (!resp.ok) throw new Error('Failed to load stations');
+            const allStations = await resp.json();
+            // Keep only stations that have weather data (symbol '_' or last_weather present)
+            _wpData = allStations.filter(s => s.symbol === '_' || s.last_weather);
+        } catch (err) {
+            _wpData = [];
+        }
+        _renderWeatherTable();
+    }
+
+    function _renderWeatherTable() {
+        const tbody = document.getElementById('weather-panel-body');
+        const countEl = document.getElementById('weather-panel-count');
+        if (!tbody) return;
+
+        const filter = _wpFilter.trim().toUpperCase();
+        let rows = _wpData.filter(s => !filter || (s.callsign || '').toUpperCase().includes(filter));
+
+        rows.sort((a, b) => {
+            let av, bv;
+            if (_wpSortKey === 'callsign') {
+                av = a.callsign || '';
+                bv = b.callsign || '';
+            } else {
+                av = (a.last_weather && a.last_weather[_wpSortKey] != null) ? a.last_weather[_wpSortKey] : -Infinity;
+                bv = (b.last_weather && b.last_weather[_wpSortKey] != null) ? b.last_weather[_wpSortKey] : -Infinity;
+            }
+            if (av < bv) return _wpSortAsc ? -1 : 1;
+            if (av > bv) return _wpSortAsc ? 1 : -1;
+            return 0;
+        });
+
+        if (countEl) countEl.textContent = `${rows.length} station${rows.length !== 1 ? 's' : ''}`;
+
+        tbody.innerHTML = rows.map(s => {
+            const w = s.last_weather || {};
+            const temp    = w.temperature != null ? w.temperature.toFixed(1) + '°F' : '—';
+            const wind    = w.wind_speed   != null
+                ? `${w.wind_speed.toFixed(0)} mph${w.wind_direction != null ? ' @ ' + w.wind_direction.toFixed(0) + '°' : ''}`
+                : '—';
+            const humid   = w.humidity   != null ? w.humidity.toFixed(0) + '%' : '—';
+            const pres    = w.pressure   != null ? w.pressure.toFixed(1) + ' mb' : '—';
+            const ts      = w.timestamp  != null ? formatAge(w.timestamp) : '—';
+            const cs      = s.callsign || '?';
+            return `<tr>
+                <td class="sl-callsign">${escHtml(cs)}</td>
+                <td>${escHtml(temp)}</td>
+                <td>${escHtml(wind)}</td>
+                <td>${escHtml(humid)}</td>
+                <td>${escHtml(pres)}</td>
+                <td class="sl-age" data-ts="${w.timestamp || ''}">${escHtml(ts)}</td>
+                <td><button class="popup-btn popup-btn-weather wp-view-btn" data-cs="${escHtml(cs)}" title="View charts">&#127777; Charts</button></td>
+            </tr>`;
+        }).join('');
+
+        // Wire "Charts" buttons
+        tbody.querySelectorAll('.wp-view-btn').forEach(btn => {
+            btn.addEventListener('click', () => window._viewWeather(btn.dataset.cs));
+        });
     }
 
     // -----------------------------------------------------------------------
