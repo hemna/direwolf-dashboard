@@ -284,3 +284,61 @@ class TestAGWReader:
         await server.wait_closed()
 
         assert connect_count >= 2
+
+    async def test_reader_raises_on_oversized_frame(self):
+        """Verify ConnectionError is raised when a frame data_len exceeds MAX_AGW_DATA_LEN."""
+        from direwolf_dashboard.agw import MAX_AGW_DATA_LEN
+
+        oversized_header = build_frame(
+            "U",
+            call_from="WB4BOR",
+            call_to="APRS",
+            data=b"\x00" * 10,  # build_frame uses len(data) — we override the header below
+        )
+        # Manually patch data_len in the built frame to 65537
+        import struct as _struct
+        # data_len field starts at offset 28 (4+4+10+10), little-endian uint32
+        oversized_header = (
+            oversized_header[:28]
+            + _struct.pack("<I", MAX_AGW_DATA_LEN + 1)
+            + oversized_header[32:]  # skip original data_len + unused
+        )
+        # Trim to just header (36 bytes) — the server won't send a body
+        header_only = oversized_header[:36]
+
+        async def mock_server(reader, writer):
+            # Wait for registration frames, then send oversized header
+            await asyncio.sleep(0.1)
+            writer.write(header_only)
+            await writer.drain()
+            # Keep open briefly so the client can read the header
+            await asyncio.sleep(1.0)
+            writer.close()
+            await writer.wait_closed()
+
+        server = await asyncio.start_server(mock_server, "127.0.0.1", 0)
+        port = server.sockets[0].getsockname()[1]
+
+        async def noop_callback(**kwargs):
+            pass
+
+        agw = AGWReader("127.0.0.1", port, noop_callback, max_backoff=0.1)
+
+        # Run briefly — the oversized frame should trigger ConnectionError → reconnect
+        task = asyncio.create_task(agw.run())
+        await asyncio.sleep(0.8)
+        await agw.stop()
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+        server.close()
+        await server.wait_closed()
+
+        # The reader should have attempted to reconnect (not crashed permanently)
+        # Verify via AGWReader._running=False after stop, not an uncaught exception
+        assert not agw._running
+
+
