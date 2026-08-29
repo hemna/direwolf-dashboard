@@ -28,7 +28,6 @@ def _resolve_data_dir() -> str:
     not be writable but /tmp is a ramdisk.
     """
     expanded = os.path.expanduser(DEFAULT_DATA_DIR)
-    parent = os.path.dirname(expanded)
     try:
         os.makedirs(expanded, exist_ok=True)
         # Verify we can actually write

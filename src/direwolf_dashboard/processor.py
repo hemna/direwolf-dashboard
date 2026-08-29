@@ -87,8 +87,6 @@ def format_compact_log(packet: dict) -> str:
     FROM_COLOR = "#C70039"
     TO_COLOR = "#D033FF"
     PACKET_COLOR = "cyan"
-    DISTANCE_COLOR = "#FF5733"
-    DEGREES_COLOR = "#FFA900"
 
     tx = packet.get("tx", False)
     pkt_type = packet.get("type", "Unknown")

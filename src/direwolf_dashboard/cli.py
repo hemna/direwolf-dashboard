@@ -77,7 +77,6 @@ def serve(ctx):
 @click.pass_context
 def check(ctx):
     """Validate config and test Direwolf connectivity."""
-    import asyncio
     import socket
 
     config_path = ctx.obj["config_path"]
@@ -96,8 +95,8 @@ def check(ctx):
     if config.station.latitude and config.station.longitude:
         click.echo(f"  Fallback position: {config.station.latitude}, {config.station.longitude}")
     else:
-        click.echo(f"  Fallback position: not set")
-    click.echo(f"  My Position: stored in DB (set via web UI)")
+        click.echo("  Fallback position: not set")
+    click.echo("  My Position: stored in DB (set via web UI)")
     click.echo(f"  AGW: {config.direwolf.agw_host}:{config.direwolf.agw_port}")
     click.echo(f"  Log file: {config.direwolf.log_file}")
     click.echo(f"  Web server: {config.server.host}:{config.server.port}")

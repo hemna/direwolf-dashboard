@@ -11,11 +11,8 @@ from direwolf_dashboard.lifecycle import (
     ServiceContainer,
     startup_services,
     shutdown_services,
-    resolve_my_position,
-    enrich_with_bearing,
     broadcast_event,
 )
-from direwolf_dashboard.storage import Storage
 
 
 class TestDirewolfServices:

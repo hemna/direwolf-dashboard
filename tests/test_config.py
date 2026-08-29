@@ -1,9 +1,7 @@
 """Tests for configuration loading and management."""
 
 import os
-from unittest import mock
 
-import pytest
 import yaml
 
 from direwolf_dashboard.config import (
@@ -16,7 +14,6 @@ from direwolf_dashboard.config import (
     load_config,
     save_config,
     update_config,
-    RESTART_REQUIRED_FIELDS,
 )
 
 

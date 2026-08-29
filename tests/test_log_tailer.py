@@ -2,7 +2,6 @@
 
 import asyncio
 import os
-import pytest
 
 from direwolf_dashboard.log_tailer import (
     extract_audio_level,

@@ -1,9 +1,6 @@
 """Tests for router factory functions."""
 
-import pytest
-from unittest.mock import MagicMock
 
-from starlette.routing import Route
 
 from direwolf_dashboard.lifecycle import ServiceContainer
 from direwolf_dashboard.routers import create_api_routes, create_ws_handler, create_index_handler

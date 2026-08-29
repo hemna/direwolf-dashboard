@@ -6,7 +6,6 @@ import pytest
 
 from direwolf_dashboard.agw import (
     AGW_HEADER_SIZE,
-    AGWHeader,
     parse_header,
     build_frame,
     AGWReader,

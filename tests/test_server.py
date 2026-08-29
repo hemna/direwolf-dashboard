@@ -3,12 +3,11 @@
 import asyncio
 import time
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 from starlette.testclient import TestClient
 
 from direwolf_dashboard.config import Config
-from direwolf_dashboard.server import create_app
 from direwolf_dashboard.lifecycle import ServiceContainer, DirewolfServices
 from direwolf_dashboard.storage import Storage
 

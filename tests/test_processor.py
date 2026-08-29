@@ -1,8 +1,6 @@
 """Tests for packet processor."""
 
 import asyncio
-import math
-import pytest
 
 from direwolf_dashboard.processor import (
     _extract_aprs_for_parsing,

@@ -3,7 +3,7 @@
 import sqlite3
 import time
 import sys
-from datetime import datetime, timezone
+from datetime import datetime
 
 DB_PATH = "/tmp/direwolf-dashboard/packets.db"
 if len(sys.argv) > 1:

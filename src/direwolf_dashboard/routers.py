@@ -1,7 +1,6 @@
 """Router factory functions — create Starlette route lists bound to a ServiceContainer."""
 
 import asyncio
-import json
 import logging
 import os
 import re
@@ -12,7 +11,7 @@ from typing import Optional
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, Response
-from starlette.routing import Route, WebSocketRoute
+from starlette.routing import Route
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from direwolf_dashboard import __version__
