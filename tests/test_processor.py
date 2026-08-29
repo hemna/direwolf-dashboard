@@ -3,13 +3,13 @@
 import asyncio
 
 from direwolf_dashboard.processor import (
+    PacketProcessor,
     _extract_aprs_for_parsing,
     _strip_agw_header,
     calculate_initial_compass_bearing,
     degrees_to_cardinal,
     format_compact_log,
     packet_to_dict,
-    PacketProcessor,
 )
 
 
@@ -19,7 +19,7 @@ class TestBearing:
     def test_north_bearing(self):
         # Point due north should be ~0 degrees
         bearing = calculate_initial_compass_bearing((37.0, -77.0), (38.0, -77.0))
-        assert 355 < bearing or bearing < 5  # Near 0/360
+        assert bearing > 355 or bearing < 5  # Near 0/360
 
     def test_east_bearing(self):
         bearing = calculate_initial_compass_bearing((37.0, -77.0), (37.0, -76.0))

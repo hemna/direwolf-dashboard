@@ -10,8 +10,8 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 import aprslib
+from haversine import Unit, haversine
 from starlette.websockets import WebSocket
-from haversine import haversine, Unit
 
 from direwolf_dashboard.agw import AGWReader
 from direwolf_dashboard.config import Config

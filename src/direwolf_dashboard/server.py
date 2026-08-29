@@ -14,13 +14,13 @@ from starlette.staticfiles import StaticFiles
 from direwolf_dashboard.config import Config
 from direwolf_dashboard.lifecycle import (
     ServiceContainer,
-    startup_services,
     shutdown_services,
+    startup_services,
 )
 from direwolf_dashboard.routers import (
     create_api_routes,
-    create_ws_handler,
     create_index_handler,
+    create_ws_handler,
 )
 
 LOG = logging.getLogger(__name__)

@@ -64,11 +64,12 @@ Python backend (FastAPI + uvicorn), vanilla JS frontend (Leaflet map), SQLite st
 
 ## Tech Stack
 
-- **Backend:** Python 3.11+, FastAPI, uvicorn, aiosqlite
+- **Backend:** Python 3.11+, Starlette, uvicorn, aiosqlite
 - **Frontend:** Vanilla JavaScript (single IIFE in `app.js`), Leaflet.js (vendored), CSS
 - **Package manager:** uv (Python); no npm/yarn
 - **Build:** setuptools via pyproject.toml
 - **Tests:** pytest + pytest-asyncio
+- **Lint:** ruff (`uvx ruff check .` — config in `pyproject.toml`)
 
 ## Key Constraints
 

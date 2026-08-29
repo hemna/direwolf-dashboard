@@ -27,7 +27,7 @@ wheels = [
 [[package]]
 name = "aprslib"
 version = "0.7.2"
-source = { git = "https://github.com/hemna/aprs-python.git?rev=telemetry#09cd7a2829a2e9d28ee1566881c843cc4769e590" }
+source = { git = "https://github.com/hemna/aprs-python.git?rev=ab9f9113831a2bd2948d6178c7ffc1c9c075a6af#ab9f9113831a2bd2948d6178c7ffc1c9c075a6af" }
 
 [[package]]
 name = "certifi"
@@ -61,7 +61,7 @@ wheels = [
 
 [[package]]
 name = "direwolf-dashboard"
-version = "1.0.7"
+version = "1.0.8"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
@@ -84,7 +84,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiosqlite", specifier = ">=0.19.0" },
-    { name = "aprslib", git = "https://github.com/hemna/aprs-python.git?rev=telemetry" },
+    { name = "aprslib", git = "https://github.com/hemna/aprs-python.git?rev=ab9f9113831a2bd2948d6178c7ffc1c9c075a6af" },
     { name = "click", specifier = ">=8.1.0" },
     { name = "haversine", specifier = ">=2.8.0" },
     { name = "httpx", specifier = ">=0.25.0" },

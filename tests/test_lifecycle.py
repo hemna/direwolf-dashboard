@@ -2,18 +2,19 @@
 
 import asyncio
 import time
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from direwolf_dashboard.config import Config
 from direwolf_dashboard.lifecycle import (
     DirewolfServices,
     ServiceContainer,
-    startup_services,
-    shutdown_services,
-    broadcast_event,
     _broadcast_consumer,
+    broadcast_event,
     resolve_my_position,
+    shutdown_services,
+    startup_services,
 )
 
 

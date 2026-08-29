@@ -2,13 +2,14 @@
 
 import asyncio
 import struct
+
 import pytest
 
 from direwolf_dashboard.agw import (
     AGW_HEADER_SIZE,
-    parse_header,
-    build_frame,
     AGWReader,
+    build_frame,
+    parse_header,
 )
 
 
@@ -135,7 +136,7 @@ class TestAGWReader:
                     if not data:
                         break
                     received_data.extend(data)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     break
             writer.close()
             await writer.wait_closed()

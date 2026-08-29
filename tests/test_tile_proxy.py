@@ -2,6 +2,7 @@
 
 import asyncio
 import time
+
 import pytest
 
 from direwolf_dashboard.tile_proxy import TileProxy

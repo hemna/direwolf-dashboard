@@ -4,8 +4,9 @@ import asyncio
 import logging
 import struct
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Optional
 
 LOG = logging.getLogger(__name__)
 

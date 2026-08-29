@@ -1,6 +1,7 @@
 """Tests for SQLite storage layer."""
 
 import time
+
 import pytest
 
 from direwolf_dashboard.storage import Storage
