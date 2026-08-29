@@ -14,6 +14,10 @@ LOG = logging.getLogger(__name__)
 AGW_HEADER_SIZE = 36
 AGW_HEADER_FORMAT = "<I4s10s10sII"
 
+# Maximum data payload we will accept in a single AGW frame.
+# Real APRS info fields are bounded by ~256 bytes; 64 KB is generous.
+MAX_AGW_DATA_LEN = 65536
+
 
 @dataclass
 class AGWHeader:
@@ -191,6 +195,14 @@ class AGWReader:
             # Read data payload if present
             data = b""
             if header.data_len > 0:
+                if header.data_len > MAX_AGW_DATA_LEN:
+                    LOG.warning(
+                        f"AGW frame data_len={header.data_len} exceeds max "
+                        f"({MAX_AGW_DATA_LEN} bytes), closing connection"
+                    )
+                    raise ConnectionError(
+                        f"AGW frame too large: {header.data_len} bytes"
+                    )
                 data = await self._reader.readexactly(header.data_len)
 
             await self._dispatch_frame(header, data)
