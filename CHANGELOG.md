@@ -23,6 +23,14 @@ All notable changes to this project are documented here.
   for the next packet. The packet is still broadcast to WebSocket clients even
   when storage fails.
 
+### Performance
+- **Cache `my_position` to eliminate per-packet DB reads** — `resolve_my_position()`
+  now caches the resolved coordinates on `DirewolfServices` and skips the DB round-trip
+  on every packet. The cache is invalidated (a) when `my_position` is updated via the
+  config API, and (b) when a position packet arrives from the callsign being tracked as
+  "my position". On a busy APRS channel this removes hundreds of `get_my_position` /
+  `get_station` DB calls per minute.
+
 ## [1.0.8] - 2026-08-29
 
 ### Fixed

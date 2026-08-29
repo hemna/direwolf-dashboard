@@ -13,6 +13,7 @@ from direwolf_dashboard.lifecycle import (
     shutdown_services,
     broadcast_event,
     _broadcast_consumer,
+    resolve_my_position,
 )
 
 
@@ -224,10 +225,8 @@ class TestBroadcastConsumerRollback:
 
         services = self._make_services(mock_storage, queue)
 
-        # Run one iteration: put a sentinel so the consumer exits after the first packet
         async def run_one():
             task = asyncio.create_task(_broadcast_consumer(services))
-            # Give the consumer time to process the one packet
             await asyncio.sleep(0.05)
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
@@ -267,7 +266,94 @@ class TestBroadcastConsumerRollback:
 
         await run_two()
 
-        # Both packets attempted — one failed, one succeeded
         assert mock_storage.insert_packet.await_count == 2
-        # rollback was called once (for the first failure)
         mock_storage.rollback.assert_awaited_once()
+
+
+class TestResolveMyPositionCache:
+    """Tests for the my_position caching logic in resolve_my_position."""
+
+    def _make_services(self, storage):
+        return DirewolfServices(
+            config=Config(),
+            config_path=None,
+            storage=storage,
+            tile_proxy=MagicMock(),
+            processor=MagicMock(),
+            broadcast_queue=asyncio.Queue(),
+            agw_reader=MagicMock(connected=False),
+            log_tailer=MagicMock(active=False),
+            start_time=time.time(),
+        )
+
+    async def test_cache_hit_skips_db(self):
+        """When cache is warm (dirty=False), DB is not called."""
+        mock_storage = AsyncMock()
+        services = self._make_services(mock_storage)
+
+        services._my_position_cache = (37.75, -77.45)
+        services._my_position_dirty = False
+
+        result = await resolve_my_position(services)
+
+        assert result == (37.75, -77.45)
+        mock_storage.get_my_position.assert_not_called()
+
+    async def test_cache_miss_calls_db(self):
+        """When dirty=True, the DB is queried and result is cached."""
+        mock_storage = AsyncMock()
+        mock_storage.get_my_position.return_value = {
+            "type": "pin", "latitude": 38.5, "longitude": -78.0
+        }
+        services = self._make_services(mock_storage)
+        assert services._my_position_dirty is True
+
+        result = await resolve_my_position(services)
+
+        assert result == (38.5, -78.0)
+        mock_storage.get_my_position.assert_awaited_once()
+        assert services._my_position_cache == (38.5, -78.0)
+        assert services._my_position_dirty is False
+
+    async def test_second_call_uses_cache(self):
+        """Second call after warm-up does not hit the DB."""
+        mock_storage = AsyncMock()
+        mock_storage.get_my_position.return_value = {
+            "type": "pin", "latitude": 38.5, "longitude": -78.0
+        }
+        services = self._make_services(mock_storage)
+
+        await resolve_my_position(services)
+        await resolve_my_position(services)
+
+        assert mock_storage.get_my_position.await_count == 1
+
+    async def test_dirty_flag_causes_refresh(self):
+        """Setting dirty=True triggers a fresh DB read."""
+        mock_storage = AsyncMock()
+        mock_storage.get_my_position.return_value = {
+            "type": "pin", "latitude": 38.5, "longitude": -78.0
+        }
+        services = self._make_services(mock_storage)
+
+        await resolve_my_position(services)
+        services._my_position_dirty = True
+        mock_storage.get_my_position.return_value = {
+            "type": "pin", "latitude": 39.0, "longitude": -79.0
+        }
+        result = await resolve_my_position(services)
+
+        assert result == (39.0, -79.0)
+        assert mock_storage.get_my_position.await_count == 2
+
+    async def test_no_my_position_caches_none(self):
+        """When no my_position is set and config has no coords, None is cached."""
+        mock_storage = AsyncMock()
+        mock_storage.get_my_position.return_value = None
+        services = self._make_services(mock_storage)
+
+        result = await resolve_my_position(services)
+
+        assert result is None
+        assert services._my_position_cache is None
+        assert services._my_position_dirty is False

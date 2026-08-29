@@ -236,6 +236,9 @@ def create_api_routes(container: ServiceContainer) -> list:
                 services.config = new_config
 
             if has_my_pos:
+                # Invalidate the cached my_position so the next packet
+                # re-reads the updated value from the database.
+                services._my_position_dirty = True
                 mp_data = await services.storage.get_my_position()
                 await broadcast_event(
                     "config_updated",
