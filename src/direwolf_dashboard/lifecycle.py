@@ -273,58 +273,73 @@ async def _broadcast_consumer(services: DirewolfServices) -> None:
             from_call = packet.get("from_call", "?")
             LOG.debug(f"[TIMING] Consumer got {from_call} from queue at {t0:.3f} (age={t0 - pkt_ts:.3f}s)")
 
-            # Store in database
+            # Store in database — wrapped in its own try/except so a storage
+            # failure (e.g. disk full on DigiPi) rolls back the transaction and
+            # lets the consumer continue broadcasting to WebSocket clients.
             if services.storage:
-                row_id = await services.storage.insert_packet(packet)
-                packet["id"] = row_id
-                t1 = time.time()
-                LOG.debug(f"[TIMING] pkt#{row_id} insert_packet done at {t1:.3f} (+{t1 - t0:.3f}s)")
+                try:
+                    row_id = await services.storage.insert_packet(packet)
+                    packet["id"] = row_id
+                    t1 = time.time()
+                    LOG.debug(f"[TIMING] pkt#{row_id} insert_packet done at {t1:.3f} (+{t1 - t0:.3f}s)")
 
-                # Store weather report if this is a weather packet
-                if packet.get("type") == "WeatherPacket":
-                    await _store_weather_report(packet, services)
+                    # Store weather report if this is a weather packet
+                    if packet.get("type") == "WeatherPacket":
+                        await _store_weather_report(packet, services)
 
-                # Update stations table if position data present
-                if packet.get("latitude") and packet.get("longitude"):
-                    await services.storage.upsert_station(
-                        callsign=packet["from_call"],
-                        last_seen=packet["timestamp"],
-                        latitude=packet["latitude"],
-                        longitude=packet["longitude"],
-                        symbol=packet.get("symbol"),
-                        symbol_table=packet.get("symbol_table"),
-                        comment=packet.get("comment"),
-                    )
-                else:
-                    # Packet has no position — look up last known position
-                    # so the frontend can still show the station on the map.
-                    stn = await services.storage.get_station(packet["from_call"])
-                    if stn and stn.get("latitude") and stn.get("longitude"):
-                        packet["latitude"] = stn["latitude"]
-                        packet["longitude"] = stn["longitude"]
-                        packet["symbol"] = packet.get("symbol") or stn.get("symbol")
-                        packet["symbol_table"] = packet.get("symbol_table") or stn.get("symbol_table")
-                        packet["position_from_db"] = True
-                    # Update last_seen / packet_count even without position
-                    await services.storage.upsert_station(
-                        callsign=packet["from_call"],
-                        last_seen=packet["timestamp"],
-                    )
+                    # Update stations table if position data present
+                    if packet.get("latitude") and packet.get("longitude"):
+                        await services.storage.upsert_station(
+                            callsign=packet["from_call"],
+                            last_seen=packet["timestamp"],
+                            latitude=packet["latitude"],
+                            longitude=packet["longitude"],
+                            symbol=packet.get("symbol"),
+                            symbol_table=packet.get("symbol_table"),
+                            comment=packet.get("comment"),
+                        )
+                    else:
+                        # Packet has no position — look up last known position
+                        # so the frontend can still show the station on the map.
+                        stn = await services.storage.get_station(packet["from_call"])
+                        if stn and stn.get("latitude") and stn.get("longitude"):
+                            packet["latitude"] = stn["latitude"]
+                            packet["longitude"] = stn["longitude"]
+                            packet["symbol"] = packet.get("symbol") or stn.get("symbol")
+                            packet["symbol_table"] = packet.get("symbol_table") or stn.get("symbol_table")
+                            packet["position_from_db"] = True
+                        # Update last_seen / packet_count even without position
+                        await services.storage.upsert_station(
+                            callsign=packet["from_call"],
+                            last_seen=packet["timestamp"],
+                        )
 
-                # Enrich with bearing/distance from my_position
-                await enrich_with_bearing(packet, services)
-                t2 = time.time()
-                pkt_id = packet.get("id", "?")
-                LOG.debug(f"[TIMING] pkt#{pkt_id} DB+enrich done at {t2:.3f} (+{t2 - t0:.3f}s)")
+                    # Enrich with bearing/distance from my_position
+                    await enrich_with_bearing(packet, services)
+                    t2 = time.time()
+                    pkt_id = packet.get("id", "?")
+                    LOG.debug(f"[TIMING] pkt#{pkt_id} DB+enrich done at {t2:.3f} (+{t2 - t0:.3f}s)")
 
-                # Append bearing/distance to compact_log if present
-                if packet.get("bearing") and packet.get("compact_log"):
-                    dist = packet.get("distance_miles", 0)
-                    bearing_html = (
-                        f' : <span style="color:#FFA900">{packet["bearing"]}</span>'
-                        f'<span style="color:#FF5733">@{dist:.2f}miles</span>'
-                    )
-                    packet["compact_log"] += bearing_html
+                    # Append bearing/distance to compact_log if present
+                    if packet.get("bearing") and packet.get("compact_log"):
+                        dist = packet.get("distance_miles", 0)
+                        bearing_html = (
+                            f' : <span style="color:#FFA900">{packet["bearing"]}</span>'
+                            f'<span style="color:#FF5733">@{dist:.2f}miles</span>'
+                        )
+                        packet["compact_log"] += bearing_html
+
+                except Exception as db_err:
+                    # Roll back any uncommitted transaction so the connection stays
+                    # in a clean state for the next packet.  Log the error but do
+                    # NOT re-raise — the packet will still be broadcast over
+                    # WebSocket even if it couldn't be persisted.
+                    LOG.error(f"Storage error for packet from {from_call}: {db_err}")
+                    try:
+                        await services.storage.rollback()
+                    except Exception:
+                        pass  # If rollback itself fails the connection is broken;
+                        # the next DB call will surface a fresh error.
 
             # Broadcast to WebSocket clients
             packet["_broadcast_ts"] = time.time()

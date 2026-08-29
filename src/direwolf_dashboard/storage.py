@@ -103,6 +103,11 @@ class Storage:
             await self._db.close()
             self._db = None
 
+    async def rollback(self) -> None:
+        """Roll back any uncommitted transaction on the DB connection."""
+        if self._db:
+            await self._db.rollback()
+
     async def reset(self) -> None:
         """Delete all data from packets, stations, and config tables.
 

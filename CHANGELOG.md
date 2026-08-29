@@ -17,6 +17,11 @@ All notable changes to this project are documented here.
   attribute strings. A crafted APRS callsign containing a single-quote could
   break out of the string argument and execute arbitrary JavaScript when a user
   opened the popup. All buttons now use `addEventListener` via DOM construction.
+- **DB transaction rollback on storage errors** — a failed `insert_packet` or
+  `upsert_station` call (e.g. disk full on DigiPi SD card) now triggers an
+  explicit `rollback()` so the aiosqlite connection is always in a clean state
+  for the next packet. The packet is still broadcast to WebSocket clients even
+  when storage fails.
 
 ## [1.0.8] - 2026-08-29
 
