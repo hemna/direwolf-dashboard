@@ -339,3 +339,17 @@ def test_messages_panel_highlights_mine():
         "messages-thread-mine CSS class must be applied to threads addressed to my callsign"
     assert "addressed_to_me" in content, \
         "_renderMessageThreads must track addressed_to_me for thread highlighting"
+
+
+def test_export_packets_csv_button_in_settings():
+    """Verify Export Packets CSV button/link is present in the Settings modal."""
+    html = (
+        Path(direwolf_dashboard.__file__).parent / "static" / "index.html"
+    )
+    content = html.read_text(encoding="utf-8")
+    assert 'id="btn-export-packets-csv"' in content, \
+        "btn-export-packets-csv must be present in the Settings modal"
+    assert "/api/packets/export" in content, \
+        "btn-export-packets-csv must link to /api/packets/export"
+    assert 'download=' in content, \
+        "export link must have download attribute for automatic CSV download"

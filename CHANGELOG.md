@@ -5,6 +5,13 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Added
+- **Packet export to CSV** — a new `GET /api/packets/export` endpoint streams all stored
+  packets as a CSV file.  Optional query params: `since` (Unix timestamp), `callsign`,
+  `type`, `limit` (default 10 000, max 50 000).  Each row includes a human-readable
+  `datetime` column (ISO 8601 UTC), boolean `tx` as 0/1, and semicolon-separated `path`.
+  An **Export Packets CSV** link is added to the Settings modal → Storage section for
+  one-click download.  Closes #34.
+
 - **APRS Messages panel** — a new 💬 toolbar button (keyboard shortcut `M`) opens a
   dedicated messages panel that groups all received `MessagePacket` entries into
   per-conversation threads.  Threads addressed to your own callsign are highlighted in

@@ -844,14 +844,20 @@ button.primary:hover {
 #settings-feedback.error { color: var(--danger); }
 #settings-feedback.warning { color: var(--warning); }
 
-button.secondary {
+button.secondary,
+a.secondary.btn-as-link {
     background: var(--bg-secondary);
     border: 1px solid var(--border);
     color: var(--text-secondary);
     border-radius: 3px;
     cursor: pointer;
+    text-decoration: none;
+    display: inline-block;
+    padding: 4px 8px;
+    font-size: inherit;
 }
-button.secondary:hover {
+button.secondary:hover,
+a.secondary.btn-as-link:hover {
     color: var(--text-primary);
     border-color: var(--accent);
 }
