@@ -109,11 +109,8 @@ The config file lives at `~/.config/direwolf-dashboard/config.yaml`:
 data_dir: "~/.local/share/direwolf-dashboard"
 
 station:
-  callsign: "N0CALL"
   latitude: 0.0
   longitude: 0.0
-  symbol: "-"
-  symbol_table: "/"
   zoom: 12
 
 direwolf:
@@ -213,7 +210,7 @@ sudo systemctl restart direwolf-dashboard
 
 ## Architecture
 
-Single async Python process using FastAPI + uvicorn:
+Single async Python process using Starlette + uvicorn:
 
 ```
   Direwolf AGW Socket ──► AGW Reader ──┐
@@ -224,7 +221,7 @@ Single async Python process using FastAPI + uvicorn:
                                               SQLite DB     WebSocket Broadcast
                                               (7-day)        (live clients)
                                                   │               │
-                                              REST API ◄──── FastAPI Server
+                                              REST API ◄──── Starlette Server
                                               Tile Proxy      Static Files
 ```
 
@@ -270,11 +267,11 @@ direwolf-dashboard/
 │   ├── log_tailer.py                # Async log file tailer
 │   ├── processor.py                 # Packet processing + formatting
 │   ├── routers.py                   # REST API + WebSocket + tile proxy
-│   ├── server.py                    # FastAPI app factory
+│   ├── server.py                    # Starlette app factory
 │   ├── storage.py                   # SQLite storage layer
 │   ├── tile_proxy.py                # Map tile caching proxy
 │   └── static/                      # Web UI (HTML, CSS, JS, Leaflet)
-└── tests/                           # 161 tests
+└── tests/                           # 170+ tests
 ```
 
 ## License

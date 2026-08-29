@@ -112,12 +112,8 @@ class TileProxy:
 
         return None
 
-    def get_cache_stats(self) -> dict:
-        """Get cache statistics, cached for 60 s to avoid frequent os.walk."""
-        now = time.time()
-        if self._stats_cache is not None and (now - self._stats_cache_time) < self._stats_cache_ttl:
-            return self._stats_cache
-
+    def _compute_cache_stats_sync(self) -> dict:
+        """Synchronous cache stats walk — run via executor to avoid blocking."""
         total_size = 0
         tile_count = 0
         for root, dirs, files in os.walk(self.cache_dir):
@@ -125,14 +121,30 @@ class TileProxy:
                 if f.endswith(".png"):
                     tile_count += 1
                     total_size += os.path.getsize(os.path.join(root, f))
-
-        self._stats_cache = {
+        return {
             "tile_count": tile_count,
             "cache_size_mb": round(total_size / (1024 * 1024), 2),
             "max_cache_mb": self.max_cache_mb,
         }
+
+    async def get_cache_stats(self) -> dict:
+        """Get cache statistics, cached for 60 s to avoid frequent os.walk.
+
+        Runs the filesystem walk in a thread-pool executor to avoid blocking
+        the event loop on SD card I/O.
+        """
+        now = time.time()
+        if (
+            self._stats_cache is not None
+            and (now - self._stats_cache_time) < self._stats_cache_ttl
+        ):
+            return self._stats_cache
+
+        loop = asyncio.get_event_loop()
+        stats = await loop.run_in_executor(None, self._compute_cache_stats_sync)
+        self._stats_cache = stats
         self._stats_cache_time = now
-        return self._stats_cache
+        return stats
 
     def estimate_preload(
         self, south: float, west: float, north: float, east: float,
@@ -217,13 +229,8 @@ class TileProxy:
         """Cancel an in-progress preload."""
         self._preload_cancel = True
 
-    async def _check_cache_budget(self) -> None:
-        """Evict oldest tiles if cache exceeds budget."""
-        stats = self.get_cache_stats()
-        if stats["cache_size_mb"] <= self.max_cache_mb:
-            return
-
-        # Collect all tiles with modification time
+    def _evict_cache_sync(self, current_mb: float) -> None:
+        """Synchronous cache eviction walk — run via executor."""
         tile_files = []
         for root, dirs, files in os.walk(self.cache_dir):
             for f in files:
@@ -234,14 +241,28 @@ class TileProxy:
         # Sort by oldest first
         tile_files.sort(key=lambda x: x[1])
 
-        # Delete oldest until under budget
-        current_mb = stats["cache_size_mb"]
+        # Delete oldest until under budget (target 90% of max)
         for path, mtime in tile_files:
-            if current_mb <= self.max_cache_mb * 0.9:  # Delete to 90% of budget
+            if current_mb <= self.max_cache_mb * 0.9:
                 break
             size_mb = os.path.getsize(path) / (1024 * 1024)
             os.remove(path)
             current_mb -= size_mb
+
+    async def _check_cache_budget(self) -> None:
+        """Evict oldest tiles if cache exceeds budget.
+
+        Runs the filesystem walk and deletions in a thread-pool executor to
+        avoid blocking the event loop on SD card I/O.
+        """
+        stats = await self.get_cache_stats()
+        if stats["cache_size_mb"] <= self.max_cache_mb:
+            return
+
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, self._evict_cache_sync, stats["cache_size_mb"])
+        # Invalidate cached stats after eviction
+        self._stats_cache = None
 
 
 def _deg2tile(lat: float, lon: float, zoom: int) -> tuple[int, int]:

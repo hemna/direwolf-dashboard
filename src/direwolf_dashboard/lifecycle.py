@@ -43,12 +43,15 @@ class DirewolfServices:
     background_tasks: list[asyncio.Task] = field(default_factory=list)
 
     def get_stats_dict(self) -> dict:
-        """Build the stats response dict (sync portion — caller must merge DB stats)."""
+        """Build the stats response dict (sync portion — caller must merge DB stats).
+
+        Note: tile_cache is not included here because get_cache_stats() is async.
+        Callers that need tile stats should await tile_proxy.get_cache_stats() separately.
+        """
         return {
             "uptime_seconds": int(time.time() - self.start_time),
             "agw_connected": self.agw_reader.connected if self.agw_reader else False,
             "log_tailer_active": self.log_tailer.active if self.log_tailer else False,
-            "tile_cache": self.tile_proxy.get_cache_stats() if self.tile_proxy else {},
         }
 
 
@@ -365,6 +368,8 @@ async def _stats_broadcaster(services: DirewolfServices) -> None:
             if services.storage and services.ws_clients:
                 db_stats = await services.storage.get_stats()
                 db_stats.update(services.get_stats_dict())
+                if services.tile_proxy:
+                    db_stats["tile_cache"] = await services.tile_proxy.get_cache_stats()
                 await broadcast_event("stats", db_stats, services.ws_clients)
         except asyncio.CancelledError:
             break

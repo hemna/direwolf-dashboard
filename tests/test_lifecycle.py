@@ -34,7 +34,8 @@ class TestDirewolfServices:
         assert stats["uptime_seconds"] >= 100
         assert stats["agw_connected"] is True
         assert stats["log_tailer_active"] is True
-        assert "tile_cache" in stats
+        # tile_cache is no longer in get_stats_dict() — it is fetched
+        # asynchronously by callers via await tile_proxy.get_cache_stats()
 
     def test_get_stats_dict_disconnected(self):
         """Stats when AGW is disconnected."""
