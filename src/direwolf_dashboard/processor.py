@@ -1,6 +1,7 @@
 """Packet processor — merges AGW + log data, computes derived fields, formats output."""
 
 import asyncio
+import html as _html
 import logging
 import math
 import re
@@ -44,6 +45,11 @@ def degrees_to_cardinal(degrees: float, full_string: bool = True) -> str:
     """Convert compass degrees to cardinal direction string.
 
     Same logic as APRSD's utils.degrees_to_cardinal.
+
+    Args:
+        degrees: Bearing in degrees (0-360).
+        full_string: If True (default), return full name e.g. "North-Northeast".
+                     If False, return abbreviated form e.g. "NNE".
     """
     dirs = [
         "N",
@@ -63,8 +69,26 @@ def degrees_to_cardinal(degrees: float, full_string: bool = True) -> str:
         "NW",
         "NNW",
     ]
+    full_dirs = [
+        "North",
+        "North-Northeast",
+        "Northeast",
+        "East-Northeast",
+        "East",
+        "East-Southeast",
+        "Southeast",
+        "South-Southeast",
+        "South",
+        "South-Southwest",
+        "Southwest",
+        "West-Southwest",
+        "West",
+        "West-Northwest",
+        "Northwest",
+        "North-Northwest",
+    ]
     ix = round(degrees / (360.0 / len(dirs))) % len(dirs)
-    return dirs[ix]
+    return full_dirs[ix] if full_string else dirs[ix]
 
 
 def format_compact_log(packet: dict) -> str:
@@ -113,27 +137,27 @@ def format_compact_log(packet: dict) -> str:
     # Path
     if path:
         path_str = arrow.join(
-            f'<span style="color:{arrow_color}">{p}</span>' for p in path
+            f'<span style="color:{arrow_color}">{_html.escape(p)}</span>' for p in path
         )
         path_str += arrow
     else:
         path_str = ""
 
     # From → path → To
-    from_str = f'<span style="color:{FROM_COLOR}">{from_call}</span>'
-    to_str = f'<span style="color:{TO_COLOR}">{to_call}</span>'
+    from_str = f'<span style="color:{FROM_COLOR}">{_html.escape(from_call)}</span>'
+    to_str = f'<span style="color:{TO_COLOR}">{_html.escape(to_call)}</span>'
 
     parts = [indicator, " ", type_str, " ", from_str, arrow, path_str, to_str]
 
     # Show via station for third-party packets
     via = packet.get("via")
     if via:
-        parts.append(f' <span style="color:#888">via {via}</span>')
+        parts.append(f' <span style="color:#888">via {_html.escape(via)}</span>')
 
     # Human info (message content, speed, etc.)
     human_info = packet.get("human_info")
     if human_info:
-        parts.append(f' : <span style="color:#DAA520">{human_info}</span>')
+        parts.append(f' : <span style="color:#DAA520">{_html.escape(human_info)}</span>')
 
     return "".join(parts)
 
@@ -456,3 +480,12 @@ class PacketProcessor:
         ]
         for k in stale:
             del self._pending_log_data[k]
+
+        # Hard cap: if still large (e.g. AGW connection absent), evict oldest half
+        if len(self._pending_log_data) > 500:
+            oldest = sorted(
+                self._pending_log_data,
+                key=lambda k: self._pending_log_data[k]["timestamp"],
+            )
+            for k in oldest[:250]:
+                del self._pending_log_data[k]
