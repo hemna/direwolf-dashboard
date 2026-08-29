@@ -39,6 +39,12 @@
     let logViewState = 'visible';
     let resizeEnabled = true;
 
+    // --- Modal refresh timer handles (#62) ---
+    // Stored so timers can be inspected/cleared; prevents accumulation on re-init.
+    let _slAgeTimer = null;       // station-list age refresh
+    let _mpRefreshTimer = null;   // messages-panel auto-refresh
+    let _wpRefreshTimer = null;   // weather-panel auto-refresh
+
     // --- Log Colors (#35) ---
     const LOG_COLORS_KEY = 'dw-log-colors';
     // Mapping: input id suffix -> CSS variable name
@@ -3903,7 +3909,10 @@
         });
 
         // Live age refresh every 30s while modal is open
-        setInterval(() => {
+        // Store handle so the timer is not duplicated if initStationListModal() is
+        // called more than once (#62)
+        if (_slAgeTimer) clearInterval(_slAgeTimer);
+        _slAgeTimer = setInterval(() => {
             if (modal.classList.contains('hidden')) return;
             document.querySelectorAll('#station-list-body .sl-age').forEach(td => {
                 const ts = parseFloat(td.dataset.ts);
@@ -3971,8 +3980,9 @@
             }
         });
 
-        // Auto-refresh every 30s while open
-        setInterval(() => {
+        // Auto-refresh every 30s while open (#62)
+        if (_mpRefreshTimer) clearInterval(_mpRefreshTimer);
+        _mpRefreshTimer = setInterval(() => {
             if (modal.classList.contains('hidden')) return;
             _loadMessagesData();
         }, 30000);
@@ -4131,8 +4141,9 @@
             }
         });
 
-        // Live refresh every 60s
-        setInterval(() => {
+        // Live refresh every 60s (#62)
+        if (_wpRefreshTimer) clearInterval(_wpRefreshTimer);
+        _wpRefreshTimer = setInterval(() => {
             if (modal.classList.contains('hidden')) return;
             _loadWeatherPanelData();
         }, 60000);
