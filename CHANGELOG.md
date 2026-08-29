@@ -4,6 +4,13 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Added
+- **`GET /api/health` endpoint** — returns `{"status": "ok", "uptime_seconds": N}` with
+  HTTP 200 when all services are running.  Returns HTTP 503 with `{"status": "degraded",
+  "issues": [...]}` when the AGW reader is disconnected or the log tailer is inactive.
+  Suitable for systemd `ExecStartPost` health-checks, load-balancer probes, and monitoring
+  tools. Closes #30.
+
 ### Fixed
 - **Housekeeping sleep jitter** — `_housekeeping_loop` now sleeps for 3600 s ± 5 %
   instead of a fixed hour, preventing predictable SD card write bursts on DigiPi
