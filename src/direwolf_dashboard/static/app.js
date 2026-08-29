@@ -418,6 +418,10 @@
                         '<input type="text" id="filter-callsign" placeholder="Filter..." />' +
                     '</div>' +
                     '<div class="filter-overlay-row">' +
+                        '<label class="filter-overlay-label" for="filter-search">Search</label>' +
+                        '<input type="search" id="filter-search" placeholder="Search log..." />' +
+                    '</div>' +
+                    '<div class="filter-overlay-row">' +
                         '<label class="filter-overlay-label" for="trail-duration">Trails</label>' +
                         '<select id="trail-duration" title="Trail duration">' +
                             '<option value="1" selected>1h</option>' +
@@ -1713,6 +1717,14 @@
         row.dataset.callsign = packet.from_call || '';
         row.dataset.type = packet.type || '';
         row.dataset.tx = packet.tx ? 'tx' : 'rx';
+        // Store searchable text for full-text search (#32)
+        row.dataset.search = [
+            packet.from_call || '',
+            packet.to_call || '',
+            packet.human_info || '',
+            packet.comment || '',
+            packet.raw_packet || '',
+        ].join(' ').toLowerCase();
 
         // Expand toggle
         const expand = document.createElement('span');
@@ -1842,6 +1854,12 @@
         typeSelect.addEventListener('change', applyFilters);
         txrxSelect.addEventListener('change', applyFilters);
 
+        // Search input — filter as user types
+        const searchInput = document.getElementById('filter-search');
+        if (searchInput) {
+            searchInput.addEventListener('input', applyFilters);
+        }
+
         // Trail duration dropdown
         trailSelect.addEventListener('change', (e) => {
             trailHours = parseInt(e.target.value, 10);
@@ -1871,16 +1889,30 @@
             autoScroll = true;
             resumeBtn.classList.add('hidden');
         });
+
+        // Ctrl+F / Cmd+F: focus the search input
+        document.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+                const searchEl = document.getElementById('filter-search');
+                if (searchEl) {
+                    e.preventDefault();
+                    searchEl.focus();
+                    searchEl.select();
+                }
+            }
+        });
     }
 
     function applyFilters() {
         const callsign = document.getElementById('filter-callsign').value.toUpperCase();
         const type = document.getElementById('filter-type').value;
         const txrx = document.getElementById('filter-txrx').value;
+        const searchEl = document.getElementById('filter-search');
+        const search = searchEl ? searchEl.value.toLowerCase().trim() : '';
 
         const rows = document.querySelectorAll('.log-row');
         rows.forEach(row => {
-            applyFilterToRow(row, callsign, type, txrx);
+            applyFilterToRow(row, callsign, type, txrx, search);
         });
 
         // Filter map markers
@@ -1904,15 +1936,20 @@
         });
     }
 
-    function applyFilterToRow(row, callsign, type, txrx) {
+    function applyFilterToRow(row, callsign, type, txrx, search) {
         callsign = callsign || document.getElementById('filter-callsign').value.toUpperCase();
         type = type || document.getElementById('filter-type').value;
         txrx = txrx || document.getElementById('filter-txrx').value;
+        if (search === undefined) {
+            const searchEl = document.getElementById('filter-search');
+            search = searchEl ? searchEl.value.toLowerCase().trim() : '';
+        }
 
         let visible = true;
         if (callsign && !row.dataset.callsign.includes(callsign)) visible = false;
         if (type && row.dataset.type !== type) visible = false;
         if (txrx && row.dataset.tx !== txrx) visible = false;
+        if (search && !(row.dataset.search || '').includes(search)) visible = false;
 
         if (visible) {
             row.classList.remove('hidden-by-filter');
