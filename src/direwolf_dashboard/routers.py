@@ -1,11 +1,13 @@
 """Router factory functions — create Starlette route lists bound to a ServiceContainer."""
 
 import asyncio
+import csv
+import io
 import logging
 import os
 import re
 import time
-from datetime import UTC
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Optional
 
@@ -113,6 +115,68 @@ def create_api_routes(container: ServiceContainer) -> list:
         for p in packets:
             await enrich_with_bearing(p, services)
         return JSONResponse(packets)
+
+    # CSV columns to include in the export, in order
+    _CSV_FIELDS = [
+        "timestamp", "datetime", "type", "tx", "from_call", "to_call",
+        "path", "latitude", "longitude", "symbol", "symbol_table",
+        "human_info", "comment", "msg_no", "audio_level", "raw_packet",
+    ]
+
+    async def export_packets_csv(request: Request):
+        """Stream all matching packets as a CSV file download.
+
+        Query params (all optional):
+          since    — Unix timestamp lower bound
+          callsign — filter by from_call
+          type     — filter by packet type
+          limit    — max rows (default 10000, max 50000)
+        """
+        services = _get_services(container)
+        since = _qfloat(request, "since")
+        limit = _qint(request, "limit", 10_000, max_val=50_000)
+        callsign = request.query_params.get("callsign") or None
+        ptype = request.query_params.get("type") or None
+
+        packets = await services.storage.query_packets(
+            since=since, limit=limit, callsign=callsign, packet_type=ptype
+        )
+
+        buf = io.StringIO()
+        writer = csv.DictWriter(
+            buf,
+            fieldnames=_CSV_FIELDS,
+            extrasaction="ignore",
+            lineterminator="\r\n",
+        )
+        writer.writeheader()
+        for p in packets:
+            row = dict(p)
+            # Convert Unix timestamp to human-readable ISO datetime
+            if row.get("timestamp"):
+                row["datetime"] = datetime.fromtimestamp(
+                    row["timestamp"], tz=UTC
+                ).strftime("%Y-%m-%dT%H:%M:%SZ")
+            else:
+                row["datetime"] = ""
+            # Serialize path list to semicolon-separated string
+            if isinstance(row.get("path"), list):
+                row["path"] = ";".join(row["path"])
+            # Booleans → 1/0 for spreadsheet compatibility
+            if isinstance(row.get("tx"), bool):
+                row["tx"] = 1 if row["tx"] else 0
+            writer.writerow(row)
+
+        csv_bytes = buf.getvalue().encode("utf-8")
+        filename = "direwolf-packets.csv"
+        return Response(
+            content=csv_bytes,
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Length": str(len(csv_bytes)),
+            },
+        )
 
     async def get_messages(request: Request):
         services = _get_services(container)
@@ -443,6 +507,7 @@ def create_api_routes(container: ServiceContainer) -> list:
 
     # Route ordering: specific paths before parameterised ones
     return [
+        Route("/packets/export", export_packets_csv),
         Route("/packets", get_packets),
         Route("/messages", get_messages),
         Route("/stations", get_stations),

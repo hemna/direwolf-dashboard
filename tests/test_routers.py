@@ -20,6 +20,7 @@ class TestCreateApiRoutes:
 
         paths = {route.path for route in routes}
         expected = {
+            "/packets/export",
             "/packets",
             "/messages",
             "/stations",
@@ -253,3 +254,94 @@ class TestMessagesEndpoint:
         assert kwargs.get("packet_type") == "MessagePacket" or \
                container.services.storage.query_packets.call_args[0][2] == "MessagePacket" or \
                "MessagePacket" in str(container.services.storage.query_packets.call_args)
+
+
+class TestPacketExportEndpoint:
+    """Tests for the /api/packets/export CSV endpoint."""
+
+    def _make_services(self, packets):
+        services = mock.MagicMock()
+        storage = mock.MagicMock()
+        storage.query_packets = mock.AsyncMock(return_value=packets)
+        services.storage = storage
+        return services
+
+    def test_export_route_registered(self):
+        """The /packets/export route must be registered before /packets."""
+        container = ServiceContainer()
+        routes = create_api_routes(container)
+        paths = [route.path for route in routes]
+        assert "/packets/export" in paths, "/packets/export route must be registered"
+        # Must appear before /packets so Starlette matches it first
+        assert paths.index("/packets/export") < paths.index("/packets"), \
+            "/packets/export must be registered before /packets"
+
+    def test_export_returns_csv_content_type(self):
+        """The export endpoint returns text/csv Content-Type."""
+        container = ServiceContainer()
+        container.services = self._make_services(packets=[])
+        client = TestClient(_build_test_app(container), raise_server_exceptions=False)
+        resp = client.get("/api/packets/export")
+        assert resp.status_code == 200
+        assert "text/csv" in resp.headers["content-type"]
+
+    def test_export_empty_returns_header_only(self):
+        """With no packets, response body is just the CSV header row."""
+        container = ServiceContainer()
+        container.services = self._make_services(packets=[])
+        client = TestClient(_build_test_app(container), raise_server_exceptions=False)
+        resp = client.get("/api/packets/export")
+        lines = resp.text.splitlines()
+        assert len(lines) == 1, "Empty export must contain only the header row"
+        assert "from_call" in lines[0]
+        assert "raw_packet" in lines[0]
+        assert "datetime" in lines[0]
+
+    def test_export_includes_packet_rows(self):
+        """Each packet produces a row in the CSV output."""
+        pkts = [
+            {
+                "timestamp": 1700000000.0,
+                "type": "GPSPacket",
+                "tx": False,
+                "from_call": "W1ABC",
+                "to_call": "APRS",
+                "path": ["WIDE1-1"],
+                "latitude": 37.75,
+                "longitude": -77.45,
+                "symbol": ">",
+                "symbol_table": "/",
+                "human_info": "10 mph",
+                "comment": "test",
+                "msg_no": "",
+                "audio_level": 42,
+                "raw_packet": "W1ABC>APRS:!",
+            }
+        ]
+        container = ServiceContainer()
+        container.services = self._make_services(packets=pkts)
+        client = TestClient(_build_test_app(container), raise_server_exceptions=False)
+        resp = client.get("/api/packets/export")
+        lines = resp.text.splitlines()
+        # Header + 1 data row
+        assert len(lines) == 2
+        assert "W1ABC" in lines[1]
+        assert "GPSPacket" in lines[1]
+
+    def test_export_content_disposition_attachment(self):
+        """Response includes Content-Disposition: attachment with .csv filename."""
+        container = ServiceContainer()
+        container.services = self._make_services(packets=[])
+        client = TestClient(_build_test_app(container), raise_server_exceptions=False)
+        resp = client.get("/api/packets/export")
+        cd = resp.headers.get("content-disposition", "")
+        assert "attachment" in cd
+        assert ".csv" in cd
+
+    def test_export_calls_query_packets(self):
+        """The export endpoint passes packet_type=None (all types) to query_packets."""
+        container = ServiceContainer()
+        container.services = self._make_services(packets=[])
+        client = TestClient(_build_test_app(container), raise_server_exceptions=False)
+        client.get("/api/packets/export")
+        container.services.storage.query_packets.assert_called_once()
