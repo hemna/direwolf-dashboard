@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import time
+from datetime import UTC
 from pathlib import Path
 from typing import Optional
 
@@ -36,7 +37,7 @@ def _get_services(container: ServiceContainer):
 
 def _generate_gpx(callsign: str, track: list[dict]) -> str:
     """Generate a GPX 1.1 XML string from a station's position track."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     points = list(reversed(track))
 
@@ -46,7 +47,7 @@ def _generate_gpx(callsign: str, track: list[dict]) -> str:
         '     xmlns="http://www.topografix.com/GPX/1/1">',
         '  <metadata>',
         f'    <name>{callsign} Track</name>',
-        f'    <time>{datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}</time>',
+        f'    <time>{datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")}</time>',
         '  </metadata>',
         '  <trk>',
         f'    <name>{callsign}</name>',
@@ -59,7 +60,7 @@ def _generate_gpx(callsign: str, track: list[dict]) -> str:
         ts = pt.get("timestamp")
         time_str = ""
         if ts:
-            dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+            dt = datetime.fromtimestamp(ts, tz=UTC)
             time_str = f"\n        <time>{dt.strftime('%Y-%m-%dT%H:%M:%SZ')}</time>"
         lines.append(f'      <trkpt lat="{lat}" lon="{lon}">{time_str}')
         lines.append('      </trkpt>')
@@ -183,8 +184,8 @@ def create_api_routes(container: ServiceContainer) -> list:
         # PUT
         try:
             updates = await request.json()
-        except Exception:
-            raise HTTPException(status_code=400, detail="Invalid JSON body")
+        except Exception as e:
+            raise HTTPException(status_code=400, detail="Invalid JSON body") from e
 
         try:
             station_updates = updates.get("station", {}).copy()
@@ -253,7 +254,7 @@ def create_api_routes(container: ServiceContainer) -> list:
         except HTTPException:
             raise
         except Exception as e:
-            raise HTTPException(status_code=400, detail={"errors": str(e)})
+            raise HTTPException(status_code=400, detail={"errors": str(e)}) from e
 
     async def get_tile(request: Request):
         services = _get_services(container)
@@ -261,8 +262,8 @@ def create_api_routes(container: ServiceContainer) -> list:
             z = int(request.path_params["z"])
             x = int(request.path_params["x"])
             y = int(request.path_params["y"])
-        except (ValueError, KeyError):
-            raise HTTPException(status_code=400, detail="Invalid tile coordinates")
+        except (ValueError, KeyError) as e:
+            raise HTTPException(status_code=400, detail="Invalid tile coordinates") from e
         if z < 0 or z > 19:
             raise HTTPException(status_code=400, detail="Zoom level must be 0-19")
         max_coord = (1 << z) - 1
@@ -283,8 +284,8 @@ def create_api_routes(container: ServiceContainer) -> list:
         # POST
         try:
             body = await request.json()
-        except Exception:
-            raise HTTPException(status_code=400, detail="Invalid JSON body")
+        except Exception as e:
+            raise HTTPException(status_code=400, detail="Invalid JSON body") from e
 
         bbox = body.get("bbox", [])
         if len(bbox) != 4:
@@ -329,8 +330,8 @@ def create_api_routes(container: ServiceContainer) -> list:
         services = _get_services(container)
         try:
             body = await request.json()
-        except Exception:
-            raise HTTPException(status_code=400, detail="Invalid JSON body")
+        except Exception as e:
+            raise HTTPException(status_code=400, detail="Invalid JSON body") from e
         raw_packet = body.get("raw_packet", "")
         if not raw_packet:
             raise HTTPException(status_code=400, detail="raw_packet is required")
@@ -473,7 +474,7 @@ def create_ws_handler(container: ServiceContainer):
             while True:
                 try:
                     await asyncio.wait_for(ws.receive_text(), timeout=0.1)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
         except WebSocketDisconnect:
             pass

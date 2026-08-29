@@ -5,10 +5,9 @@ import logging
 import click
 
 from direwolf_dashboard import __version__
-from direwolf_dashboard.config import load_config, DEFAULT_CONFIG_PATH
+from direwolf_dashboard.config import DEFAULT_CONFIG_PATH, load_config
 
-
-CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
+CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 
 
 @click.group(context_settings=CONTEXT_SETTINGS)
@@ -33,8 +32,9 @@ def main(ctx, config_path):
 def serve(ctx):
     """Start the Direwolf Dashboard web server."""
     import asyncio
-    import uvicorn
     from concurrent.futures import ThreadPoolExecutor
+
+    import uvicorn
 
     # Configure app-level logging so our LOG.info() calls are visible
     logging.basicConfig(
@@ -86,7 +86,7 @@ def check(ctx):
         click.secho("Config loaded OK", fg="green")
     except Exception as e:
         click.secho(f"Config error: {e}", fg="red")
-        raise SystemExit(1)
+        raise SystemExit(1) from e
 
     click.echo(
         f"  Station lat/lon: {config.station.latitude}, {config.station.longitude}"
@@ -112,7 +112,7 @@ def check(ctx):
         )
         sock.close()
         click.secho("  AGW connection OK", fg="green")
-    except (socket.error, OSError) as e:
+    except OSError as e:
         click.secho(f"  AGW connection FAILED: {e}", fg="red")
 
     # Test log file

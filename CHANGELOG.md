@@ -5,6 +5,15 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Added
+- **`[tool.ruff]` configuration in `pyproject.toml`** — enables `E`, `F`, `I`, `UP`, `B`,
+  `C4`, and `SIM` rule sets with a curated ignore list.  Running `uvx ruff check .` (no
+  extra flags needed) now replicates the full lint profile used in CI.  All existing
+  source-code issues surfaced by the expanded ruleset have been fixed:
+  - `B904`: 12 `raise X` inside `except` blocks now use `raise X from err` / `raise X from e`
+  - `B007`: 3 loop variables renamed to `_dirs` / `_mtime` to signal intent
+  - `C408`: 1 `dict()` call rewritten as `{...}` literal
+  Closes #40.
+
 - **`GET /api/health` endpoint** — returns `{"status": "ok", "uptime_seconds": N}` with
   HTTP 200 when all services are running.  Returns HTTP 503 with `{"status": "degraded",
   "issues": [...]}` when the AGW reader is disconnected or the log tailer is inactive.
