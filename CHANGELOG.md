@@ -11,6 +11,12 @@ All notable changes to this project are documented here.
   deployments. Both sprite sheets (`aprs-symbols-24-0.png`,
   `aprs-symbols-24-1.png`) are now served from `/static/symbols/` and no
   longer require an internet connection.
+- **XSS vulnerability in station popup eliminated** — popup action buttons
+  (`Set as My Position`, `Remove as My Position`, `View Weather`, `Download GPX`,
+  `Remove Pin`) previously embedded callsign values directly in `onclick`
+  attribute strings. A crafted APRS callsign containing a single-quote could
+  break out of the string argument and execute arbitrary JavaScript when a user
+  opened the popup. All buttons now use `addEventListener` via DOM construction.
 
 ## [1.0.8] - 2026-08-29
 

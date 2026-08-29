@@ -1011,21 +1011,41 @@
             html += `<div class="popup-distance">&#128205; ${distKm.toFixed(1)}&thinsp;km / ${distMi}&thinsp;mi</div>`;
         }
 
-        // "Set as My Position" / "Remove as My Position" button
+        // Build popup as a DOM element so button event handlers never
+        // embed callsign data in HTML attribute strings (XSS prevention).
+        const popupDiv = document.createElement('div');
+        popupDiv.innerHTML = html;
+
         const mp = config.station?.my_position;
         const isMyStation = mp && mp.type === 'station' && mp.callsign === callsign;
         if (isMyStation) {
-            html += `<button class="popup-btn popup-btn-remove" onclick="window._removeMyPosition()">Remove as My Position</button>`;
+            const btn = document.createElement('button');
+            btn.className = 'popup-btn popup-btn-remove';
+            btn.textContent = 'Remove as My Position';
+            btn.addEventListener('click', () => window._removeMyPosition());
+            popupDiv.appendChild(btn);
         } else {
-            html += `<button class="popup-btn popup-btn-set" onclick="window._setMyPositionStation('${callsign}')">Set as My Position</button>`;
+            const btn = document.createElement('button');
+            btn.className = 'popup-btn popup-btn-set';
+            btn.textContent = 'Set as My Position';
+            btn.addEventListener('click', () => window._setMyPositionStation(callsign));
+            popupDiv.appendChild(btn);
         }
         if (d.symbol === '_') {
-            html += `<button class="popup-btn popup-btn-weather" onclick="window._viewWeather('${callsign}')">View Weather</button>`;
+            const btn = document.createElement('button');
+            btn.className = 'popup-btn popup-btn-weather';
+            btn.textContent = 'View Weather';
+            btn.addEventListener('click', () => window._viewWeather(callsign));
+            popupDiv.appendChild(btn);
         }
         if (d.latitude && d.longitude) {
-            html += `<button class="popup-btn popup-btn-gpx" onclick="window._downloadGpx('${callsign}')">Download GPX</button>`;
+            const btn = document.createElement('button');
+            btn.className = 'popup-btn popup-btn-gpx';
+            btn.textContent = 'Download GPX';
+            btn.addEventListener('click', () => window._downloadGpx(callsign));
+            popupDiv.appendChild(btn);
         }
-        s.marker.bindPopup(html);
+        s.marker.bindPopup(popupDiv);
     }
 
     function updateStationTrack(callsign, lat, lon) {
@@ -2909,16 +2929,21 @@
     function showPinContextPopup(latlng) {
         const lat = latlng.lat.toFixed(6);
         const lng = latlng.lng.toFixed(6);
+        const ctxDiv = document.createElement('div');
+        ctxDiv.innerHTML = `<b>${lat}, ${lng}</b><br>`;
+        const ctxBtn = document.createElement('button');
+        ctxBtn.className = 'popup-btn popup-btn-set';
+        ctxBtn.textContent = 'Set as My Position';
+        ctxBtn.addEventListener('click', () => {
+            map.closePopup();
+            dropPinAt(latlng.lat, latlng.lng);
+        });
+        ctxDiv.appendChild(ctxBtn);
         L.popup()
             .setLatLng(latlng)
-            .setContent(`<b>${lat}, ${lng}</b><br><button class="popup-btn popup-btn-set" onclick="window._dropPinFromPopup(${lat}, ${lng})">Set as My Position</button>`)
+            .setContent(ctxDiv)
             .openOn(map);
     }
-
-    window._dropPinFromPopup = function (lat, lng) {
-        map.closePopup();
-        dropPinAt(lat, lng);
-    };
 
     // --- Decode APRS Packet ---
 
