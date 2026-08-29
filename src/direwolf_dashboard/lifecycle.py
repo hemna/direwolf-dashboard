@@ -41,6 +41,11 @@ class DirewolfServices:
     ws_clients: set[WebSocket] = field(default_factory=set)
     start_time: float = 0.0
     background_tasks: list[asyncio.Task] = field(default_factory=list)
+    # Cache for resolve_my_position — avoids a DB round-trip on every packet.
+    # Invalidated whenever my_position is updated via config_handler or when the
+    # tracked station receives a new position packet.
+    _my_position_cache: Optional[tuple[float, float]] = field(default=None, repr=False)
+    _my_position_dirty: bool = field(default=True, repr=False)
 
     def get_stats_dict(self) -> dict:
         """Build the stats response dict (sync portion — caller must merge DB stats).
@@ -139,30 +144,43 @@ async def shutdown_services(services: DirewolfServices) -> None:
 
 
 async def resolve_my_position(services: DirewolfServices) -> Optional[tuple[float, float]]:
-    """Resolve current 'my position' coordinates.
+    """Resolve current 'my position' coordinates, using an in-process cache.
+
+    The result is cached on ``services._my_position_cache`` and only re-fetched
+    from the database when ``services._my_position_dirty`` is True.  The dirty
+    flag is set by callers that change my_position (config_handler) or by
+    ``_broadcast_consumer`` when the tracked station reports a new position.
 
     Priority:
       1. DB setting (type=station → look up station, type=pin → stored lat/lon)
       2. Config fallback (station.latitude / station.longitude if non-zero)
     """
+    if not services._my_position_dirty:
+        return services._my_position_cache
+
+    # --- Cache miss or stale: recompute ---
+    result: Optional[tuple[float, float]] = None
+
     if services.storage:
         mp = await services.storage.get_my_position()
         if mp:
             if mp.get("type") == "pin" and mp.get("latitude") is not None and mp.get("longitude") is not None:
-                return (mp["latitude"], mp["longitude"])
-            if mp.get("type") == "station" and mp.get("callsign"):
+                result = (mp["latitude"], mp["longitude"])
+            elif mp.get("type") == "station" and mp.get("callsign"):
                 stn = await services.storage.get_station(mp["callsign"])
                 if stn and stn.get("latitude") and stn.get("longitude"):
-                    return (stn["latitude"], stn["longitude"])
+                    result = (stn["latitude"], stn["longitude"])
 
     # Fallback: static position from config YAML (if set)
-    if services.config:
+    if result is None and services.config:
         lat = services.config.station.latitude
         lon = services.config.station.longitude
         if lat and lon:
-            return (lat, lon)
+            result = (lat, lon)
 
-    return None
+    services._my_position_cache = result
+    services._my_position_dirty = False
+    return result
 
 
 async def enrich_with_bearing(packet: dict, services: DirewolfServices) -> None:
@@ -298,6 +316,12 @@ async def _broadcast_consumer(services: DirewolfServices) -> None:
                             symbol_table=packet.get("symbol_table"),
                             comment=packet.get("comment"),
                         )
+                        # Invalidate the my_position cache if this packet is from
+                        # the callsign we're tracking as "my position".
+                        if services._my_position_cache is not None and not services._my_position_dirty:
+                            mp = await services.storage.get_my_position()
+                            if mp and mp.get("type") == "station" and mp.get("callsign") == packet["from_call"]:
+                                services._my_position_dirty = True
                     else:
                         # Packet has no position — look up last known position
                         # so the frontend can still show the station on the map.
