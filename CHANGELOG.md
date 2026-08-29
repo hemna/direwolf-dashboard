@@ -17,6 +17,10 @@ All notable changes to this project are documented here.
 - **`_qint` query-parameter helper uses correct `Optional[int]` types** — fixes
   a type annotation inconsistency where `min_val`/`max_val` were typed as `int`
   but defaulted to `None`.
+- **`Config()` no longer touches the filesystem** — `_resolve_data_dir()` was
+  called inside `Config.__post_init__`, meaning every bare `Config()` construction
+  (tests, CLI check, default-config factory) performed `os.makedirs` and a write
+  test. It is now only called once inside `load_config()`.
 
 ## [1.0.7] - 2026-05-29
 
