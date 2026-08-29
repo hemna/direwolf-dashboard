@@ -431,3 +431,59 @@ class TestReset:
 
         stats = await storage.get_stats()
         assert stats["packets_total"] == 0
+
+    async def test_get_all_station_tracks_limit_per_station(self, storage):
+        """limit_per_station is enforced in SQL — only that many points per callsign returned."""
+        t = time.time()
+        # Insert 10 position packets for WB4BOR
+        for i in range(10):
+            await storage.insert_packet(
+                _make_packet(
+                    from_call="WB4BOR",
+                    timestamp=t - 1800 + i * 60,
+                    latitude=37.75 + i * 0.001,
+                    longitude=-77.45,
+                )
+            )
+
+        tracks = await storage.get_all_station_tracks(since=t - 3600, limit_per_station=5)
+        assert "WB4BOR" in tracks
+        assert len(tracks["WB4BOR"]) == 5
+
+    async def test_get_all_station_tracks_no_rn_key(self, storage):
+        """The internal ROW_NUMBER() column 'rn' must not appear in returned dicts."""
+        t = time.time()
+        await storage.insert_packet(
+            _make_packet(
+                from_call="WB4BOR",
+                timestamp=t - 60,
+                latitude=37.75,
+                longitude=-77.45,
+            )
+        )
+
+        tracks = await storage.get_all_station_tracks(since=t - 3600)
+        assert "WB4BOR" in tracks
+        for point in tracks["WB4BOR"]:
+            assert "rn" not in point, "window function column 'rn' leaked into result"
+
+    async def test_get_all_station_tracks_limit_oldest_first(self, storage):
+        """When limit_per_station truncates, the oldest points are kept (ascending order)."""
+        t = time.time()
+        for i in range(6):
+            await storage.insert_packet(
+                _make_packet(
+                    from_call="WB4BOR",
+                    timestamp=t - 3600 + i * 600,  # spread over an hour
+                    latitude=37.75 + i * 0.01,
+                    longitude=-77.45,
+                )
+            )
+
+        tracks = await storage.get_all_station_tracks(since=t - 7200, limit_per_station=3)
+        assert len(tracks["WB4BOR"]) == 3
+        # Oldest 3 should be returned (ROW_NUMBER ORDER BY timestamp ASC)
+        pts = tracks["WB4BOR"]
+        assert pts[0]["timestamp"] < pts[1]["timestamp"] < pts[2]["timestamp"]
+        # First point should be the earliest one
+        assert pts[0]["latitude"] == pytest.approx(37.75, abs=1e-9)
