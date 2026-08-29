@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-08-29
+
 ### Added
 - **Packet export to CSV** — a new `GET /api/packets/export` endpoint streams all stored
   packets as a CSV file.  Optional query params: `since` (Unix timestamp), `callsign`,

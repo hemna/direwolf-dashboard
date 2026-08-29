@@ -1,6 +1,6 @@
 """Direwolf Dashboard - Lightweight web-based live display of Direwolf activity."""
 
-__version__ = "1.0.8"
+__version__ = "1.1.0"
 
 from direwolf_dashboard.lifecycle import DirewolfServices, ServiceContainer, shutdown_services, startup_services
 from direwolf_dashboard.routers import create_api_routes, create_index_handler, create_ws_handler
