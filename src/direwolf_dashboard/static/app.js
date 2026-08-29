@@ -1060,22 +1060,23 @@
         if (!s) return;
 
         const d = s.data;
-        let html = `<b>${callsign}</b><br>`;
-        if (d.last_comment) html += `${d.last_comment}<br>`;
+        // escHtml all user-supplied strings before inserting into innerHTML (#59)
+        let html = `<b>${escHtml(callsign)}</b><br>`;
+        if (d.last_comment) html += `${escHtml(d.last_comment)}<br>`;
         if (d.packet_count) html += `Packets: ${d.packet_count}<br>`;
         if (d.last_seen) {
             const ago = Math.round((Date.now() / 1000 - d.last_seen) / 60);
             html += `Last seen: ${ago}m ago<br>`;
         }
 
-        // Path info
+        // Path info — each hop must be escaped (#59)
         if (d.last_path && d.last_path.length > 0) {
             const pathInfo = parsePath(d.last_path);
             const hops = [];
             if (pathInfo.digipeaters.length > 0) hops.push(...pathInfo.digipeaters);
             if (pathInfo.igate) hops.push(pathInfo.igate);
             if (hops.length > 0) {
-                html += `<div class="popup-path">&#8594; ${hops.join(' &rsaquo; ')}</div>`;
+                html += `<div class="popup-path">&#8594; ${hops.map(escHtml).join(' &rsaquo; ')}</div>`;
             } else if (pathInfo.isTcpip) {
                 html += `<div class="popup-path">&#8594; TCPIP (internet)</div>`;
             }
@@ -2888,7 +2889,13 @@
     }
 
     function escHtml(str) {
-        return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        // Escape &, <, >, and " so this is safe in both text content and
+        // double-quoted HTML attribute values (#60)
+        return String(str || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
     }
 
     function inlineFormat(str) {

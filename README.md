@@ -6,30 +6,59 @@ A lightweight, web-based live display of [Direwolf](https://github.com/wb2osz/di
 
 ## Features
 
+### Map & Stations
 - **Live Leaflet map** with APRS symbol icons, callsign labels, and movement trails
-- **Live stats overlay** — station count, packet count, packets/hour, tile cache size, and server uptime displayed on the map (togglable in Settings)
-- **Animated RF activity** — transmit/receive arc animations on the map with packet route visualization via digipeaters and IGates
+- **Live stats overlay** — station count, packet count, packets/hour, tile cache size, and server uptime (togglable in Settings)
+- **Animated RF activity** — transmit/receive arc animations with packet route visualization via digipeaters and IGates
 - **Collapsible map legend** showing animation and trail symbols
-- **Scrolling packet log** formatted in [APRSD](https://github.com/craigerl/aprsd) compact style with color-coded TX/RX, callsigns, paths, and bearing/distance
-- **Three-state packet log** — toggle between expanded (50/50 split), peek (3-4 rows), or hidden (full-screen map) with a toolbar button or the `L` keyboard shortcut; state persists across sessions
-- **Dual data sources** — connects to Direwolf's AGW socket (TX/RX distinction) and tails the log file (audio levels, decode stats)
-- **Inline raw log toggle** — click any packet to expand the raw Direwolf log lines
-- **Filters** — by callsign, packet type, TX/RX direction
 - **Trail duration selector** — choose 1h, 2h, 6h, or 24h of station movement history
-- **Mobile-responsive toolbar** — hamburger menu on narrow screens with all filter controls accessible
-- **APRS symbol picker** — visual grid of all primary and alternate APRS symbols for station configuration
-- **Import from Direwolf config** — auto-imports callsign, coordinates, and symbol from your `direwolf.conf`
-- **Configurable data directory** — single `data_dir` setting controls where all writable data lives; essential for readonly root filesystems (e.g. DigiPi)
+- **⛅ Weather Stations panel** (`W`) — sortable table of all weather stations heard with current temp, wind, humidity, and pressure; map popups for weather stations show current conditions inline
+- **📋 Station List panel** (`S`) — sortable, filterable table of every station heard with live age, packet count, position, and one-click CSV export
+
+### Packet Log
+- **Scrolling packet log** formatted in [APRSD](https://github.com/craigerl/aprsd) compact style with color-coded TX/RX, callsigns, paths, and bearing/distance
+- **Three-state packet log** — toggle between expanded (50/50 split), peek (3–4 rows), or hidden (full-screen map) with toolbar button or `L` key; state persists across sessions
+- **Inline raw log toggle** — click any packet to expand the raw Direwolf log lines
+- **📶 Audio level / signal quality bars** — RX packets with an audio level show a 5-bar strength indicator; top bars yellow/red for strong or overloaded signals
+- **🎨 Configurable log colors** — all 8 color slots (RX, TX, type, comment, human info, bearing, distance, dim) editable via color pickers in Settings; saved to `localStorage`
+- **🔍 Full-text search** — `Ctrl+F` focuses a live search box that filters the log by callsign, raw packet, comment, or human info
+
+### APRS Messaging
+- **💬 APRS Messages panel** (`M`) — all `MessagePacket` traffic grouped into per-conversation threads; threads addressed to your callsign highlighted blue and sorted first
+
+### Filters
+- **Callsign filter** — live filter log rows and map markers by callsign fragment
+- **Type filter** — show only GPS, Message, Weather, Status, Object, or Telemetry packets
+- **TX/RX filter** — show only transmitted or received packets
+- **Full-text search** — search across raw packet data and all decoded fields simultaneously
+
+### Tools
+- **APRS packet decoder** (`Ctrl+K`) — paste any raw APRS string and see a structured decode
+- **⌨ Keyboard shortcuts help** (`?`) — modal table of all keyboard shortcuts
+- **GPX track download** — download a station's position history as a GPX file
+- **📥 Packet export to CSV** — download all stored packets via `GET /api/packets/export` (Settings → Storage)
+- **🏥 Health endpoint** — `GET /api/health` returns service status; suitable for systemd health checks and monitoring
+
+### Data & Storage
+- **Dual data sources** — connects to Direwolf's AGW socket (TX/RX distinction) and tails the log file (audio levels, decode stats)
 - **SQLite storage** with configurable retention (default 7 days) and one-click database wipe from the UI
 - **Tile caching proxy** — lazy on-demand caching or pre-download for offline use, with automatic retry on transient errors, concurrency limiting, and tile cache size displayed in Settings
+
+### Operations
 - **All settings configurable via the web UI** — station info, default map zoom, Direwolf connection, retention, tile cache, stats overlay
-- **Single async Python process** — ~30-50MB RAM, one systemd service
+- **Configurable data directory** — single `data_dir` setting controls where all writable data lives; essential for readonly root filesystems (e.g. DigiPi)
+- **Fully offline** — all assets (JS, CSS, Leaflet, APRS symbol sprites) served locally; no CDN or external URLs
+- **Single async Python process** — ~30–50 MB RAM, one systemd service
+
+---
 
 ## Requirements
 
 - Python 3.11+
 - [uv](https://docs.astral.sh/uv/) (recommended) or pip
 - [Direwolf](https://github.com/wb2osz/direwolf) running with AGW enabled (default port 8000)
+
+---
 
 ## Installation
 
@@ -62,6 +91,8 @@ This creates a `.venv` directory inside the project with the `direwolf-dashboard
 uv pip install -e ".[dev]"
 ```
 
+---
+
 ## Quick Start
 
 1. **Start the dashboard:**
@@ -80,7 +111,7 @@ uv pip install -e ".[dev]"
 
 2. **Open your browser** at `http://<pi-address>:8080`
 
-3. **Configure your station** — click the gear icon (Settings) in the toolbar and enter your callsign, coordinates, and APRS symbol. You can also click **Import from Direwolf conf** to auto-populate these from your existing `direwolf.conf` file.
+3. **Configure your station** — click the gear icon (⚙ Settings) in the toolbar and enter your callsign, coordinates, and APRS symbol. You can also click **Import from Direwolf conf** to auto-populate these from your existing `direwolf.conf` file.
 
 4. **Check connectivity** to your Direwolf instance (optional):
 
@@ -97,6 +128,8 @@ On first launch, the dashboard creates a default config at `~/.config/direwolf-d
 - A **live stats overlay** appears in the top-left of the map showing station count, packets, packets/hour, tile cache size, and server uptime — toggle it off in Settings if you prefer a clean map
 - The packet log starts in **expanded** mode on desktop and **hidden** mode on mobile — use the toggle button in the toolbar (or press `L`) to switch between expanded, peek, and hidden views
 - Map tiles are cached lazily on first view — for offline/field use, switch to **Pre-download** mode in Settings to cache tiles for your area ahead of time
+
+---
 
 ## Configuration
 
@@ -151,6 +184,8 @@ The `data_dir` setting controls where all writable data is stored. When `storage
 > [!TIP]
 > On **DigiPi** or any system with a readonly root filesystem, set `data_dir` to a ramdisk path like `/tmp/direwolf-dashboard`. The directory is created automatically on startup.
 
+---
+
 ## Running as a systemd Service
 
 The included service file at [`contrib/direwolf-dashboard.service`](contrib/direwolf-dashboard.service)
@@ -197,12 +232,11 @@ sudo systemctl restart direwolf-dashboard
 
 ### DigiPi — readonly root filesystem
 
-DigiPi uses a readonly root filesystem to protect the SD card.  The dashboard needs a
-writable directory for its SQLite database and tile cache.  A ramdisk is mounted at
+DigiPi uses a readonly root filesystem to protect the SD card. The dashboard needs a
+writable directory for its SQLite database and tile cache. A ramdisk is mounted at
 `/tmp` on DigiPi — point `data_dir` there:
 
-1. **Create the config directory and file** (on a writable partition, e.g. `/boot`
-   or `/home/pi`):
+1. **Create the config directory and file** (on a writable partition, e.g. `/home/pi`):
 
    ```bash
    mkdir -p /home/pi/.config/direwolf-dashboard
@@ -254,26 +288,67 @@ writable directory for its SQLite database and tile cache.  A ramdisk is mounted
    ```
 
 > [!NOTE]
-> Data stored in `/tmp` is **not persistent across reboots**.  This is intentional for
-> DigiPi — the ramdisk prevents repeated writes to the SD card.  Station positions,
+> Data stored in `/tmp` is **not persistent across reboots**. This is intentional for
+> DigiPi — the ramdisk prevents repeated writes to the SD card. Station positions,
 > packet history, and tile caches are rebuilt from live RF traffic after each reboot.
 > Pre-downloaded tiles (`tiles.cache_mode: preload`) are lost on reboot; use `lazy`
 > mode and accept a brief warm-up period after restart.
+
+---
 
 ## Keyboard Shortcuts
 
 | Key | Action |
 |-----|--------|
-| `L` | Cycle packet log view: expanded → peek → hidden |
+| `S` | Open / close Station List panel |
+| `W` | Open / close Weather Stations panel |
+| `M` | Open / close APRS Messages panel |
+| `L` | Cycle packet log: expanded → peek → hidden |
+| `Ctrl+F` / `Cmd+F` | Focus packet log search box |
+| `Ctrl+K` | Open Decode APRS Packet |
+| `?` | Show keyboard shortcuts help |
+| `Esc` | Close any open modal |
 
-## CLI Reference
+Press `?` in the app to see the full list in a modal overlay.
 
-| Command | Description |
-|---------|-------------|
-| `direwolf-dashboard serve` | Start the web server |
-| `direwolf-dashboard check` | Validate config and test Direwolf connectivity |
-| `direwolf-dashboard version` | Show version |
-| `direwolf-dashboard -c PATH serve` | Use a custom config file |
+---
+
+## REST API Reference
+
+All endpoints are under `/api/`.
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/packets` | GET | Query stored packets (`since`, `callsign`, `type`, `limit`) |
+| `/api/packets/export` | GET | Download all packets as CSV (`since`, `callsign`, `type`, `limit`) |
+| `/api/messages` | GET | Query APRS MessagePackets (`since`, `callsign`, `limit`) |
+| `/api/stations` | GET | All heard stations (includes `last_weather` for weather stations) |
+| `/api/stations/positions` | GET | Callsign → lat/lon map |
+| `/api/stations/tracks` | GET | Station position history |
+| `/api/station/{callsign}` | GET | Single station details |
+| `/api/station/{callsign}/gpx` | GET | Download station track as GPX |
+| `/api/weather/{callsign}` | GET | Weather history for a station |
+| `/api/health` | GET | Service health (`{"status":"ok","uptime_seconds":N}`) |
+| `/api/stats` | GET | Packet/station counts and tile cache stats |
+| `/api/config` | GET/PUT | Read or update configuration |
+| `/api/storage` | DELETE | Wipe the packet database (requires `{"confirm":true}`) |
+| `/api/decode` | POST | Decode a raw APRS packet string |
+| `/api/tiles/{z}/{x}/{y}.png` | GET | Tile proxy / cache |
+
+### Packet export examples
+
+```bash
+# All packets (up to 10 000 rows)
+curl http://localhost:8080/api/packets/export -o packets.csv
+
+# One station, last 24 h
+curl "http://localhost:8080/api/packets/export?callsign=WB4BOR" -o wb4bor.csv
+
+# GPS packets only
+curl "http://localhost:8080/api/packets/export?type=GPSPacket" -o gps.csv
+```
+
+---
 
 ## Architecture
 
@@ -299,6 +374,8 @@ Single async Python process using Starlette + uvicorn:
 - **Tile Proxy** — caches OpenStreetMap tiles to disk with lazy or pre-download modes, retry with exponential backoff on transient errors, connection concurrency limiting, and automatic zero-byte tile recovery
 - **Stats Broadcaster** — pushes live statistics (station count, packets, tile cache size, uptime) to all connected clients every 10 seconds
 
+---
+
 ## Development
 
 ```bash
@@ -311,15 +388,21 @@ uv pip install -e ".[dev]"
 # Run tests
 uv run pytest tests/ -v
 
+# Lint
+uvx ruff check .
+
 # Run the server locally
 .venv/bin/direwolf-dashboard serve
 ```
+
+---
 
 ## Project Structure
 
 ```
 direwolf-dashboard/
 ├── pyproject.toml
+├── CHANGELOG.md
 ├── contrib/
 │   ├── direwolf-dashboard.service   # systemd unit file
 │   └── install.sh                   # service install helper
@@ -333,13 +416,20 @@ direwolf-dashboard/
 │   ├── lifecycle.py                 # Service container, startup/shutdown
 │   ├── log_tailer.py                # Async log file tailer
 │   ├── processor.py                 # Packet processing + formatting
-│   ├── routers.py                   # REST API + WebSocket + tile proxy
+│   ├── routers.py                   # REST API + WebSocket + tile proxy routes
 │   ├── server.py                    # Starlette app factory
 │   ├── storage.py                   # SQLite storage layer
 │   ├── tile_proxy.py                # Map tile caching proxy
-│   └── static/                      # Web UI (HTML, CSS, JS, Leaflet)
-└── tests/                           # 170+ tests
+│   └── static/
+│       ├── index.html               # Single-page app shell
+│       ├── app.js                   # All client-side JS (vanilla, IIFE)
+│       ├── style.css                # Dark/light theme CSS
+│       ├── symbols/                 # Vendored APRS symbol sprites (offline)
+│       └── leaflet/                 # Vendored Leaflet + plugins
+└── tests/                           # 244 tests (pytest)
 ```
+
+---
 
 ## License
 
