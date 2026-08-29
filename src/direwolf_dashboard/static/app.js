@@ -1737,6 +1737,23 @@
         row.appendChild(ts);
         row.appendChild(content);
 
+        // Audio level indicator (RX packets only, when level is present)
+        const audioLevel = packet.audio_level;
+        if (!packet.tx && audioLevel != null && audioLevel > 0) {
+            const sigEl = document.createElement('span');
+            sigEl.className = 'log-signal';
+            sigEl.title = `Audio level: ${audioLevel}`;
+
+            // Normalize 0–100 to 1–5 bars (Direwolf reports roughly 0–100)
+            const bars = Math.max(1, Math.min(5, Math.round(audioLevel / 20)));
+            for (let i = 1; i <= 5; i++) {
+                const bar = document.createElement('span');
+                bar.className = 'signal-bar' + (i <= bars ? ' active' : '');
+                sigEl.appendChild(bar);
+            }
+            row.appendChild(sigEl);
+        }
+
         // Row action buttons (copy + decode)
         const aprsStr = packet.raw_packet || '';
         const rowActions = document.createElement('span');

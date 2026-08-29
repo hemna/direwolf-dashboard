@@ -2421,3 +2421,35 @@ kbd {
     background: var(--bg-secondary);
     cursor: pointer;
 }
+
+/* Audio level signal bars in packet log (#37) */
+.log-signal {
+    display: inline-flex;
+    align-items: flex-end;
+    gap: 1px;
+    height: 14px;
+    margin-left: 6px;
+    vertical-align: middle;
+    opacity: 0.75;
+    flex-shrink: 0;
+}
+
+.signal-bar {
+    display: inline-block;
+    width: 3px;
+    background: var(--border, #333);
+    border-radius: 1px;
+}
+
+/* Bars grow taller with each level */
+.log-signal .signal-bar:nth-child(1) { height: 3px; }
+.log-signal .signal-bar:nth-child(2) { height: 5px; }
+.log-signal .signal-bar:nth-child(3) { height: 8px; }
+.log-signal .signal-bar:nth-child(4) { height: 11px; }
+.log-signal .signal-bar:nth-child(5) { height: 14px; }
+
+.signal-bar.active { background: var(--log-rx, #1AA730); }
+
+/* Colour top bars yellow/red for strong signals */
+.log-signal .signal-bar:nth-child(4).active { background: var(--warning, #f39c12); }
+.log-signal .signal-bar:nth-child(5).active { background: var(--danger, #e74c3c); }
