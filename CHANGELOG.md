@@ -5,6 +5,9 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Fixed
+- **Housekeeping sleep jitter** — `_housekeeping_loop` now sleeps for 3600 s ± 5 %
+  instead of a fixed hour, preventing predictable SD card write bursts on DigiPi
+  systems that always restart at the same wall-clock time. Closes #29.
 - **`asyncio.get_event_loop()` replaced with `asyncio.get_running_loop()`** in `tile_proxy.py` — eliminates `DeprecationWarning` on Python 3.10+ and `RuntimeError` on Python 3.12 when called from within a running event loop. Both call sites in `get_cache_stats()` and `_check_cache_budget()` are affected. Closes #20.
 - **APRS symbol sprites are now vendored locally** — previously loaded from
   `raw.githubusercontent.com`, causing broken station icons on offline DigiPi

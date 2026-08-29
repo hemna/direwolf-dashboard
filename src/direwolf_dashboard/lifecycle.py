@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import math
+import random
 import time
 from dataclasses import dataclass, field
 from typing import Optional
@@ -396,7 +397,9 @@ async def _housekeeping_loop(services: DirewolfServices, retention_days: int) ->
         except Exception as e:
             LOG.error(f"Housekeeping error: {e}")
 
-        await asyncio.sleep(3600)  # Every hour
+        # Sleep for ~1 hour with ±5 % jitter to avoid predictable SD card
+        # write bursts on systems that always restart at the same time.
+        await asyncio.sleep(3600 * (0.95 + random.random() * 0.1))
 
 
 async def _stats_broadcaster(services: DirewolfServices) -> None:
