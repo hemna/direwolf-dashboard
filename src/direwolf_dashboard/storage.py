@@ -291,27 +291,38 @@ class Storage:
     ) -> dict[str, list[dict]]:
         """Return position tracks for all stations since a given time.
 
+        Uses a window function to cap rows per station in SQL, avoiding a
+        potentially huge fetchall() on busy digipeaters.
+
         Returns:
             Dict of callsign -> list of {timestamp, latitude, longitude} dicts,
             ordered oldest-first per station.
         """
         cursor = await self._db.execute(
             """SELECT from_call, timestamp, latitude, longitude
-            FROM packets
-            WHERE latitude IS NOT NULL AND longitude IS NOT NULL
-                AND timestamp >= ?
+            FROM (
+                SELECT from_call, timestamp, latitude, longitude,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY from_call ORDER BY timestamp ASC
+                    ) AS rn
+                FROM packets
+                WHERE latitude IS NOT NULL
+                  AND longitude IS NOT NULL
+                  AND timestamp >= ?
+            )
+            WHERE rn <= ?
             ORDER BY from_call, timestamp ASC""",
-            (since,),
+            (since, limit_per_station),
         )
         rows = await cursor.fetchall()
         tracks: dict[str, list[dict]] = {}
         for row in rows:
             r = dict(row)
             cs = r.pop("from_call")
+            r.pop("rn", None)
             if cs not in tracks:
                 tracks[cs] = []
-            if len(tracks[cs]) < limit_per_station:
-                tracks[cs].append(r)
+            tracks[cs].append(r)
         return tracks
 
     async def get_stations_by_callsigns(
