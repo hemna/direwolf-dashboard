@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Quick diagnostic: show station and packet age from packets.db."""
 import sqlite3
-import time
 import sys
+import time
 from datetime import datetime
 
 DB_PATH = "/tmp/direwolf-dashboard/packets.db"

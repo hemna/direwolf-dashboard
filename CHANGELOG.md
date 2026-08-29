@@ -5,6 +5,14 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Added
+- **README: DigiPi systemd service documentation** — new "DigiPi — readonly root
+  filesystem" subsection under *Running as a systemd Service* explains how to configure
+  `data_dir: /tmp/direwolf-dashboard`, pass a custom config path to `ExecStart`, and use
+  `GET /api/health` for an `ExecStartPost` health-check.  Also adds a NOTE callout
+  explaining non-persistence of `/tmp` data across reboots.  AGENTS.md updated to
+  correct backend stack name (Starlette, not FastAPI) and add the lint entry.
+  Closes #41.
+
 - **`[tool.ruff]` configuration in `pyproject.toml`** — enables `E`, `F`, `I`, `UP`, `B`,
   `C4`, and `SIM` rule sets with a curated ignore list.  Running `uvx ruff check .` (no
   extra flags needed) now replicates the full lint profile used in CI.  All existing

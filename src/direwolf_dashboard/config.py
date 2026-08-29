@@ -2,7 +2,7 @@
 
 import logging
 import os
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from typing import Optional
 
 import yaml
@@ -201,7 +201,7 @@ def load_config(path: Optional[str] = None) -> Config:
     default_dict = default_config.to_dict()
 
     if os.path.exists(path):
-        with open(path, "r") as f:
+        with open(path) as f:
             user_dict = yaml.safe_load(f) or {}
         user_dict = _expand_paths(user_dict)
         merged = _deep_merge(default_dict, user_dict)

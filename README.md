@@ -153,9 +153,11 @@ The `data_dir` setting controls where all writable data is stored. When `storage
 
 ## Running as a systemd Service
 
-The included service file runs the dashboard from the project's virtual environment.
+The included service file at [`contrib/direwolf-dashboard.service`](contrib/direwolf-dashboard.service)
+runs the dashboard from the project's virtual environment.
 
-1. **Edit the service file** if your install path or user differs from the defaults (`/home/pi/direwolf-dashboard`, user `pi`):
+1. **Edit the service file** if your install path or user differs from the defaults
+   (`/home/pi/direwolf-dashboard`, user `pi`):
 
    ```bash
    vi contrib/direwolf-dashboard.service
@@ -170,7 +172,7 @@ The included service file runs the dashboard from the project's virtual environm
    sudo systemctl start direwolf-dashboard
    ```
 
-   Or use the included install script:
+   Or use the included install script (handles all of the above):
 
    ```bash
    sudo bash contrib/install.sh
@@ -180,11 +182,11 @@ The included service file runs the dashboard from the project's virtual environm
 
    ```bash
    sudo systemctl status direwolf-dashboard
+   # Service logs
+   journalctl -u direwolf-dashboard -f
    ```
 
-### Updating
-
-To update a running installation:
+### Updating a running service
 
 ```bash
 cd ~/direwolf-dashboard
@@ -192,6 +194,71 @@ git pull
 uv pip install -e .
 sudo systemctl restart direwolf-dashboard
 ```
+
+### DigiPi — readonly root filesystem
+
+DigiPi uses a readonly root filesystem to protect the SD card.  The dashboard needs a
+writable directory for its SQLite database and tile cache.  A ramdisk is mounted at
+`/tmp` on DigiPi — point `data_dir` there:
+
+1. **Create the config directory and file** (on a writable partition, e.g. `/boot`
+   or `/home/pi`):
+
+   ```bash
+   mkdir -p /home/pi/.config/direwolf-dashboard
+   cat > /home/pi/.config/direwolf-dashboard/config.yaml << 'EOF'
+   # Writable ramdisk — survives reboots just fine because packets are re-heard
+   data_dir: "/tmp/direwolf-dashboard"
+
+   station:
+     latitude: 0.0
+     longitude: 0.0
+     zoom: 12
+
+   direwolf:
+     agw_host: "localhost"
+     agw_port: 8000
+     log_file: "/var/log/direwolf/direwolf.log"
+
+   server:
+     host: "0.0.0.0"
+     port: 8080
+
+   storage:
+     db_path: ""          # resolves to /tmp/direwolf-dashboard/packets.db
+     retention_days: 7
+
+   tiles:
+     cache_dir: ""        # resolves to /tmp/direwolf-dashboard/tiles
+     cache_mode: "lazy"
+     tile_url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+     max_cache_mb: 200
+   EOF
+   ```
+
+2. **Pass the config path via the service file** — add `--config` to `ExecStart`:
+
+   ```ini
+   ExecStart=/home/pi/direwolf-dashboard/.venv/bin/direwolf-dashboard \
+       --config /home/pi/.config/direwolf-dashboard/config.yaml serve
+   ```
+
+   The service file already includes `MALLOC_ARENA_MAX=2` and `PYTHONMALLOC=malloc`
+   to keep RSS low on the Pi Zero 2W's 512 MB RAM.
+
+3. **Optional — add a health-check** in the service file to confirm the server is
+   accepting requests before systemd reports the service as started:
+
+   ```ini
+   ExecStartPost=/bin/sh -c 'sleep 3 && curl -sf http://localhost:8080/api/health || exit 1'
+   ```
+
+> [!NOTE]
+> Data stored in `/tmp` is **not persistent across reboots**.  This is intentional for
+> DigiPi — the ramdisk prevents repeated writes to the SD card.  Station positions,
+> packet history, and tile caches are rebuilt from live RF traffic after each reboot.
+> Pre-downloaded tiles (`tiles.cache_mode: preload`) are lost on reboot; use `lazy`
+> mode and accept a brief warm-up period after restart.
 
 ## Keyboard Shortcuts
 

@@ -4,11 +4,11 @@ import asyncio
 import os
 
 from direwolf_dashboard.log_tailer import (
+    LogTailer,
     extract_audio_level,
     extract_callsign,
     is_decoded_packet_line,
     is_tx_line,
-    LogTailer,
 )
 
 

@@ -2,15 +2,14 @@
 
 import asyncio
 import time
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from starlette.testclient import TestClient
 
 from direwolf_dashboard.config import Config
-from direwolf_dashboard.lifecycle import ServiceContainer, DirewolfServices
+from direwolf_dashboard.lifecycle import DirewolfServices, ServiceContainer
 from direwolf_dashboard.storage import Storage
-
 
 # Module-level container reference for test access
 _test_container: ServiceContainer | None = None
@@ -29,7 +28,7 @@ def _create_test_app(config: Config, config_path: str) -> tuple:
     from starlette.staticfiles import StaticFiles
 
     from direwolf_dashboard.lifecycle import ServiceContainer
-    from direwolf_dashboard.routers import create_api_routes, create_ws_handler, create_index_handler
+    from direwolf_dashboard.routers import create_api_routes, create_index_handler, create_ws_handler
 
     container = ServiceContainer()
 

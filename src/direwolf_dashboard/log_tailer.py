@@ -4,7 +4,8 @@ import asyncio
 import logging
 import os
 import re
-from typing import Callable, Optional
+from collections.abc import Callable
+from typing import Optional
 
 LOG = logging.getLogger(__name__)
 
@@ -128,7 +129,7 @@ class LogTailer:
         initial_inode = os.stat(self.log_path).st_ino
         LOG.info(f"Tailing log file: {self.log_path} (inode: {initial_inode})")
 
-        with open(self.log_path, "r") as f:
+        with open(self.log_path) as f:
             # Seek to end — only read new lines
             f.seek(0, 2)
             self._active = True

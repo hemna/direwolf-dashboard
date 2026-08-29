@@ -1,7 +1,7 @@
 """Tests verifying vendored static assets and security properties."""
 
-from pathlib import Path
 import re
+from pathlib import Path
 
 import direwolf_dashboard
 

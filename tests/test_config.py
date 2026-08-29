@@ -6,9 +6,9 @@ import yaml
 
 from direwolf_dashboard.config import (
     Config,
-    StationConfig,
     DirewolfConfig,
     ServerConfig,
+    StationConfig,
     StorageConfig,
     TilesConfig,
     load_config,
@@ -184,7 +184,7 @@ class TestLoadSaveConfig:
         config = Config()
         save_config(config, config_path)
 
-        with open(config_path, "r") as f:
+        with open(config_path) as f:
             data = yaml.safe_load(f)
 
         assert isinstance(data, dict)

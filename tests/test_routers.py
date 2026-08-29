@@ -8,7 +8,7 @@ from starlette.routing import Mount
 from starlette.testclient import TestClient
 
 from direwolf_dashboard.lifecycle import ServiceContainer
-from direwolf_dashboard.routers import create_api_routes, create_ws_handler, create_index_handler
+from direwolf_dashboard.routers import create_api_routes, create_index_handler, create_ws_handler
 
 
 class TestCreateApiRoutes:
