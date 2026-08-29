@@ -5,6 +5,18 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Added
+- **Station List panel** (`S` key / 📋 toolbar button) — sortable table of all heard
+  stations showing callsign (with APRS symbol icon), last heard (live age refresh every
+  30 s), packet count, and lat/lon.  Clicking a callsign or the "Focus" button closes
+  the modal and pans the map to that station.  Closes #33.
+- **Export stations to CSV** (`📾 Export CSV` button in Station List) — exports the
+  currently visible (and filtered) station list to a RFC-4180-compliant CSV file with
+  columns: callsign, last_seen, packet_count, latitude, longitude, symbol, symbol_table,
+  last_comment.  Double-quotes and commas in fields are correctly escaped.  Closes #34.
+- **Keyboard shortcuts help overlay** (`?` key / ⌨ toolbar button) — modal table listing
+  all keyboard shortcuts: `L` (toggle log), `S` (station list), `Ctrl+K` (decode), `?`
+  (help), `Esc` (close modal).  Closes #39.
+
 - **README: DigiPi systemd service documentation** — new "DigiPi — readonly root
   filesystem" subsection under *Running as a systemd Service* explains how to configure
   `data_dir: /tmp/direwolf-dashboard`, pass a custom config path to `ExecStart`, and use

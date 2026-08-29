@@ -2223,3 +2223,166 @@ button.secondary:hover {
 @media (max-width: 600px) {
     .changelog-modal-content { width: 100%; }
 }
+
+/* =============================================
+   Station List Modal (#33) + CSV Export (#34)
+   ============================================= */
+
+.station-list-modal-content {
+    width: min(860px, 96vw);
+    max-height: 88vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.station-list-modal-content .modal-body {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 0 16px 16px;
+}
+
+.modal-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.station-list-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+    padding-top: 12px;
+}
+
+#station-search {
+    flex: 1;
+    padding: 6px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 13px;
+}
+
+.station-list-count {
+    font-size: 12px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+#station-list-container {
+    overflow-y: auto;
+    overflow-x: auto;
+    flex: 1;
+}
+
+.station-list-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.station-list-table th,
+.station-list-table td {
+    padding: 6px 10px;
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+    white-space: nowrap;
+}
+
+.station-list-table thead th {
+    background: var(--bg-tertiary, #1e1e2e);
+    font-weight: 600;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.station-list-table th.sortable {
+    cursor: pointer;
+    user-select: none;
+}
+
+.station-list-table th.sortable:hover {
+    background: var(--bg-hover, #2a2a3a);
+}
+
+.station-list-table th.sort-asc::after  { content: ' ▲'; font-size: 10px; }
+.station-list-table th.sort-desc::after { content: ' ▼'; font-size: 10px; }
+
+.station-list-table tbody tr:hover {
+    background: var(--bg-hover, #2a2a3a);
+}
+
+.sl-callsign a {
+    color: var(--accent-color, #7db3ff);
+    text-decoration: none;
+    font-weight: 600;
+}
+.sl-callsign a:hover { text-decoration: underline; }
+
+.sl-packets, .sl-age { color: var(--text-secondary); }
+
+.sl-position { font-family: monospace; font-size: 11px; color: var(--text-secondary); }
+
+.sl-btn {
+    padding: 2px 8px;
+    font-size: 11px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 3px;
+    color: var(--text-primary);
+    cursor: pointer;
+}
+.sl-btn:hover { background: var(--bg-hover, #2a2a3a); }
+
+@media (max-width: 600px) {
+    .station-list-modal-content { width: 100%; }
+    .station-list-table .sl-position { display: none; }
+}
+
+/* =============================================
+   Keyboard Shortcuts Help Modal (#39)
+   ============================================= */
+
+.keyboard-help-modal-content {
+    width: min(480px, 96vw);
+}
+
+.keyboard-help-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+.keyboard-help-table th {
+    text-align: left;
+    padding: 8px 12px;
+    border-bottom: 2px solid var(--border-color);
+    font-weight: 600;
+    color: var(--text-secondary);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.keyboard-help-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.keyboard-help-table tr:last-child td { border-bottom: none; }
+
+kbd {
+    display: inline-block;
+    padding: 2px 6px;
+    font-size: 12px;
+    font-family: monospace;
+    background: var(--bg-tertiary, #1e1e2e);
+    border: 1px solid var(--border-color);
+    border-radius: 3px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+    color: var(--text-primary);
+}

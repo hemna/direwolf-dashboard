@@ -122,3 +122,50 @@ def test_addlogrow_uses_render_compact_log():
     # The old pattern of trusting packet.compact_log must be gone
     assert "packet.compact_log" not in content, \
         "app.js must not reference packet.compact_log directly"
+
+
+def test_station_list_modal_in_html():
+    """Verify station-list-modal HTML is present in index.html."""
+    html = (
+        Path(direwolf_dashboard.__file__).parent / "static" / "index.html"
+    )
+    content = html.read_text(encoding="utf-8")
+    assert 'id="station-list-modal"' in content, "station-list-modal must be in index.html"
+    assert 'id="btn-export-csv"' in content, "btn-export-csv must be in index.html"
+    assert 'id="station-search"' in content, "station-search must be in index.html"
+    assert 'id="station-list-body"' in content, "station-list-body must be in index.html"
+
+
+def test_keyboard_help_modal_in_html():
+    """Verify keyboard-help-modal HTML is present in index.html."""
+    html = (
+        Path(direwolf_dashboard.__file__).parent / "static" / "index.html"
+    )
+    content = html.read_text(encoding="utf-8")
+    assert 'id="keyboard-help-modal"' in content, "keyboard-help-modal must be in index.html"
+    assert '<kbd>' in content, "keyboard-help-modal must use <kbd> elements"
+
+
+def test_station_list_functions_in_app_js():
+    """Verify station list and CSV export functions are defined in app.js."""
+    app_js = (
+        Path(direwolf_dashboard.__file__).parent / "static" / "app.js"
+    )
+    content = app_js.read_text(encoding="utf-8")
+    assert "function initStationListModal" in content, "initStationListModal must be defined"
+    assert "function _renderStationTable" in content, "_renderStationTable must be defined"
+    assert "function _exportStationsCsv" in content, "_exportStationsCsv must be defined"
+    assert "function formatAge" in content, "formatAge must be defined"
+    assert "function initKeyboardHelpModal" in content, "initKeyboardHelpModal must be defined"
+
+
+def test_csv_export_escaping_in_app_js():
+    """Verify CSV export properly escapes fields with commas and double-quotes."""
+    app_js = (
+        Path(direwolf_dashboard.__file__).parent / "static" / "app.js"
+    )
+    content = app_js.read_text(encoding="utf-8")
+    # RFC 4180: fields with commas/quotes/newlines must be quoted
+    assert 'v.replace(/"/g, \'""\')'  in content, \
+        "_exportStationsCsv must escape double-quotes per RFC 4180"
+    assert "text/csv" in content, "CSV export must set correct MIME type"

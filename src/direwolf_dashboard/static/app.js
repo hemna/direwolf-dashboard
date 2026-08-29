@@ -784,6 +784,8 @@
         initWeatherModal();
         initAboutModal();
         initChangelogModal();
+        initStationListModal();
+        initKeyboardHelpModal();
         await loadConfig();
         initMap();
         initCenterFab();
@@ -3488,5 +3490,297 @@
         console.log(`simulateStations: injecting ${simStations.length} stations over ${delay}ms`);
     }
     window.simulateStations = simulateStations;
+
+    // -----------------------------------------------------------------------
+    // Station List Modal (#33) + CSV Export (#34)
+    // -----------------------------------------------------------------------
+
+    /** Format a Unix timestamp as a short human-readable string. */
+    function formatAge(ts) {
+        if (!ts) return '—';
+        const secs = Math.round(Date.now() / 1000 - ts);
+        if (secs < 60)  return secs + 's ago';
+        if (secs < 3600) return Math.floor(secs / 60) + 'm ago';
+        if (secs < 86400) return Math.floor(secs / 3600) + 'h ago';
+        return Math.floor(secs / 86400) + 'd ago';
+    }
+
+    /** Coerce a cell value for sorting (strings lower-cased, nulls to end). */
+    function sortValue(row, key) {
+        const v = row[key];
+        if (v === null || v === undefined) return key === 'callsign' ? '' : -Infinity;
+        if (typeof v === 'string') return v.toLowerCase();
+        return v;
+    }
+
+    let _stationListData = [];   // full list from last fetch
+    let _slSortKey = 'callsign'; // current sort column
+    let _slSortAsc = true;       // ascending?
+    let _slFilter  = '';         // current search filter
+
+    function _renderStationTable() {
+        const body  = document.getElementById('station-list-body');
+        const count = document.getElementById('station-list-count');
+        if (!body) return;
+
+        const filter = _slFilter.toLowerCase();
+        const visible = _stationListData.filter(s =>
+            !filter || s.callsign.toLowerCase().includes(filter)
+        );
+
+        // Sort
+        visible.sort((a, b) => {
+            const av = sortValue(a, _slSortKey);
+            const bv = sortValue(b, _slSortKey);
+            if (av < bv) return _slSortAsc ? -1 : 1;
+            if (av > bv) return _slSortAsc ? 1 : -1;
+            return 0;
+        });
+
+        if (count) {
+            count.textContent = visible.length === _stationListData.length
+                ? `${visible.length} station${visible.length !== 1 ? 's' : ''}`
+                : `${visible.length} / ${_stationListData.length} stations`;
+        }
+
+        body.innerHTML = '';
+        for (const s of visible) {
+            const tr = document.createElement('tr');
+
+            // Callsign + symbol
+            const callTd = document.createElement('td');
+            callTd.className = 'sl-callsign';
+            if (s.symbol_table && s.symbol) {
+                const icon = document.createElement('span');
+                icon.className = 'sl-symbol';
+                // Reuse the CSS sprite classes from the compact log renderer
+                const tableChar = s.symbol_table === '/' ? 0 : 1;
+                const symIdx = s.symbol.charCodeAt(0) - 33;
+                const bgX = -(symIdx % 16) * 24;
+                const bgY = -(Math.floor(symIdx / 16) * 24);
+                icon.style.cssText = `display:inline-block;width:16px;height:16px;background:url(/static/symbols/aprs-symbols-24-${tableChar}.png) ${bgX}px ${bgY}px;background-size:384px 96px;vertical-align:middle;margin-right:4px;`;
+                callTd.appendChild(icon);
+            }
+            const callLink = document.createElement('a');
+            callLink.href = '#';
+            callLink.textContent = s.callsign;
+            callLink.addEventListener('click', (e) => {
+                e.preventDefault();
+                // Pan map to station and close modal
+                const stn = stations[s.callsign];
+                if (stn && stn.marker) {
+                    document.getElementById('station-list-modal').classList.add('hidden');
+                    map.setView(stn.marker.getLatLng(), Math.max(map.getZoom(), 12));
+                    stn.marker.openPopup();
+                }
+            });
+            callTd.appendChild(callLink);
+            tr.appendChild(callTd);
+
+            // Last seen
+            const ageTd = document.createElement('td');
+            ageTd.className = 'sl-age';
+            ageTd.textContent = formatAge(s.last_seen);
+            ageTd.dataset.ts = s.last_seen || 0;
+            tr.appendChild(ageTd);
+
+            // Packet count
+            const pktTd = document.createElement('td');
+            pktTd.className = 'sl-packets';
+            pktTd.textContent = s.packet_count || 0;
+            tr.appendChild(pktTd);
+
+            // Position
+            const posTd = document.createElement('td');
+            posTd.className = 'sl-position';
+            if (s.latitude != null && s.longitude != null) {
+                posTd.textContent = s.latitude.toFixed(4) + ', ' + s.longitude.toFixed(4);
+            } else {
+                posTd.textContent = '—';
+            }
+            tr.appendChild(posTd);
+
+            // Actions
+            const actTd = document.createElement('td');
+            actTd.className = 'sl-actions';
+            const viewBtn = document.createElement('button');
+            viewBtn.className = 'sl-btn';
+            viewBtn.textContent = 'Focus';
+            viewBtn.addEventListener('click', () => {
+                const stn = stations[s.callsign];
+                if (stn && stn.marker) {
+                    document.getElementById('station-list-modal').classList.add('hidden');
+                    map.setView(stn.marker.getLatLng(), Math.max(map.getZoom(), 12));
+                    stn.marker.openPopup();
+                }
+            });
+            actTd.appendChild(viewBtn);
+            tr.appendChild(actTd);
+
+            body.appendChild(tr);
+        }
+    }
+
+    async function _loadStationListData() {
+        try {
+            const resp = await fetch(API_BASE + '/stations');
+            if (!resp.ok) return;
+            _stationListData = await resp.json();
+            _renderStationTable();
+        } catch (e) {
+            console.warn('Station list fetch error:', e);
+        }
+    }
+
+    function _exportStationsCsv() {
+        const filter = _slFilter.toLowerCase();
+        const rows = _stationListData.filter(s =>
+            !filter || s.callsign.toLowerCase().includes(filter)
+        );
+        rows.sort((a, b) => {
+            const av = sortValue(a, _slSortKey);
+            const bv = sortValue(b, _slSortKey);
+            if (av < bv) return _slSortAsc ? -1 : 1;
+            if (av > bv) return _slSortAsc ? 1 : -1;
+            return 0;
+        });
+
+        const headers = ['callsign', 'last_seen', 'packet_count', 'latitude', 'longitude', 'symbol', 'symbol_table', 'last_comment'];
+        const lines = [headers.join(',')];
+        for (const s of rows) {
+            const cells = headers.map(h => {
+                let v = s[h];
+                if (v === null || v === undefined) v = '';
+                v = String(v);
+                // Quote cells containing comma, newline, or double-quote
+                if (v.includes(',') || v.includes('"') || v.includes('\n')) {
+                    v = '"' + v.replace(/"/g, '""') + '"';
+                }
+                return v;
+            });
+            lines.push(cells.join(','));
+        }
+
+        const blob = new Blob([lines.join('\r\n')], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'direwolf-stations-' + new Date().toISOString().slice(0, 10) + '.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    function initStationListModal() {
+        const modal   = document.getElementById('station-list-modal');
+        const btnOpen = document.getElementById('btn-station-list');
+        const btnClose = document.getElementById('btn-close-station-list');
+        const btnExport = document.getElementById('btn-export-csv');
+        const searchInput = document.getElementById('station-search');
+        const thead = document.querySelector('#station-list-table thead');
+
+        if (!modal) return;
+
+        function openModal() {
+            _slFilter = '';
+            if (searchInput) searchInput.value = '';
+            modal.classList.remove('hidden');
+            _loadStationListData();
+        }
+
+        function closeModal() {
+            modal.classList.add('hidden');
+        }
+
+        if (btnOpen) btnOpen.addEventListener('click', openModal);
+        if (btnClose) btnClose.addEventListener('click', closeModal);
+        modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
+        if (btnExport) btnExport.addEventListener('click', _exportStationsCsv);
+
+        // Column sort
+        if (thead) {
+            thead.addEventListener('click', (e) => {
+                const th = e.target.closest('th[data-sort]');
+                if (!th) return;
+                const key = th.dataset.sort;
+                if (_slSortKey === key) {
+                    _slSortAsc = !_slSortAsc;
+                } else {
+                    _slSortKey = key;
+                    _slSortAsc = true;
+                }
+                // Update header classes
+                thead.querySelectorAll('th[data-sort]').forEach(t => {
+                    t.classList.remove('sort-asc', 'sort-desc');
+                    if (t.dataset.sort === _slSortKey) {
+                        t.classList.add(_slSortAsc ? 'sort-asc' : 'sort-desc');
+                    }
+                });
+                _renderStationTable();
+            });
+        }
+
+        // Search filter
+        if (searchInput) {
+            searchInput.addEventListener('input', (e) => {
+                _slFilter = e.target.value;
+                _renderStationTable();
+            });
+        }
+
+        // Keyboard shortcut: S to open/close
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 's' || e.key === 'S') {
+                const tag = document.activeElement?.tagName;
+                if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+                if (modal.classList.contains('hidden')) {
+                    openModal();
+                } else {
+                    closeModal();
+                }
+            }
+        });
+
+        // Live age refresh every 30s while modal is open
+        setInterval(() => {
+            if (modal.classList.contains('hidden')) return;
+            document.querySelectorAll('#station-list-body .sl-age').forEach(td => {
+                const ts = parseFloat(td.dataset.ts);
+                if (ts) td.textContent = formatAge(ts);
+            });
+        }, 30000);
+    }
+
+    // -----------------------------------------------------------------------
+    // Keyboard Help Modal (#39)
+    // -----------------------------------------------------------------------
+
+    function initKeyboardHelpModal() {
+        const modal    = document.getElementById('keyboard-help-modal');
+        const btnOpen  = document.getElementById('btn-keyboard-help');
+        const btnClose = document.getElementById('btn-close-keyboard-help');
+
+        if (!modal) return;
+
+        function openModal()  { modal.classList.remove('hidden'); }
+        function closeModal() { modal.classList.add('hidden'); }
+
+        if (btnOpen)  btnOpen.addEventListener('click', openModal);
+        if (btnClose) btnClose.addEventListener('click', closeModal);
+        modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
+        // ? key to show shortcuts
+        document.addEventListener('keydown', (e) => {
+            if (e.key === '?') {
+                const tag = document.activeElement?.tagName;
+                if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+                e.preventDefault();
+                if (modal.classList.contains('hidden')) openModal();
+                else closeModal();
+            }
+        });
+    }
 
 })();

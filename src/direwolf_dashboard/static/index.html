@@ -31,8 +31,10 @@
             </div>
         </div>
         <div class="toolbar-right">
+            <button id="btn-station-list" title="Station List (S)">&#x1F4CB;</button>
             <button id="btn-drop-pin" title="Drop Pin - set my position">&#x1F4CC;</button>
             <button id="btn-decode" title="Decode APRS Packet (Ctrl+K)">&#x1F4E1;</button>
+            <button id="btn-keyboard-help" title="Keyboard shortcuts (?)">&#x2328;</button>
             <button id="btn-theme" title="Toggle theme">
                 <span class="icon-sun" style="display:none;">&#9728;&#65039;</span>
                 <span class="icon-moon" style="display:none;">&#127769;</span>
@@ -303,6 +305,61 @@
             <div class="modal-body" id="changelog-modal-body">
                 <div id="changelog-loading" class="weather-loading">Loading changelog...</div>
                 <div id="changelog-content" class="hidden"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Station List Modal -->
+    <div id="station-list-modal" class="modal hidden">
+        <div class="modal-content station-list-modal-content">
+            <div class="modal-header">
+                <h2>&#x1F4CB; Stations Heard</h2>
+                <div class="modal-header-actions">
+                    <button id="btn-export-csv" class="secondary" title="Export to CSV">&#x1F4BE; Export CSV</button>
+                    <button id="btn-close-station-list">&times;</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div class="station-list-controls">
+                    <input type="search" id="station-search" placeholder="Filter by callsign…" />
+                    <span id="station-list-count" class="station-list-count"></span>
+                </div>
+                <div id="station-list-container">
+                    <table id="station-list-table" class="station-list-table">
+                        <thead>
+                            <tr>
+                                <th data-sort="callsign" class="sortable sort-asc">Callsign</th>
+                                <th data-sort="last_seen" class="sortable">Last Heard</th>
+                                <th data-sort="packet_count" class="sortable">Pkts</th>
+                                <th data-sort="latitude" class="sortable">Position</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="station-list-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Keyboard Shortcuts Help Modal -->
+    <div id="keyboard-help-modal" class="modal hidden">
+        <div class="modal-content keyboard-help-modal-content">
+            <div class="modal-header">
+                <h2>&#x2328; Keyboard Shortcuts</h2>
+                <button id="btn-close-keyboard-help">&times;</button>
+            </div>
+            <div class="modal-body">
+                <table class="keyboard-help-table">
+                    <thead><tr><th>Key</th><th>Action</th></tr></thead>
+                    <tbody>
+                        <tr><td><kbd>L</kbd></td><td>Cycle packet log: expanded → hidden → expanded</td></tr>
+                        <tr><td><kbd>S</kbd></td><td>Open / close Station List</td></tr>
+                        <tr><td><kbd>Ctrl</kbd>+<kbd>K</kbd></td><td>Open Decode APRS Packet</td></tr>
+                        <tr><td><kbd>?</kbd></td><td>Show this keyboard shortcuts help</td></tr>
+                        <tr><td><kbd>Esc</kbd></td><td>Close any open modal</td></tr>
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>
