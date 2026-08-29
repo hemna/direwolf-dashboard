@@ -206,7 +206,7 @@ class TestPacketToDict:
         assert result["from_call"] == "WB4BOR"
         assert result["tx"] is False
         assert result["raw_packet"] == raw
-        assert result["compact_log"]  # Should have HTML content
+        assert "compact_log" not in result  # HTML rendering moved to frontend
 
     def test_parse_unparseable_packet(self):
         raw = "GARBAGE_DATA_NOT_APRS"

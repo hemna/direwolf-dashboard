@@ -283,9 +283,6 @@ def packet_to_dict(
         packet["human_info"] = _extract_payload(aprs_string)
         packet["comment"] = ""
 
-    # Generate compact log HTML
-    packet["compact_log"] = format_compact_log(packet)
-
     return packet
 
 

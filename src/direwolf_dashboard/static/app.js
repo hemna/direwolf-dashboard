@@ -1573,6 +1573,64 @@
         }
     }
 
+    // --- Compact Log Renderer ---
+    // Generates the compact log HTML entirely in the frontend using CSS variables
+    // so colors respect the active theme.  Replaces the Python format_compact_log()
+    // function and the bearing-HTML mutation in lifecycle._broadcast_consumer.
+    function renderCompactLog(packet) {
+        const esc = (s) => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        const tx = packet.tx;
+        const pktType = packet.type || 'Unknown';
+        const fromCall = packet.from_call || '';
+        const toCall = packet.to_call || '';
+        const path = Array.isArray(packet.path) ? packet.path : [];
+        const msgNo = packet.msg_no || '';
+        const humanInfo = packet.human_info || '';
+        const via = packet.via || '';
+        const bearing = packet.bearing || '';
+        const distMiles = packet.distance_miles != null ? packet.distance_miles : null;
+
+        const rxColor = 'var(--log-rx)';
+        const txColor = 'var(--danger)';
+        const arrowColor = tx ? txColor : rxColor;
+        const typeColor = 'var(--log-type)';
+        const fromColor = 'var(--danger)';
+        const toColor = 'var(--log-comment)';
+        const dimColor = 'var(--log-dim)';
+        const bearingColor = '#FFA900';
+        const distColor = '#FF5733';
+
+        const indicator = tx
+            ? `<span style="color:${txColor}">TX&#x2191;</span>`
+            : `<span style="color:${rxColor}">RX&#x2193;</span>`;
+        const arrow = `<span style="color:${arrowColor}">&#x2192;</span>`;
+
+        let typeStr = `<span style="color:${typeColor}">${esc(pktType)}</span>`;
+        if (msgNo) typeStr += `:${esc(msgNo)}`;
+
+        let pathStr = '';
+        if (path.length) {
+            pathStr = path.map(p => `<span style="color:${arrowColor}">${esc(p)}</span>`).join(arrow) + arrow;
+        }
+
+        const fromStr = `<span style="color:${fromColor}">${esc(fromCall)}</span>`;
+        const toStr = `<span style="color:${toColor}">${esc(toCall)}</span>`;
+
+        let html = `${indicator} ${typeStr} ${fromStr}${arrow}${pathStr}${toStr}`;
+
+        if (via) {
+            html += ` <span style="color:${dimColor}">via ${esc(via)}</span>`;
+        }
+        if (humanInfo) {
+            html += ` : <span style="color:#DAA520">${esc(humanInfo)}</span>`;
+        }
+        if (bearing && distMiles != null) {
+            html += ` : <span style="color:${bearingColor}">${esc(bearing)}</span>`
+                  + `<span style="color:${distColor}">@${distMiles.toFixed(2)}miles</span>`;
+        }
+        return html;
+    }
+
     // --- Packet Log ---
     function addLogRow(packet) {
         const logList = document.getElementById('log-list');
@@ -1589,10 +1647,10 @@
         expand.className = 'log-expand';
         expand.textContent = '\u25B6';  // ▶
 
-        // Compact log content
+        // Compact log content — rendered entirely in the frontend using CSS variables
         const content = document.createElement('span');
         content.className = 'log-content';
-        content.innerHTML = packet.compact_log || `${packet.from_call} > ${packet.to_call}`;
+        content.innerHTML = renderCompactLog(packet);
 
         // Timestamp (hidden by default, toggled via settings)
         const ts = document.createElement('span');
@@ -3419,11 +3477,10 @@
                 symbol_table: symTbl,
                 path: [],
                 comment: `Simulated ${distKm} km @ ${bearing}°`,
-                human_info: '',
+                human_info: `[SIM ${distKm}km ${bearing}°]`,
                 msg_no: '',
                 raw_packet: `${call}>APRS:!${lat.toFixed(4)}/${lng.toFixed(4)}>${sym}`,
                 audio_level: null,
-                compact_log: `<span style="color:${themeColor('--log-rx')}">RX&#x2193;</span> <span style="color:${themeColor('--log-type')}">GPSPacket</span> <span style="color:${themeColor('--danger')}">${call}</span><span style="color:${themeColor('--log-callsign')}">&#x2192;</span><span style="color:${themeColor('--log-comment')}">APRS</span> <span style="color:${themeColor('--log-dim')}">[SIM ${distKm}km ${bearing}°]</span>`,
             };
             setTimeout(() => onPacket(packet), delay);
             delay += 800; // stagger so animations don't overlap
