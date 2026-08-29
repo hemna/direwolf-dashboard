@@ -97,8 +97,8 @@
     // --- APRS Symbol Sprites ---
     const SYMBOL_SIZE = 24;
     const SPRITE_COLS = 16;
-    const PRIMARY_SPRITE = 'https://raw.githubusercontent.com/hessu/aprs-symbols/master/png/aprs-symbols-24-0.png';
-    const SECONDARY_SPRITE = 'https://raw.githubusercontent.com/hessu/aprs-symbols/master/png/aprs-symbols-24-1.png';
+    const PRIMARY_SPRITE = '/static/symbols/aprs-symbols-24-0.png';
+    const SECONDARY_SPRITE = '/static/symbols/aprs-symbols-24-1.png';
 
     function getSymbolSpritePosition(symbolChar) {
         let charCode = 45; // default '-' = house

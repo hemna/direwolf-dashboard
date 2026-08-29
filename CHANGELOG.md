@@ -6,6 +6,11 @@ All notable changes to this project are documented here.
 
 ### Fixed
 - **`asyncio.get_event_loop()` replaced with `asyncio.get_running_loop()`** in `tile_proxy.py` — eliminates `DeprecationWarning` on Python 3.10+ and `RuntimeError` on Python 3.12 when called from within a running event loop. Both call sites in `get_cache_stats()` and `_check_cache_budget()` are affected. Closes #20.
+- **APRS symbol sprites are now vendored locally** — previously loaded from
+  `raw.githubusercontent.com`, causing broken station icons on offline DigiPi
+  deployments. Both sprite sheets (`aprs-symbols-24-0.png`,
+  `aprs-symbols-24-1.png`) are now served from `/static/symbols/` and no
+  longer require an internet connection.
 
 ## [1.0.8] - 2026-08-29
 
