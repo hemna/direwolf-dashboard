@@ -207,3 +207,15 @@ def test_log_color_settings_html():
     assert 'id="lc-rx"' in content, "lc-rx color input must be in settings"
     assert 'id="lc-tx"' in content, "lc-tx color input must be in settings"
     assert 'id="btn-reset-log-colors"' in content, "btn-reset-log-colors must be in settings"
+
+
+def test_audio_level_signal_bars_in_app_js():
+    """Verify audio level signal bar code is present in app.js."""
+    app_js = (
+        Path(direwolf_dashboard.__file__).parent / "static" / "app.js"
+    )
+    content = app_js.read_text(encoding="utf-8")
+    assert "log-signal" in content, "log-signal class must be in app.js"
+    assert "signal-bar" in content, "signal-bar class must be in app.js"
+    assert "audio_level" in content, "audio_level must be referenced in app.js"
+    assert "Audio level:" in content, "Audio level tooltip must be in app.js"

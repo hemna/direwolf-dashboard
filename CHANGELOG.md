@@ -5,6 +5,11 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Added
+- **Audio level / signal quality indicator in packet log** — RX packets that carry an
+  `audio_level` value (from the Direwolf log tailer) now show a 5-bar signal-strength
+  icon inline in the compact log row.  Bar height scales with level (0–100 → 1–5 bars).
+  Bars 4–5 are coloured yellow/red to highlight overloaded signals.  Closes #37.
+
 - **Configurable packet log colors** (`Settings → Log Colors`) — all 8 compact-log
   color slots (RX, TX, type, comment, human info, bearing, distance, dim) are now editable
   via `<input type="color">` pickers in the Settings modal.  Colors are saved to
