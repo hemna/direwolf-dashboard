@@ -384,6 +384,45 @@ def create_api_routes(container: ServiceContainer) -> list:
             )
         raise HTTPException(status_code=404, detail="Changelog not found")
 
+    async def health(request: Request):
+        """Return service health status.
+
+        Responds with HTTP 200 and ``{"status": "ok"}`` when all required
+        services are running, or HTTP 503 with ``{"status": "degraded"}`` and
+        a list of ``issues`` when something is not ready.  This endpoint is
+        intentionally lightweight — it does *not* perform a DB query so it
+        is safe to call frequently from monitoring tools and load-balancers.
+        """
+        services = container.services
+        if services is None:
+            return JSONResponse(
+                {"status": "degraded", "issues": ["services not initialized"]},
+                status_code=503,
+            )
+
+        issues = []
+        if services.agw_reader and not services.agw_reader.connected:
+            issues.append("agw not connected")
+        if services.log_tailer and not services.log_tailer.active:
+            issues.append("log tailer not active")
+
+        if issues:
+            return JSONResponse(
+                {
+                    "status": "degraded",
+                    "issues": issues,
+                    "uptime_seconds": int(time.time() - services.start_time),
+                },
+                status_code=503,
+            )
+
+        return JSONResponse(
+            {
+                "status": "ok",
+                "uptime_seconds": int(time.time() - services.start_time),
+            }
+        )
+
     # Route ordering: specific paths before parameterised ones
     return [
         Route("/packets", get_packets),
@@ -400,6 +439,7 @@ def create_api_routes(container: ServiceContainer) -> list:
         Route("/decode", decode_packet, methods=["POST"]),
         Route("/weather/{callsign}", get_weather),
         Route("/changelog", get_changelog),
+        Route("/health", health),
     ]
 
 
