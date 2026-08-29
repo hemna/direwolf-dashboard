@@ -4,7 +4,8 @@ import asyncio
 import logging
 import os
 import time
-from typing import Callable, Optional
+from collections.abc import Callable
+from typing import Optional
 
 import httpx
 
@@ -116,7 +117,7 @@ class TileProxy:
         """Synchronous cache stats walk — run via executor to avoid blocking."""
         total_size = 0
         tile_count = 0
-        for root, dirs, files in os.walk(self.cache_dir):
+        for root, _dirs, files in os.walk(self.cache_dir):
             for f in files:
                 if f.endswith(".png"):
                     tile_count += 1
@@ -232,7 +233,7 @@ class TileProxy:
     def _evict_cache_sync(self, current_mb: float) -> None:
         """Synchronous cache eviction walk — run via executor."""
         tile_files = []
-        for root, dirs, files in os.walk(self.cache_dir):
+        for root, _dirs, files in os.walk(self.cache_dir):
             for f in files:
                 if f.endswith(".png"):
                     path = os.path.join(root, f)
@@ -242,7 +243,7 @@ class TileProxy:
         tile_files.sort(key=lambda x: x[1])
 
         # Delete oldest until under budget (target 90% of max)
-        for path, mtime in tile_files:
+        for path, _mtime in tile_files:
             if current_mb <= self.max_cache_mb * 0.9:
                 break
             size_mb = os.path.getsize(path) / (1024 * 1024)
