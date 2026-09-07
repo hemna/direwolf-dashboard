@@ -140,10 +140,10 @@
     --log-human-info: #DAA520;
     --log-bearing: #FFA900;
     --log-distance: #FF5733;
-    --distance-ring-color: #00b4d8;
-    --distance-ring-label-bg: rgba(13, 17, 23, 0.78);
-    --distance-ring-label-text: #bdefff;
-    --distance-ring-label-border: rgba(0, 180, 216, 0.45);
+    --distance-ring-color: #ffd166;
+    --distance-ring-label-bg: rgba(13, 17, 23, 0.9);
+    --distance-ring-label-text: #fff3c4;
+    --distance-ring-label-border: rgba(255, 209, 102, 0.75);
 }
 
 /* ── Theme: Light ───────────────────────────────────────────── */
@@ -270,10 +270,10 @@
     --log-human-info: #92400e;
     --log-bearing: #b45309;
     --log-distance: #b91c1c;
-    --distance-ring-color: #0077b6;
-    --distance-ring-label-bg: rgba(255, 255, 255, 0.88);
-    --distance-ring-label-text: #005f8f;
-    --distance-ring-label-border: rgba(0, 119, 182, 0.45);
+    --distance-ring-color: #c2410c;
+    --distance-ring-label-bg: rgba(255, 255, 255, 0.95);
+    --distance-ring-label-text: #9a3412;
+    --distance-ring-label-border: rgba(194, 65, 12, 0.75);
 }
 
 * {
