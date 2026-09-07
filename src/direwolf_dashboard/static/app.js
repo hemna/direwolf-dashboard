@@ -15,6 +15,7 @@
     // --- State ---
     let map = null;
     let distanceRingLayer = null;
+    let distanceRingCenter = null;
     let ws = null;
     let wsReconnectDelay = 1000;
     let config = {};
@@ -954,7 +955,6 @@
             attribution: '&copy; OpenStreetMap contributors',
             maxZoom: 18,
         }).addTo(map);
-        updateDistanceRings();
 
         // Retry failed tiles after a delay with cache-busting
         tileLayer.on('tileerror', function (e) {
@@ -978,15 +978,18 @@
     function updateDistanceRings() {
         if (!map || !distanceRingLayer) return;
 
+        distanceRingLayer.clearLayers();
+        if (!distanceRingCenter) return;
+
         var size = map.getSize();
         if (!size.x || !size.y) return;
 
-        var center = map.getCenter();
+        var center = distanceRingCenter;
+        var mapCenter = map.getCenter();
         var rightEdgeMidpoint = map.containerPointToLatLng([size.x, size.y / 2]);
-        var maxRadiusMeters = map.distance(center, rightEdgeMidpoint);
+        var maxRadiusMeters = map.distance(mapCenter, rightEdgeMidpoint);
         if (!Number.isFinite(maxRadiusMeters) || maxRadiusMeters <= 0) return;
 
-        distanceRingLayer.clearLayers();
         [25, 50, 75, 100].forEach(function (percent) {
             var radiusMeters = maxRadiusMeters * percent / 100;
             var ring = L.circle(center, {
@@ -1274,6 +1277,8 @@
     function clearStationOverlay(preserveHover = true) {
         _overlayLayers.forEach(l => map.removeLayer(l));
         _overlayLayers = [];
+        distanceRingCenter = null;
+        updateDistanceRings();
         document.querySelectorAll('.log-row.log-row-selected')
             .forEach(el => el.classList.remove('log-row-selected'));
         _selectedCallsign = null;
@@ -1289,6 +1294,8 @@
         if (!s) return;
         const stLat = s.data.latitude;
         const stLng = s.data.longitude;
+        distanceRingCenter = L.latLng(stLat, stLng);
+        updateDistanceRings();
 
         // --- Path lines: station → digipeaters → igate ---
         const pathInfo = parsePath(s.data.last_path || []);
