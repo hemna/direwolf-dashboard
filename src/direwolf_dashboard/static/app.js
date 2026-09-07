@@ -936,7 +936,6 @@
             localStorage.setItem('dw-map-lng', c.lng);
         });
         map.on('zoomend moveend', updateDistanceRings);
-        map.on('resize', updateDistanceRings);
 
         // Station click overlay: path lines, distance, log highlight
         map.on('popupopen', function (e) {
