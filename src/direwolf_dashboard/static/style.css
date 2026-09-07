@@ -139,6 +139,10 @@
     --log-human-info: #DAA520;
     --log-bearing: #FFA900;
     --log-distance: #FF5733;
+    --distance-ring-color: #00b4d8;
+    --distance-ring-label-bg: rgba(13, 17, 23, 0.78);
+    --distance-ring-label-text: #bdefff;
+    --distance-ring-label-border: rgba(0, 180, 216, 0.45);
 }
 
 /* ── Theme: Light ───────────────────────────────────────────── */
@@ -264,6 +268,10 @@
     --log-human-info: #92400e;
     --log-bearing: #b45309;
     --log-distance: #b91c1c;
+    --distance-ring-color: #0077b6;
+    --distance-ring-label-bg: rgba(255, 255, 255, 0.88);
+    --distance-ring-label-text: #005f8f;
+    --distance-ring-label-border: rgba(0, 119, 182, 0.45);
 }
 
 * {
@@ -1550,6 +1558,21 @@ a.secondary.btn-as-link:hover {
     white-space: nowrap;
     pointer-events: none;
     border: 1px solid rgba(0, 191, 255, 0.4);
+}
+
+/* Map overlay: adaptive distance-ring labels */
+.distance-ring-label {
+    background: var(--distance-ring-label-bg);
+    border: 1px solid var(--distance-ring-label-border);
+    border-radius: 3px;
+    color: var(--distance-ring-label-text);
+    font-family: inherit;
+    font-size: 10px;
+    line-height: 16px;
+    padding: 0 4px;
+    pointer-events: none;
+    text-align: center;
+    white-space: nowrap;
 }
 
 /* Map overlay: path hop tooltip */

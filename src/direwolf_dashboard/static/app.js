@@ -14,6 +14,7 @@
 
     // --- State ---
     let map = null;
+    let distanceRingLayer = null;
     let ws = null;
     let wsReconnectDelay = 1000;
     let config = {};
@@ -926,12 +927,16 @@
 
         map = L.map('map').setView([lat, lon], zoom);
 
+        distanceRingLayer = L.layerGroup().addTo(map);
+        updateDistanceRings();
+
         // Persist map center across page refreshes (zoom is always from config)
         map.on('moveend', function () {
             var c = map.getCenter();
             localStorage.setItem('dw-map-lat', c.lat);
             localStorage.setItem('dw-map-lng', c.lng);
         });
+        map.on('zoomend moveend', updateDistanceRings);
 
         // Station click overlay: path lines, distance, log highlight
         map.on('popupopen', function (e) {
@@ -968,6 +973,45 @@
         });
 
         setInterval(cleanupAnimations, 10000);
+    }
+
+    function updateDistanceRings() {
+        if (!map || !distanceRingLayer) return;
+
+        var size = map.getSize();
+        if (!size.x || !size.y) return;
+
+        var center = map.getCenter();
+        var rightEdgeMidpoint = map.containerPointToLatLng([size.x, size.y / 2]);
+        var maxRadiusMeters = map.distance(center, rightEdgeMidpoint);
+        if (!Number.isFinite(maxRadiusMeters) || maxRadiusMeters <= 0) return;
+
+        distanceRingLayer.clearLayers();
+        [25, 50, 75, 100].forEach(function (percent) {
+            var radiusMeters = maxRadiusMeters * percent / 100;
+            var ring = L.circle(center, {
+                radius: radiusMeters,
+                color: 'var(--distance-ring-color)',
+                weight: 1,
+                opacity: 0.7,
+                fill: false,
+                dashArray: '6 6',
+                interactive: false,
+                bubblingMouseEvents: false,
+            }).addTo(distanceRingLayer);
+            var ringBounds = ring.getBounds();
+            var distanceKm = radiusMeters / 1000;
+            var distanceMi = distanceKm * 0.621371;
+            L.marker([ringBounds.getNorth(), center.lng], {
+                icon: L.divIcon({
+                    className: 'distance-ring-label',
+                    html: distanceKm.toFixed(1) + '&thinsp;km&ensp;/&ensp;' + distanceMi.toFixed(1) + '&thinsp;mi',
+                    iconSize: [100, 18],
+                    iconAnchor: [50, 9],
+                }),
+                interactive: false,
+            }).addTo(distanceRingLayer);
+        });
     }
 
     function initCenterFab() {
@@ -2458,6 +2502,14 @@
         const handle = document.getElementById('map-resize-handle');
         const mapContainer = document.getElementById('map-container');
         let startY, startHeight, dragging = false;
+
+        if (typeof ResizeObserver !== 'undefined') {
+            new ResizeObserver(function () {
+                if (!map) return;
+                map.invalidateSize({ pan: false });
+                updateDistanceRings();
+            }).observe(mapContainer);
+        }
 
         function beginResize(clientY, e) {
             if (!resizeEnabled) return;
