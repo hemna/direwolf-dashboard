@@ -1254,6 +1254,23 @@
         return row ? (row.dataset.callsign || null) : null;
     }
 
+    function clearPacketHighlightState() {
+        _selectedCallsign = null;
+        _hoveredCallsign = null;
+        updateMarkerHighlightClasses();
+    }
+
+    function reconcilePacketHighlightState() {
+        const callsigns = new Set(
+            Array.from(document.querySelectorAll('.log-row'), row => row.dataset.callsign || '')
+        );
+        if (_selectedCallsign && !callsigns.has(_selectedCallsign)) {
+            _selectedCallsign = null;
+        }
+        _hoveredCallsign = getHoveredCallsignFromDom();
+        updateMarkerHighlightClasses();
+    }
+
     function clearStationOverlay(preserveHover = true) {
         _overlayLayers.forEach(l => map.removeLayer(l));
         _overlayLayers = [];
@@ -1953,9 +1970,12 @@
         logList.insertBefore(row, logList.firstChild);
 
         // Trim old rows
+        let trimmed = false;
         while (logList.children.length > MAX_LOG_ROWS * 2) {
             logList.removeChild(logList.lastChild);
+            trimmed = true;
         }
+        if (trimmed) reconcilePacketHighlightState();
 
         // Auto-scroll
         if (autoScroll) {
@@ -2006,6 +2026,7 @@
         // Clear log
         document.getElementById('btn-clear-log').addEventListener('click', () => {
             logList.innerHTML = '';
+            clearPacketHighlightState();
             autoScroll = true;
             resumeBtn.classList.add('hidden');
         });
