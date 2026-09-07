@@ -2509,6 +2509,8 @@
                 map.invalidateSize({ pan: false });
                 updateDistanceRings();
             }).observe(mapContainer);
+        } else {
+            map.on('resize', updateDistanceRings);
         }
 
         function beginResize(clientY, e) {

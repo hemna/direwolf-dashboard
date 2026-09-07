@@ -13,7 +13,6 @@ APP_JS = (
 def test_resize_observer_is_the_single_distance_ring_resize_path():
     source = APP_JS.read_text()
 
-    assert "map.on('resize', updateDistanceRings);" not in source
     assert "map.on('zoomend moveend', updateDistanceRings);" in source
 
     observer_start = source.index("new ResizeObserver(function () {")
@@ -22,3 +21,8 @@ def test_resize_observer_is_the_single_distance_ring_resize_path():
 
     assert "map.invalidateSize({ pan: false });" in observer
     assert "updateDistanceRings();" in observer
+
+    fallback_start = observer_end + len("}).observe(mapContainer);")
+    fallback = source[fallback_start:source.index("function beginResize", fallback_start)]
+    assert "} else {" in fallback
+    assert "map.on('resize', updateDistanceRings);" in fallback
