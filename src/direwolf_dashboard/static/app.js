@@ -1249,13 +1249,18 @@
         });
     }
 
+    function getHoveredCallsignFromDom() {
+        const row = document.querySelector('.log-row:hover');
+        return row ? (row.dataset.callsign || null) : null;
+    }
+
     function clearStationOverlay(preserveHover = true) {
         _overlayLayers.forEach(l => map.removeLayer(l));
         _overlayLayers = [];
         document.querySelectorAll('.log-row.log-row-selected')
             .forEach(el => el.classList.remove('log-row-selected'));
         _selectedCallsign = null;
-        if (!preserveHover) _hoveredCallsign = null;
+        _hoveredCallsign = preserveHover ? getHoveredCallsignFromDom() : null;
         updateMarkerHighlightClasses();
     }
 
@@ -1908,6 +1913,9 @@
         row.addEventListener('click', () => {
             expand.classList.toggle('expanded');
             rawDiv.classList.toggle('visible');
+
+            _selectedCallsign = row.dataset.callsign || null;
+            updateMarkerHighlightClasses();
 
             const station = stations[row.dataset.callsign];
             if (station?.marker) {
