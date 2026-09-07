@@ -947,7 +947,7 @@
             }
         });
         map.on('popupclose', function () {
-            clearStationOverlay();
+            clearStationOverlay(false);
         });
 
         var tileLayer = L.tileLayer(API_BASE + '/tiles/{z}/{x}/{y}.png', {
