@@ -45,6 +45,7 @@
 
     /* Semantic station glow */
     --my-station-glow: #00aaff;
+    --station-highlight-glow: #ff9500;
 
     /* Map & decode labels */
     --label-shadow: #000;
@@ -185,6 +186,7 @@
     --popup-remove-hover: #ef4444;
 
     --my-station-glow: #0077b6;
+    --station-highlight-glow: #d97706;
 
     --label-shadow: #fff;
     --route-label-text: #1a1a2e;
@@ -1471,6 +1473,17 @@ a.secondary.btn-as-link:hover {
 /* My station glow */
 .my-station {
     filter: drop-shadow(0 0 6px var(--my-station-glow)) drop-shadow(0 0 3px var(--my-station-glow));
+}
+
+/* Hover/selection glow for station markers. Keep the My Position glow when both apply. */
+.leaflet-marker-icon.station-highlight {
+    filter: drop-shadow(0 0 8px var(--station-highlight-glow));
+}
+
+.leaflet-marker-icon.my-station.station-highlight {
+    filter: drop-shadow(0 0 6px var(--my-station-glow))
+        drop-shadow(0 0 3px var(--my-station-glow))
+        drop-shadow(0 0 8px var(--station-highlight-glow));
 }
 
 /* My position pin marker */

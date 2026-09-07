@@ -1087,6 +1087,7 @@
             const newKey = symbolTable + symbolChar;
             if (oldKey !== newKey) {
                 stations[cs].marker.setIcon(createSymbolIcon(symbolTable, symbolChar, cs));
+                updateMarkerHighlightClasses();
             }
             stations[cs].data = data;
             updateStationPopup(cs);
@@ -1101,6 +1102,7 @@
                 data: data,
             };
 
+            updateMarkerHighlightClasses();
             updateStationPopup(cs);
         }
     }
@@ -1235,6 +1237,17 @@
 
     var _overlayLayers = [];
     var _selectedCallsign = null;
+    var _hoveredCallsign = null;
+
+    function updateMarkerHighlightClasses() {
+        Object.keys(stations).forEach(callsign => {
+            const el = stations[callsign].marker?.getElement?.();
+            if (el) {
+                el.classList.toggle('station-highlight',
+                    callsign === _selectedCallsign || callsign === _hoveredCallsign);
+            }
+        });
+    }
 
     function clearStationOverlay() {
         _overlayLayers.forEach(l => map.removeLayer(l));
@@ -1242,11 +1255,14 @@
         document.querySelectorAll('.log-row.log-row-selected')
             .forEach(el => el.classList.remove('log-row-selected'));
         _selectedCallsign = null;
+        _hoveredCallsign = null;
+        updateMarkerHighlightClasses();
     }
 
     function showStationOverlay(callsign) {
         clearStationOverlay();
         _selectedCallsign = callsign;
+        updateMarkerHighlightClasses();
         const s = stations[callsign];
         if (!s) return;
         const stLat = s.data.latitude;
@@ -1892,6 +1908,24 @@
         row.addEventListener('click', () => {
             expand.classList.toggle('expanded');
             rawDiv.classList.toggle('visible');
+
+            const station = stations[row.dataset.callsign];
+            if (station?.marker) {
+                const popup = station.marker.getPopup();
+                if (popup) popup.options.autoPan = false;
+                station.marker.openPopup();
+            }
+        });
+
+        row.addEventListener('mouseenter', () => {
+            _hoveredCallsign = row.dataset.callsign || null;
+            updateMarkerHighlightClasses();
+        });
+        row.addEventListener('mouseleave', () => {
+            if (_hoveredCallsign === row.dataset.callsign) {
+                _hoveredCallsign = null;
+                updateMarkerHighlightClasses();
+            }
         });
 
         // Apply current filters
@@ -2290,6 +2324,7 @@
     }
 
     function clearStationsAndPackets() {
+        clearStationOverlay();
         // Clear the packet log
         var logList = document.getElementById('log-list');
         if (logList) logList.innerHTML = '';
