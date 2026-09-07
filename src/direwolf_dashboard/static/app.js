@@ -928,7 +928,6 @@
         map = L.map('map').setView([lat, lon], zoom);
 
         distanceRingLayer = L.layerGroup().addTo(map);
-        updateDistanceRings();
 
         // Persist map center across page refreshes (zoom is always from config)
         map.on('moveend', function () {
@@ -937,6 +936,7 @@
             localStorage.setItem('dw-map-lng', c.lng);
         });
         map.on('zoomend moveend', updateDistanceRings);
+        map.on('resize', updateDistanceRings);
 
         // Station click overlay: path lines, distance, log highlight
         map.on('popupopen', function (e) {
@@ -955,6 +955,7 @@
             attribution: '&copy; OpenStreetMap contributors',
             maxZoom: 18,
         }).addTo(map);
+        updateDistanceRings();
 
         // Retry failed tiles after a delay with cache-busting
         tileLayer.on('tileerror', function (e) {
