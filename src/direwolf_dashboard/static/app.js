@@ -1249,13 +1249,13 @@
         });
     }
 
-    function clearStationOverlay() {
+    function clearStationOverlay(preserveHover = true) {
         _overlayLayers.forEach(l => map.removeLayer(l));
         _overlayLayers = [];
         document.querySelectorAll('.log-row.log-row-selected')
             .forEach(el => el.classList.remove('log-row-selected'));
         _selectedCallsign = null;
-        _hoveredCallsign = null;
+        if (!preserveHover) _hoveredCallsign = null;
         updateMarkerHighlightClasses();
     }
 
@@ -1912,8 +1912,17 @@
             const station = stations[row.dataset.callsign];
             if (station?.marker) {
                 const popup = station.marker.getPopup();
-                if (popup) popup.options.autoPan = false;
-                station.marker.openPopup();
+                if (popup) {
+                    const autoPan = popup.options.autoPan;
+                    popup.options.autoPan = false;
+                    try {
+                        station.marker.openPopup();
+                    } finally {
+                        popup.options.autoPan = autoPan;
+                    }
+                } else {
+                    station.marker.openPopup();
+                }
             }
         });
 
@@ -2324,7 +2333,7 @@
     }
 
     function clearStationsAndPackets() {
-        clearStationOverlay();
+        clearStationOverlay(false);
         // Clear the packet log
         var logList = document.getElementById('log-list');
         if (logList) logList.innerHTML = '';
