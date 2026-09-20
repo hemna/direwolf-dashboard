@@ -559,3 +559,14 @@ class TestApiTokenAuth:
         with TestClient(app, raise_server_exceptions=False) as client:
             r = client.put("/api/config", json={"storage": {"retention_days": 14}})
             assert r.status_code == 200
+
+
+class TestChangelogContentType:
+    """Changelog is served as markdown (issue #95)."""
+
+    async def test_changelog_served_as_markdown(self, test_app):
+        app, _storage = test_app
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.get("/api/changelog")
+            if r.status_code == 200:
+                assert "text/markdown" in r.headers.get("content-type", "").lower()

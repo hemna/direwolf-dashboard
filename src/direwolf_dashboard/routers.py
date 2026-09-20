@@ -521,7 +521,7 @@ def create_api_routes(container: ServiceContainer) -> list:
         if changelog_path.exists():
             return Response(
                 content=changelog_path.read_text(encoding="utf-8"),
-                media_type="text/plain",
+                media_type="text/markdown",
             )
         raise HTTPException(status_code=404, detail="Changelog not found")
 
