@@ -2969,8 +2969,15 @@
         s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
         // Inline code
         s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
-        // Links [text](url)
-        s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+        // Links [text](url) — only allow safe schemes (http/https/mailto);
+        // other URLs (e.g. javascript:) are left as plain text. (issue #90)
+        s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (m, text, url) => {
+            const trimmed = url.trim();
+            if (/^(https?:|mailto:)/i.test(trimmed)) {
+                return `<a href="${escHtml(trimmed)}" target="_blank" rel="noopener">${text}</a>`;
+            }
+            return m;
+        });
         return s;
     }
 
