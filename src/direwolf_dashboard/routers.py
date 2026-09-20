@@ -42,6 +42,21 @@ def _safe_filename(s: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", s)
 
 
+async def _require_api_token(request: Request, services) -> None:
+    """Enforce the configured API token on state-changing endpoints.
+
+    When ``server.api_token`` is empty (default) token auth is disabled and
+    this is a no-op — matching the historical LAN-only behavior.  When set,
+    the request must carry a matching ``X-API-Token`` header. (issue #73)
+    """
+    token = services.config.server.api_token
+    if not token:
+        return
+    supplied = request.headers.get("X-API-Token") or ""
+    if supplied != token:
+        raise HTTPException(status_code=401, detail="Invalid or missing API token")
+
+
 def _generate_gpx(callsign: str, track: list[dict]) -> str:
     """Generate a GPX 1.1 XML string from a station's position track."""
     from datetime import datetime
@@ -270,6 +285,7 @@ def create_api_routes(container: ServiceContainer) -> list:
             return JSONResponse(d)
 
         # PUT
+        await _require_api_token(request, services)
         try:
             updates = await request.json()
         except Exception as e:
@@ -364,6 +380,7 @@ def create_api_routes(container: ServiceContainer) -> list:
 
     async def tiles_preload_handler(request: Request):
         services = _get_services(container)
+        await _require_api_token(request, services)
         if request.method == "DELETE":
             if services.tile_proxy:
                 services.tile_proxy.cancel_preload()
@@ -435,6 +452,7 @@ def create_api_routes(container: ServiceContainer) -> list:
 
     async def wipe_storage(request: Request):
         services = _get_services(container)
+        await _require_api_token(request, services)
         try:
             body = await request.json()
         except Exception:

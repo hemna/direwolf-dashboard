@@ -39,6 +39,19 @@
     let logViewState = 'visible';
     let resizeEnabled = true;
 
+    // --- API token (issue #73) ---
+    // Optional bearer token for state-changing endpoints. Stored client-side
+    // in localStorage (never returned by GET /config), sent as X-API-Token.
+    const API_TOKEN_KEY = 'dw-api-token';
+
+    /** Return fetch headers with the API token attached when one is stored. */
+    function _apiHeaders(extra) {
+        const headers = Object.assign({}, extra || {});
+        const token = localStorage.getItem(API_TOKEN_KEY);
+        if (token) headers['X-API-Token'] = token;
+        return headers;
+    }
+
     // --- Modal refresh timer handles (#62) ---
     // Stored so timers can be inspected/cleared; prevents accumulation on re-init.
     let _slAgeTimer = null;       // station-list age refresh
@@ -2046,6 +2059,7 @@
         document.getElementById('cfg-agw-port').value = config.direwolf?.agw_port || 8000;
         document.getElementById('cfg-log-file').value = config.direwolf?.log_file || '';
         document.getElementById('cfg-server-port').value = config.server?.port || 8080;
+        document.getElementById('cfg-api-token').value = localStorage.getItem(API_TOKEN_KEY) || '';
         document.getElementById('cfg-retention').value = config.storage?.retention_days || 7;
         document.getElementById('cfg-tile-mode').value = config.tiles?.cache_mode || 'lazy';
         document.getElementById('cfg-max-cache').value = config.tiles?.max_cache_mb || 500;
@@ -2113,11 +2127,19 @@
         // Save log colors (localStorage-only, not in the backend config)
         _saveLogColors();
 
+        // Save API token locally (never sent to the backend config)
+        const tokenInput = document.getElementById('cfg-api-token');
+        if (tokenInput) {
+            const token = tokenInput.value.trim();
+            if (token) localStorage.setItem(API_TOKEN_KEY, token);
+            else localStorage.removeItem(API_TOKEN_KEY);
+        }
+
         const feedback = document.getElementById('settings-feedback');
         try {
             const resp = await fetch(API_BASE + '/config', {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                headers: _apiHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify(updates),
             });
             const result = await resp.json();
@@ -2181,7 +2203,7 @@
         try {
             var resp = await fetch(API_BASE + '/storage', {
                 method: 'DELETE',
-                headers: { 'Content-Type': 'application/json' },
+                headers: _apiHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify({ confirm: true }),
             });
             var result = await resp.json();
@@ -2275,7 +2297,7 @@
         try {
             const resp = await fetch(API_BASE + '/tiles/preload', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: _apiHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify(bbox),
             });
             const est = await resp.json();
@@ -2297,7 +2319,7 @@
         try {
             await fetch(API_BASE + '/tiles/preload', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: _apiHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify(bbox),
             });
 
@@ -2310,7 +2332,7 @@
 
     async function cancelPreload() {
         try {
-            await fetch(API_BASE + '/tiles/preload', { method: 'DELETE' });
+            await fetch(API_BASE + '/tiles/preload', { method: 'DELETE', headers: _apiHeaders() });
             document.getElementById('btn-cancel-download').classList.add('hidden');
             document.getElementById('preload-progress').classList.add('hidden');
         } catch (e) {
@@ -2684,7 +2706,7 @@
         try {
             const resp = await fetch(API_BASE + '/config', {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                headers: _apiHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify({ station: { my_position: myPosition } }),
             });
             if (resp.ok) {
