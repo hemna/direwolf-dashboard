@@ -503,6 +503,25 @@ def create_api_routes(container: ServiceContainer) -> list:
         result["path_stations"] = path_stations
         return JSONResponse(result)
 
+    async def get_weather_stations(request: Request):
+        """Return a slim list of stations that report weather.
+
+        Only {callsign, last_weather} for stations with weather data — the
+        weather panel no longer needs the full /stations payload. (issue #94)
+        """
+        services = _get_services(container)
+        latest_weather = await services.storage.get_latest_weather_by_callsign()
+        stations = await services.storage.get_stations(limit=2000)
+        result = []
+        for s in stations:
+            cs = s.get("callsign")
+            if s.get("symbol") == "_" or cs in latest_weather:
+                entry = {"callsign": cs}
+                if cs in latest_weather:
+                    entry["last_weather"] = latest_weather[cs]
+                result.append(entry)
+        return JSONResponse(result)
+
     async def get_weather(request: Request):
         services = _get_services(container)
         callsign = request.path_params["callsign"]
@@ -580,6 +599,7 @@ def create_api_routes(container: ServiceContainer) -> list:
         Route("/tiles/preload", tiles_preload_handler, methods=["POST", "DELETE"]),
         Route("/storage", wipe_storage, methods=["DELETE"]),
         Route("/decode", decode_packet, methods=["POST"]),
+        Route("/weather/stations", get_weather_stations),
         Route("/weather/{callsign}", get_weather),
         Route("/changelog", get_changelog),
         Route("/health", health),

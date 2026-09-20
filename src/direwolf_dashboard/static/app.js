@@ -4215,11 +4215,9 @@
 
     async function _loadWeatherPanelData() {
         try {
-            const resp = await fetch(API_BASE + '/stations');
-            if (!resp.ok) throw new Error('Failed to load stations');
-            const allStations = await resp.json();
-            // Keep only stations that have weather data (symbol '_' or last_weather present)
-            _wpData = allStations.filter(s => s.symbol === '_' || s.last_weather);
+            const resp = await fetch(API_BASE + '/weather/stations');
+            if (!resp.ok) throw new Error('Failed to load weather stations');
+            _wpData = await resp.json();
         } catch (err) {
             _wpData = [];
         }
