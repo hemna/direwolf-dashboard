@@ -626,3 +626,20 @@ class TestWeatherReports:
         assert "KD9WXY" in result
         assert result["W1WX"]["temperature"] == pytest.approx(70.0)
         assert result["KD9WXY"]["temperature"] == pytest.approx(55.0)
+
+    async def test_reset_vacuums(self, storage):
+        """reset() must run VACUUM to shrink the DB file (issue #83)."""
+        from unittest.mock import patch
+
+        calls = []
+        real_execute = storage._db.execute
+
+        async def spy_execute(sql, *args, **kwargs):
+            calls.append(str(sql).strip())
+            return await real_execute(sql, *args, **kwargs)
+
+        with patch.object(storage._db, "execute", side_effect=spy_execute):
+            await storage.reset()
+
+        assert any(c.upper() == "VACUUM" for c in calls), \
+            "reset() must issue a VACUUM to reclaim space"
