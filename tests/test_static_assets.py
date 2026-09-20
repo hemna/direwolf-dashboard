@@ -385,3 +385,18 @@ def test_weather_units_setting_in_settings_modal():
     assert 'id="cfg-units"' in content, "cfg-units select must be present"
     assert 'value="metric"' in content
     assert 'value="imperial"' in content
+
+
+def test_simulate_stations_gated_behind_debug_flag():
+    """simulateStations must only be exposed with ?debug=1 (issue #88)."""
+    app_js = (
+        Path(direwolf_dashboard.__file__).parent / "static" / "app.js"
+    )
+    content = app_js.read_text(encoding="utf-8")
+    assert "get('debug') === '1'" in content, \
+        "simulateStations must be gated behind the ?debug=1 query param"
+    # The assignment must be inside the gate, not unconditional
+    gate_start = content.index("URLSearchParams(window.location.search).get('debug')")
+    gate_snippet = content[gate_start:gate_start + 200]
+    assert "window.simulateStations = simulateStations" in gate_snippet, \
+        "window.simulateStations must only be assigned inside the debug gate"
