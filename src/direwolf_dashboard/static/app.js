@@ -210,6 +210,12 @@
         }
     }
 
+    // --- Weather unit conversions (issue #78) ---
+    // aprslib stores temperature in Celsius and wind speed in m/s. Displays
+    // that use the imperial labels (°F / mph) must convert explicitly.
+    function cToF(c) { return (c * 9 / 5) + 32; }
+    function msToMph(ms) { return ms * 2.23694; }
+
     function createSymbolIcon(symbolTable, symbolChar, callsign) {
         const pos = getSymbolSpritePosition(symbolChar);
         const { spriteUrl, overlay } = parseSymbolTable(symbolTable);
@@ -1105,9 +1111,9 @@
         if (d.last_weather) {
             const w = d.last_weather;
             const parts = [];
-            if (w.temperature != null) parts.push(`${w.temperature.toFixed(1)}&thinsp;&deg;F`);
+            if (w.temperature != null) parts.push(`${cToF(w.temperature).toFixed(1)}&thinsp;&deg;F`);
             if (w.wind_speed != null) {
-                let wind = `${w.wind_speed.toFixed(0)}&thinsp;mph`;
+                let wind = `${msToMph(w.wind_speed).toFixed(0)}&thinsp;mph`;
                 if (w.wind_direction != null) wind += ` @ ${w.wind_direction.toFixed(0)}&deg;`;
                 parts.push(wind);
             }
@@ -4210,9 +4216,9 @@
 
         tbody.innerHTML = rows.map(s => {
             const w = s.last_weather || {};
-            const temp    = w.temperature != null ? w.temperature.toFixed(1) + '°F' : '—';
+            const temp    = w.temperature != null ? cToF(w.temperature).toFixed(1) + '°F' : '—';
             const wind    = w.wind_speed   != null
-                ? `${w.wind_speed.toFixed(0)} mph${w.wind_direction != null ? ' @ ' + w.wind_direction.toFixed(0) + '°' : ''}`
+                ? `${msToMph(w.wind_speed).toFixed(0)} mph${w.wind_direction != null ? ' @ ' + w.wind_direction.toFixed(0) + '°' : ''}`
                 : '—';
             const humid   = w.humidity   != null ? w.humidity.toFixed(0) + '%' : '—';
             const pres    = w.pressure   != null ? w.pressure.toFixed(1) + ' mb' : '—';

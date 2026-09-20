@@ -353,3 +353,17 @@ def test_export_packets_csv_button_in_settings():
         "btn-export-packets-csv must link to /api/packets/export"
     assert 'download=' in content, \
         "export link must have download attribute for automatic CSV download"
+
+
+def test_weather_unit_conversion_helpers():
+    """Weather displays that use °F/mph must convert from stored °C/m/s (issue #78)."""
+    app_js = (
+        Path(direwolf_dashboard.__file__).parent / "static" / "app.js"
+    )
+    content = app_js.read_text(encoding="utf-8")
+    # Helpers exist
+    assert "function cToF(c) { return (c * 9 / 5) + 32; }" in content
+    assert "function msToMph(ms) { return ms * 2.23694; }" in content
+    # Popup and panel apply the conversion before the °F / mph labels
+    assert "cToF(w.temperature)" in content
+    assert "msToMph(w.wind_speed)" in content
