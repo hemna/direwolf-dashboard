@@ -353,3 +353,35 @@ def test_export_packets_csv_button_in_settings():
         "btn-export-packets-csv must link to /api/packets/export"
     assert 'download=' in content, \
         "export link must have download attribute for automatic CSV download"
+
+
+def test_weather_units_helpers_and_setting():
+    """Weather units are user-selectable (metric default / imperial) (issue #78)."""
+    app_js = (
+        Path(direwolf_dashboard.__file__).parent / "static" / "app.js"
+    )
+    content = app_js.read_text(encoding="utf-8")
+    # Conversion + format helpers exist
+    assert "function cToF(c) { return (c * 9 / 5) + 32; }" in content
+    assert "function msToMph(ms) { return ms * 2.23694; }" in content
+    assert "function hpaToInHg(hpa)" in content
+    assert "function mmToIn(mm)" in content
+    assert "function fmtTemp(c)" in content
+    assert "function fmtWind(ms)" in content
+    # Displays consult the units setting via the fmt* helpers
+    assert "fmtTemp(w.temperature)" in content
+    assert "fmtWind(w.wind_speed)" in content
+    assert "fmtTemp(report.temperature)" in content
+    # Preference stored in localStorage under dw-units
+    assert "UNITS_KEY = 'dw-units'" in content
+
+
+def test_weather_units_setting_in_settings_modal():
+    """Settings modal must expose a Units selector (issue #78)."""
+    html = (
+        Path(direwolf_dashboard.__file__).parent / "static" / "index.html"
+    )
+    content = html.read_text(encoding="utf-8")
+    assert 'id="cfg-units"' in content, "cfg-units select must be present"
+    assert 'value="metric"' in content
+    assert 'value="imperial"' in content

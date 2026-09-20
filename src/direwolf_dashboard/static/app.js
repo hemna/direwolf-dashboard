@@ -210,6 +210,37 @@
         }
     }
 
+    // --- Weather units (issue #78) ---
+    // aprslib stores temperature in Celsius, wind in m/s, pressure in hPa,
+    // rain in mm. The user can choose metric (default, matches stored data)
+    // or imperial (°F / mph / inHg / in) via the Units setting in Settings.
+    const UNITS_KEY = 'dw-units';
+    const UNITS_METRIC = 'metric';
+    const UNITS_IMPERIAL = 'imperial';
+
+    function getUnits() {
+        return localStorage.getItem(UNITS_KEY) === UNITS_IMPERIAL
+            ? UNITS_IMPERIAL : UNITS_METRIC;
+    }
+    function isImperial() { return getUnits() === UNITS_IMPERIAL; }
+    function cToF(c) { return (c * 9 / 5) + 32; }
+    function msToMph(ms) { return ms * 2.23694; }
+    function hpaToInHg(hpa) { return hpa * 0.02953; }
+    function mmToIn(mm) { return mm * 0.0393701; }
+
+    function fmtTemp(c) {
+        return isImperial() ? `${cToF(c).toFixed(1)}°F` : `${c.toFixed(1)}°C`;
+    }
+    function fmtWind(ms) {
+        return isImperial() ? `${msToMph(ms).toFixed(0)} mph` : `${ms.toFixed(1)} m/s`;
+    }
+    function fmtPressure(hpa) {
+        return isImperial() ? `${hpaToInHg(hpa).toFixed(2)} inHg` : `${hpa.toFixed(1)} hPa`;
+    }
+    function fmtRain(mm) {
+        return isImperial() ? `${mmToIn(mm).toFixed(2)} in` : `${mm.toFixed(1)} mm`;
+    }
+
     function createSymbolIcon(symbolTable, symbolChar, callsign) {
         const pos = getSymbolSpritePosition(symbolChar);
         const { spriteUrl, overlay } = parseSymbolTable(symbolTable);
@@ -1105,9 +1136,9 @@
         if (d.last_weather) {
             const w = d.last_weather;
             const parts = [];
-            if (w.temperature != null) parts.push(`${w.temperature.toFixed(1)}&thinsp;&deg;F`);
+            if (w.temperature != null) parts.push(fmtTemp(w.temperature));
             if (w.wind_speed != null) {
-                let wind = `${w.wind_speed.toFixed(0)}&thinsp;mph`;
+                let wind = fmtWind(w.wind_speed);
                 if (w.wind_direction != null) wind += ` @ ${w.wind_direction.toFixed(0)}&deg;`;
                 parts.push(wind);
             }
@@ -2060,6 +2091,8 @@
         document.getElementById('cfg-log-file').value = config.direwolf?.log_file || '';
         document.getElementById('cfg-server-port').value = config.server?.port || 8080;
         document.getElementById('cfg-api-token').value = localStorage.getItem(API_TOKEN_KEY) || '';
+
+        document.getElementById('cfg-units').value = getUnits();
         document.getElementById('cfg-retention').value = config.storage?.retention_days || 7;
         document.getElementById('cfg-tile-mode').value = config.tiles?.cache_mode || 'lazy';
         document.getElementById('cfg-max-cache').value = config.tiles?.max_cache_mb || 500;
@@ -2134,6 +2167,10 @@
             if (token) localStorage.setItem(API_TOKEN_KEY, token);
             else localStorage.removeItem(API_TOKEN_KEY);
         }
+
+        // Save units preference locally
+        const unitsInput = document.getElementById('cfg-units');
+        if (unitsInput) localStorage.setItem(UNITS_KEY, unitsInput.value);
 
         const feedback = document.getElementById('settings-feedback');
         try {
@@ -2994,15 +3031,15 @@
 
     function buildCurrentWeatherHtml(report) {
         const fields = [];
-        if (report.temperature != null) fields.push(['Temperature', report.temperature.toFixed(1) + '\u00B0C']);
-        if (report.dewpoint != null) fields.push(['Dewpoint', report.dewpoint.toFixed(1) + '\u00B0C']);
+        if (report.temperature != null) fields.push(['Temperature', fmtTemp(report.temperature)]);
+        if (report.dewpoint != null) fields.push(['Dewpoint', fmtTemp(report.dewpoint)]);
         if (report.humidity != null) fields.push(['Humidity', report.humidity + '%']);
-        if (report.pressure != null) fields.push(['Pressure', report.pressure.toFixed(1) + ' hPa']);
-        if (report.wind_speed != null) fields.push(['Wind Speed', report.wind_speed.toFixed(1) + ' m/s']);
+        if (report.pressure != null) fields.push(['Pressure', fmtPressure(report.pressure)]);
+        if (report.wind_speed != null) fields.push(['Wind Speed', fmtWind(report.wind_speed)]);
         if (report.wind_direction != null) fields.push(['Wind Dir', report.wind_direction + '\u00B0']);
-        if (report.wind_gust != null) fields.push(['Gust', report.wind_gust.toFixed(1) + ' m/s']);
-        if (report.rain_1h != null) fields.push(['Rain 1h', report.rain_1h.toFixed(1) + ' mm']);
-        if (report.rain_24h != null) fields.push(['Rain 24h', report.rain_24h.toFixed(1) + ' mm']);
+        if (report.wind_gust != null) fields.push(['Gust', fmtWind(report.wind_gust)]);
+        if (report.rain_1h != null) fields.push(['Rain 1h', fmtRain(report.rain_1h)]);
+        if (report.rain_24h != null) fields.push(['Rain 24h', fmtRain(report.rain_24h)]);
         if (report.luminosity != null) fields.push(['Luminosity', report.luminosity + ' W/m\u00B2']);
 
         let html = '<div class="weather-current-grid">';
@@ -3027,9 +3064,12 @@
             return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         });
 
-        // Temperature + Dewpoint chart
-        const tempData = reports.map(r => r.temperature);
-        const dewData = reports.map(r => r.dewpoint);
+        // Temperature + Dewpoint chart (values follow the Units setting)
+        const tempData = reports.map(r => r.temperature != null
+            ? (isImperial() ? cToF(r.temperature) : r.temperature) : r.temperature);
+        const dewData = reports.map(r => r.dewpoint != null
+            ? (isImperial() ? cToF(r.dewpoint) : r.dewpoint) : r.dewpoint);
+        const tempUnit = isImperial() ? '\u00B0F' : '\u00B0C';
         const hasTempData = tempData.some(v => v != null);
         const hasDewData = dewData.some(v => v != null);
 
@@ -3037,7 +3077,7 @@
             const datasets = [];
             if (hasTempData) {
                 datasets.push({
-                    label: 'Temperature (\u00B0C)',
+                    label: 'Temperature (' + tempUnit + ')',
                     data: tempData,
                     borderColor: '#ff6384',
                     backgroundColor: 'rgba(255, 99, 132, 0.1)',
@@ -3049,7 +3089,7 @@
             }
             if (hasDewData) {
                 datasets.push({
-                    label: 'Dewpoint (\u00B0C)',
+                    label: 'Dewpoint (' + tempUnit + ')',
                     data: dewData,
                     borderColor: '#36a2eb',
                     backgroundColor: 'rgba(54, 162, 235, 0.1)',
@@ -3073,14 +3113,16 @@
                     },
                     scales: {
                         x: { ticks: { color: textColor, maxTicksLimit: 12 }, grid: { color: gridColor } },
-                        y: { ticks: { color: textColor }, grid: { color: gridColor }, title: { display: true, text: '\u00B0C', color: textColor } },
+                        y: { ticks: { color: textColor }, grid: { color: gridColor }, title: { display: true, text: tempUnit, color: textColor } },
                     },
                 },
             });
         }
 
-        // Barometric Pressure chart
-        const pressureData = reports.map(r => r.pressure);
+        // Barometric Pressure chart (values follow the Units setting)
+        const pressureData = reports.map(r => r.pressure != null
+            ? (isImperial() ? hpaToInHg(r.pressure) : r.pressure) : r.pressure);
+        const pressureUnit = isImperial() ? 'inHg' : 'hPa';
         const hasPressure = pressureData.some(v => v != null);
 
         if (hasPressure) {
@@ -3090,7 +3132,7 @@
                 data: {
                     labels,
                     datasets: [{
-                        label: 'Pressure (hPa)',
+                        label: 'Pressure (' + pressureUnit + ')',
                         data: pressureData,
                         borderColor: '#4bc0c0',
                         backgroundColor: 'rgba(75, 192, 192, 0.1)',
@@ -3109,7 +3151,7 @@
                     },
                     scales: {
                         x: { ticks: { color: textColor, maxTicksLimit: 12 }, grid: { color: gridColor } },
-                        y: { ticks: { color: textColor }, grid: { color: gridColor }, title: { display: true, text: 'hPa', color: textColor } },
+                        y: { ticks: { color: textColor }, grid: { color: gridColor }, title: { display: true, text: pressureUnit, color: textColor } },
                     },
                 },
             });
@@ -3425,13 +3467,13 @@
             html += '<div class="decode-weather-grid">';
             const wxFields = [
                 ['wind_direction', 'Wind Dir', (v) => v + '\u00B0'],
-                ['wind_speed', 'Wind Spd', (v) => v.toFixed(1) + ' m/s'],
-                ['wind_gust', 'Gust', (v) => v.toFixed(1) + ' m/s'],
-                ['temperature', 'Temp', (v) => v.toFixed(1) + '\u00B0C'],
+                ['wind_speed', 'Wind Spd', (v) => fmtWind(v)],
+                ['wind_gust', 'Gust', (v) => fmtWind(v)],
+                ['temperature', 'Temp', (v) => fmtTemp(v)],
                 ['humidity', 'Humidity', (v) => v + '%'],
-                ['pressure', 'Pressure', (v) => v.toFixed(1) + ' hPa'],
-                ['rain_1h', 'Rain 1h', (v) => v.toFixed(1) + ' mm'],
-                ['rain_24h', 'Rain 24h', (v) => v.toFixed(1) + ' mm'],
+                ['pressure', 'Pressure', (v) => fmtPressure(v)],
+                ['rain_1h', 'Rain 1h', (v) => fmtRain(v)],
+                ['rain_24h', 'Rain 24h', (v) => fmtRain(v)],
             ];
             for (const [key, label, fmt] of wxFields) {
                 if (sections.weather[key] != null) {
@@ -4210,12 +4252,12 @@
 
         tbody.innerHTML = rows.map(s => {
             const w = s.last_weather || {};
-            const temp    = w.temperature != null ? w.temperature.toFixed(1) + '°F' : '—';
+            const temp    = w.temperature != null ? fmtTemp(w.temperature) : '—';
             const wind    = w.wind_speed   != null
-                ? `${w.wind_speed.toFixed(0)} mph${w.wind_direction != null ? ' @ ' + w.wind_direction.toFixed(0) + '°' : ''}`
+                ? `${fmtWind(w.wind_speed)}${w.wind_direction != null ? ' @ ' + w.wind_direction.toFixed(0) + '°' : ''}`
                 : '—';
             const humid   = w.humidity   != null ? w.humidity.toFixed(0) + '%' : '—';
-            const pres    = w.pressure   != null ? w.pressure.toFixed(1) + ' mb' : '—';
+            const pres    = w.pressure   != null ? fmtPressure(w.pressure) : '—';
             const ts      = w.timestamp  != null ? formatAge(w.timestamp) : '—';
             const cs      = s.callsign || '?';
             return `<tr>
