@@ -106,6 +106,41 @@ async def test_app(tmp_path):
     await storage.close()
 
 
+@pytest.fixture
+async def test_app_with_token(tmp_path):
+    """Test app with server.api_token configured (issue #73)."""
+    config = Config()
+    config.server.api_token = "sekrit-token"
+    config.storage.db_path = str(tmp_path / "test.db")
+    config.tiles.cache_dir = str(tmp_path / "tiles")
+    config_path = str(tmp_path / "config.yaml")
+
+    app, container = _create_test_app(config, config_path)
+
+    storage = Storage(config.storage.db_path)
+    await storage.init()
+
+    tile_proxy = MagicMock()
+    tile_proxy.get_cache_stats = AsyncMock(return_value={"tile_count": 0, "cache_size_mb": 0})
+    tile_proxy.estimate_preload = MagicMock(return_value={"estimated_tiles": 0, "estimated_size_mb": 0})
+
+    container.services = DirewolfServices(
+        config=config,
+        config_path=config_path,
+        storage=storage,
+        tile_proxy=tile_proxy,
+        processor=MagicMock(),
+        broadcast_queue=asyncio.Queue(),
+        agw_reader=MagicMock(connected=False),
+        log_tailer=MagicMock(active=False),
+        start_time=time.time(),
+    )
+
+    yield app, storage
+
+    await storage.close()
+
+
 def _make_packet(**overrides) -> dict:
     packet = {
         "timestamp": time.time(),
@@ -460,3 +495,67 @@ class TestTilePreloadValidation:
                 "bbox": [37, -78, 38, -77], "min_zoom": 15, "max_zoom": 10,
             })
             assert r.status_code == 400
+
+
+class TestApiTokenAuth:
+    """API token gating on state-changing endpoints (issue #73)."""
+
+    async def test_read_endpoints_need_no_token(self, test_app_with_token):
+        app, _storage = test_app_with_token
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.get("/api/config")
+            assert r.status_code == 200
+            r = client.get("/api/health")
+            assert r.status_code != 401
+
+    async def test_config_put_requires_token(self, test_app_with_token):
+        app, _storage = test_app_with_token
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.put("/api/config", json={"storage": {"retention_days": 14}})
+            assert r.status_code == 401
+            r = client.put(
+                "/api/config",
+                json={"storage": {"retention_days": 14}},
+                headers={"X-API-Token": "wrong"},
+            )
+            assert r.status_code == 401
+            r = client.put(
+                "/api/config",
+                json={"storage": {"retention_days": 14}},
+                headers={"X-API-Token": "sekrit-token"},
+            )
+            assert r.status_code == 200
+
+    async def test_storage_delete_requires_token(self, test_app_with_token):
+        app, _storage = test_app_with_token
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.request("DELETE", "/api/storage", json={"confirm": True})
+            assert r.status_code == 401
+            r = client.request(
+                "DELETE",
+                "/api/storage",
+                json={"confirm": True},
+                headers={"X-API-Token": "sekrit-token"},
+            )
+            assert r.status_code == 200
+
+    async def test_tiles_preload_requires_token(self, test_app_with_token):
+        app, _storage = test_app_with_token
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.post("/api/tiles/preload", json={"bbox": [0, 0, 1, 1]})
+            assert r.status_code == 401
+            r = client.delete("/api/tiles/preload")
+            assert r.status_code == 401
+            r = client.post(
+                "/api/tiles/preload",
+                json={"bbox": [0, 0, 1, 1]},
+                headers={"X-API-Token": "sekrit-token"},
+            )
+            assert r.status_code == 200
+
+    async def test_no_token_configured_stays_open(self, test_app):
+        """When no api_token is configured, behavior is unchanged."""
+        app, _storage = test_app
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.put("/api/config", json={"storage": {"retention_days": 14}})
+            assert r.status_code == 200
