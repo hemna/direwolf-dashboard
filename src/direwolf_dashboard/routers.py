@@ -37,9 +37,15 @@ def _get_services(container: ServiceContainer):
     return services
 
 
+def _safe_filename(s: str) -> str:
+    """Sanitize a string for use in a Content-Disposition filename."""
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", s)
+
+
 def _generate_gpx(callsign: str, track: list[dict]) -> str:
     """Generate a GPX 1.1 XML string from a station's position track."""
     from datetime import datetime
+    from xml.sax.saxutils import escape as _xml_escape
 
     points = list(reversed(track))
 
@@ -48,11 +54,12 @@ def _generate_gpx(callsign: str, track: list[dict]) -> str:
         '<gpx version="1.1" creator="Direwolf Dashboard"',
         '     xmlns="http://www.topografix.com/GPX/1/1">',
         '  <metadata>',
-        f'    <name>{callsign} Track</name>',
+        # Callsign is user/radio-controlled — XML-escape it (issue #74)
+        f'    <name>{_xml_escape(callsign)} Track</name>',
         f'    <time>{datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")}</time>',
         '  </metadata>',
         '  <trk>',
-        f'    <name>{callsign}</name>',
+        f'    <name>{_xml_escape(callsign)}</name>',
         '    <trkseg>',
     ]
 
@@ -236,7 +243,7 @@ def create_api_routes(container: ServiceContainer) -> list:
         if not track:
             raise HTTPException(status_code=404, detail="No track data for station")
         gpx_xml = _generate_gpx(callsign, track)
-        filename = f"{callsign.replace(' ', '_')}_{hours}h.gpx"
+        filename = f"{_safe_filename(callsign)}_{hours}h.gpx"
         return Response(
             content=gpx_xml,
             media_type="application/gpx+xml",
