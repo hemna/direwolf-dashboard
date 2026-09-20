@@ -47,6 +47,10 @@ class DirewolfServices:
     # tracked station receives a new position packet.
     _my_position_cache: Optional[tuple[float, float]] = field(default=None, repr=False)
     _my_position_dirty: bool = field(default=True, repr=False)
+    # Callsign tracked as "my position" (type=station). Cached alongside the
+    # coordinates so the broadcast consumer can invalidate the cache on the
+    # matching callsign WITHOUT a DB read per packet. (issue #76)
+    _my_position_callsign: Optional[str] = field(default=None, repr=False)
 
     def get_stats_dict(self) -> dict:
         """Build the stats response dict (sync portion — caller must merge DB stats).
@@ -178,6 +182,13 @@ async def resolve_my_position(services: DirewolfServices) -> Optional[tuple[floa
         lon = services.config.station.longitude
         if lat and lon:
             result = (lat, lon)
+
+    # Remember the tracked callsign so _broadcast_consumer can invalidate
+    # the cache without a DB read on every position packet. (issue #76)
+    if mp and mp.get("type") == "station":
+        services._my_position_callsign = mp.get("callsign")
+    else:
+        services._my_position_callsign = None
 
     services._my_position_cache = result
     services._my_position_dirty = False
@@ -319,11 +330,13 @@ async def _broadcast_consumer(services: DirewolfServices) -> None:
                             path=packet.get("path") or None,
                         )
                         # Invalidate the my_position cache if this packet is from
-                        # the callsign we're tracking as "my position".
-                        if services._my_position_cache is not None and not services._my_position_dirty:
-                            mp = await services.storage.get_my_position()
-                            if mp and mp.get("type") == "station" and mp.get("callsign") == packet["from_call"]:
-                                services._my_position_dirty = True
+                        # the callsign we're tracking as "my position". Uses the
+                        # cached callsign — no DB read per packet. (issue #76)
+                        if (
+                            services._my_position_callsign
+                            and services._my_position_callsign == packet["from_call"]
+                        ):
+                            services._my_position_dirty = True
                     else:
                         # Packet has no position — look up last known position
                         # so the frontend can still show the station on the map.
