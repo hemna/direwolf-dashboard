@@ -37,9 +37,30 @@ def _get_services(container: ServiceContainer):
     return services
 
 
+def _safe_filename(s: str) -> str:
+    """Sanitize a string for use in a Content-Disposition filename."""
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", s)
+
+
+async def _require_api_token(request: Request, services) -> None:
+    """Enforce the configured API token on state-changing endpoints.
+
+    When ``server.api_token`` is empty (default) token auth is disabled and
+    this is a no-op — matching the historical LAN-only behavior.  When set,
+    the request must carry a matching ``X-API-Token`` header. (issue #73)
+    """
+    token = services.config.server.api_token
+    if not token:
+        return
+    supplied = request.headers.get("X-API-Token") or ""
+    if supplied != token:
+        raise HTTPException(status_code=401, detail="Invalid or missing API token")
+
+
 def _generate_gpx(callsign: str, track: list[dict]) -> str:
     """Generate a GPX 1.1 XML string from a station's position track."""
     from datetime import datetime
+    from xml.sax.saxutils import escape as _xml_escape
 
     points = list(reversed(track))
 
@@ -48,11 +69,12 @@ def _generate_gpx(callsign: str, track: list[dict]) -> str:
         '<gpx version="1.1" creator="Direwolf Dashboard"',
         '     xmlns="http://www.topografix.com/GPX/1/1">',
         '  <metadata>',
-        f'    <name>{callsign} Track</name>',
+        # Callsign is user/radio-controlled — XML-escape it (issue #74)
+        f'    <name>{_xml_escape(callsign)} Track</name>',
         f'    <time>{datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")}</time>',
         '  </metadata>',
         '  <trk>',
-        f'    <name>{callsign}</name>',
+        f'    <name>{_xml_escape(callsign)}</name>',
         '    <trkseg>',
     ]
 
@@ -236,7 +258,7 @@ def create_api_routes(container: ServiceContainer) -> list:
         if not track:
             raise HTTPException(status_code=404, detail="No track data for station")
         gpx_xml = _generate_gpx(callsign, track)
-        filename = f"{callsign.replace(' ', '_')}_{hours}h.gpx"
+        filename = f"{_safe_filename(callsign)}_{hours}h.gpx"
         return Response(
             content=gpx_xml,
             media_type="application/gpx+xml",
@@ -263,6 +285,7 @@ def create_api_routes(container: ServiceContainer) -> list:
             return JSONResponse(d)
 
         # PUT
+        await _require_api_token(request, services)
         try:
             updates = await request.json()
         except Exception as e:
@@ -357,6 +380,7 @@ def create_api_routes(container: ServiceContainer) -> list:
 
     async def tiles_preload_handler(request: Request):
         services = _get_services(container)
+        await _require_api_token(request, services)
         if request.method == "DELETE":
             if services.tile_proxy:
                 services.tile_proxy.cancel_preload()
@@ -368,13 +392,47 @@ def create_api_routes(container: ServiceContainer) -> list:
         except Exception as e:
             raise HTTPException(status_code=400, detail="Invalid JSON body") from e
 
+        def _num(value, name: str, lo: float, hi: float) -> float:
+            try:
+                v = float(value)
+            except (TypeError, ValueError):
+                raise HTTPException(
+                    status_code=400, detail=f"{name} must be a number"
+                ) from None
+            if not (lo <= v <= hi):
+                raise HTTPException(
+                    status_code=400, detail=f"{name} must be in [{lo}, {hi}]"
+                )
+            return v
+
+        def _zoom(value, name: str, lo: int, hi: int) -> int:
+            try:
+                v = int(value)
+            except (TypeError, ValueError):
+                raise HTTPException(
+                    status_code=400, detail=f"{name} must be an integer"
+                ) from None
+            if not (lo <= v <= hi):
+                raise HTTPException(
+                    status_code=400, detail=f"{name} must be in [{lo}, {hi}]"
+                )
+            return v
+
         bbox = body.get("bbox", [])
-        if len(bbox) != 4:
+        if not isinstance(bbox, list) or len(bbox) != 4:
             raise HTTPException(status_code=400, detail="bbox must be [south, west, north, east]")
 
-        south, west, north, east = bbox
-        min_zoom = body.get("min_zoom", 1)
-        max_zoom = min(body.get("max_zoom", 14), 16)
+        south = _num(bbox[0], "south", -90, 90)
+        west = _num(bbox[1], "west", -180, 180)
+        north = _num(bbox[2], "north", -90, 90)
+        east = _num(bbox[3], "east", -180, 180)
+        if south > north:
+            raise HTTPException(status_code=400, detail="south must be <= north")
+        if west > east:
+            raise HTTPException(status_code=400, detail="west must be <= east")
+
+        min_zoom = _zoom(body.get("min_zoom", 1), "min_zoom", 0, 16)
+        max_zoom = _zoom(body.get("max_zoom", 14), "max_zoom", min_zoom, 16)
 
         estimate = services.tile_proxy.estimate_preload(south, west, north, east, min_zoom, max_zoom)
 
@@ -394,6 +452,7 @@ def create_api_routes(container: ServiceContainer) -> list:
 
     async def wipe_storage(request: Request):
         services = _get_services(container)
+        await _require_api_token(request, services)
         try:
             body = await request.json()
         except Exception:

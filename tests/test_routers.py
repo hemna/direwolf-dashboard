@@ -345,3 +345,24 @@ class TestPacketExportEndpoint:
         client = TestClient(_build_test_app(container), raise_server_exceptions=False)
         client.get("/api/packets/export")
         container.services.storage.query_packets.assert_called_once()
+
+
+class TestGpxEscaping:
+    """GPX output must XML-escape callsign and sanitize filenames (issue #74)."""
+
+    def test_xml_escapes_callsign(self):
+        """Callsigns containing XML special chars produce well-formed output."""
+        from direwolf_dashboard.routers import _generate_gpx
+        gpx = _generate_gpx('ABC<&>', [
+            {"timestamp": 1234.0, "latitude": 37.75, "longitude": -77.45},
+        ])
+        assert "<name>ABC&lt;&amp;&gt; Track</name>" in gpx
+        assert "<name>ABC&lt;&amp;&gt;</name>" in gpx
+        # No raw special chars left unescaped
+        assert "ABC<&>" not in gpx
+
+    def test_safe_filename(self):
+        """Content-Disposition filename strips unsafe characters."""
+        from direwolf_dashboard.routers import _safe_filename
+        assert _safe_filename('ABC<&>/"\\') == "ABC_"
+        assert _safe_filename('WB4BOR-1') == "WB4BOR-1"

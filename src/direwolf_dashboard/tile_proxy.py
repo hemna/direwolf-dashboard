@@ -157,6 +157,9 @@ class TileProxy:
             Dict with estimated_tiles and estimated_size_mb.
         """
         max_zoom = min(max_zoom, 16)  # Hard cap
+        min_zoom = max(0, min_zoom)
+        if max_zoom < min_zoom:
+            max_zoom = min_zoom
         total_tiles = 0
 
         for z in range(min_zoom, max_zoom + 1):
@@ -187,6 +190,9 @@ class TileProxy:
             progress_callback: Async callable(done: int, total: int) for progress updates.
         """
         max_zoom = min(max_zoom, 16)  # Hard cap
+        min_zoom = max(0, min_zoom)
+        if max_zoom < min_zoom:
+            max_zoom = min_zoom
         self._preload_cancel = False
 
         # Build tile list

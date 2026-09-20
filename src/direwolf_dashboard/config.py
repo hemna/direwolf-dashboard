@@ -62,6 +62,10 @@ class DirewolfConfig:
 class ServerConfig:
     host: str = "0.0.0.0"
     port: int = 8080
+    # Optional bearer token required for state-changing API endpoints
+    # (PUT /config, DELETE /storage, POST/DELETE /tiles/preload).
+    # Empty = token auth disabled (backward compatible with LAN-only setups).
+    api_token: str = ""
 
 
 @dataclass
