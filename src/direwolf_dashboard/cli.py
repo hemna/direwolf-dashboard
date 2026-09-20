@@ -31,9 +31,6 @@ def main(ctx, config_path):
 @click.pass_context
 def serve(ctx):
     """Start the Direwolf Dashboard web server."""
-    import asyncio
-    from concurrent.futures import ThreadPoolExecutor
-
     import uvicorn
 
     # Configure app-level logging so our LOG.info() calls are visible
@@ -54,11 +51,6 @@ def serve(ctx):
     from direwolf_dashboard.server import create_app
 
     app = create_app(config, config_path)
-
-    # Cap the default thread pool — single-user Pi app doesn't need many threads
-    loop = asyncio.new_event_loop()
-    loop.set_default_executor(ThreadPoolExecutor(max_workers=2))
-    asyncio.set_event_loop(loop)
 
     uvicorn.run(
         app,
