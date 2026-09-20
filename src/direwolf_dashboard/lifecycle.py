@@ -173,7 +173,11 @@ async def resolve_my_position(services: DirewolfServices) -> Optional[tuple[floa
                 result = (mp["latitude"], mp["longitude"])
             elif mp.get("type") == "station" and mp.get("callsign"):
                 stn = await services.storage.get_station(mp["callsign"])
-                if stn and stn.get("latitude") and stn.get("longitude"):
+                if (
+                    stn
+                    and stn.get("latitude") is not None
+                    and stn.get("longitude") is not None
+                ):
                     result = (stn["latitude"], stn["longitude"])
 
     # Fallback: static position from config YAML (if set)
@@ -197,7 +201,7 @@ async def resolve_my_position(services: DirewolfServices) -> Optional[tuple[floa
 
 async def enrich_with_bearing(packet: dict, services: DirewolfServices) -> None:
     """Add bearing/distance to packet using my_position as reference."""
-    if not packet.get("latitude") or not packet.get("longitude"):
+    if packet.get("latitude") is None or packet.get("longitude") is None:
         return
 
     my_coords = await resolve_my_position(services)
@@ -327,7 +331,10 @@ async def _broadcast_consumer(services: DirewolfServices) -> None:
                         await _store_weather_report(packet, services)
 
                     # Update stations table if position data present
-                    if packet.get("latitude") and packet.get("longitude"):
+                    if (
+                        packet.get("latitude") is not None
+                        and packet.get("longitude") is not None
+                    ):
                         await services.storage.upsert_station(
                             callsign=packet["from_call"],
                             last_seen=packet["timestamp"],
@@ -350,7 +357,11 @@ async def _broadcast_consumer(services: DirewolfServices) -> None:
                         # Packet has no position — look up last known position
                         # so the frontend can still show the station on the map.
                         stn = await services.storage.get_station(packet["from_call"])
-                        if stn and stn.get("latitude") and stn.get("longitude"):
+                        if (
+                            stn
+                            and stn.get("latitude") is not None
+                            and stn.get("longitude") is not None
+                        ):
                             packet["latitude"] = stn["latitude"]
                             packet["longitude"] = stn["longitude"]
                             packet["symbol"] = packet.get("symbol") or stn.get("symbol")

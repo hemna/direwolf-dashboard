@@ -1042,7 +1042,7 @@
     }
 
     function addOrUpdateStation(data) {
-        if (!data.latitude || !data.longitude) return;
+        if (data.latitude == null || data.longitude == null) return;
 
         const cs = data.callsign;
         const symbolChar = data.symbol || '-';
@@ -1119,7 +1119,7 @@
 
         // Distance to My Position
         const myPos = getMyPosition();
-        if (myPos && d.latitude && d.longitude) {
+        if (myPos && d.latitude != null && d.longitude != null) {
             const distKm = haversineKm(d.latitude, d.longitude, myPos.lat, myPos.lng);
             const distMi = (distKm * 0.621371).toFixed(1);
             html += `<div class="popup-distance">&#128205; ${distKm.toFixed(1)}&thinsp;km / ${distMi}&thinsp;mi</div>`;
@@ -1152,7 +1152,7 @@
             btn.addEventListener('click', () => window._viewWeather(callsign));
             popupDiv.appendChild(btn);
         }
-        if (d.latitude && d.longitude) {
+        if (d.latitude != null && d.longitude != null) {
             const btn = document.createElement('button');
             btn.className = 'popup-btn popup-btn-gpx';
             btn.textContent = 'Download GPX';
@@ -1612,7 +1612,7 @@
         if (packet.latitude != null && packet.longitude != null) {
             updatePositionCache(packet.from_call, packet.latitude, packet.longitude);
         }
-        if (packet.latitude && packet.longitude) {
+        if (packet.latitude != null && packet.longitude != null) {
             if (waitingForPosition) {
                 dismissWaiting();
                 const zoom = config.station?.zoom || 12;
@@ -1638,16 +1638,16 @@
         const myPos = getMyPosition();
         if (packet.tx) {
             // For TX packets, prefer myPos but fall back to the packet's own coordinates
-            var txPos = myPos || (packet.latitude && packet.longitude ? { lat: packet.latitude, lng: packet.longitude } : null);
+            var txPos = myPos || (packet.latitude != null && packet.longitude != null ? { lat: packet.latitude, lng: packet.longitude } : null);
             if (txPos) {
                 playTransmitAnimation('My Station', txPos.lat, txPos.lng, packet.path || []);
             }
         } else {
-            if (packet.latitude && packet.longitude) {
+            if (packet.latitude != null && packet.longitude != null) {
                 playTransmitAnimation(packet.from_call, packet.latitude, packet.longitude, packet.path || []);
             }
             // For receive animations, prefer myPos but fall back to packet coords if this is "our" packet heard back
-            var rxPos = myPos || (packet.latitude && packet.longitude ? { lat: packet.latitude, lng: packet.longitude } : null);
+            var rxPos = myPos || (packet.latitude != null && packet.longitude != null ? { lat: packet.latitude, lng: packet.longitude } : null);
             if (rxPos) {
                 const myCall = config.station?.my_position?.callsign || packet.from_call;
                 setTimeout(() => {
@@ -2609,7 +2609,7 @@
             let bestTime = 0;
             for (const cs of stationKeys) {
                 const s = stations[cs];
-                if (s.data && s.data.latitude && s.data.longitude) {
+                if (s.data && s.data.latitude != null && s.data.longitude != null) {
                     const t = s.data.last_seen || 0;
                     if (!best || t > bestTime) {
                         best = s;

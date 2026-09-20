@@ -271,6 +271,44 @@ class TestBroadcastConsumerRollback:
         assert mock_storage.insert_packet.await_count == 2
         mock_storage.rollback.assert_awaited_once()
 
+    async def test_zero_coordinates_upsert_station(self):
+        """A packet at lat=0.0/lon=0.0 (equator/prime meridian) is treated as
+        having a position — regression for issue #71 (falsy 0.0 check)."""
+        mock_storage = AsyncMock()
+        mock_storage.insert_packet.return_value = 1
+        mock_storage.get_my_position.return_value = None
+
+        queue = asyncio.Queue()
+        pkt = {
+            "from_call": "EQ0",
+            "type": "GPSPacket",
+            "timestamp": time.time(),
+            "latitude": 0.0,
+            "longitude": 0.0,
+            "symbol": ">",
+            "symbol_table": "/",
+        }
+        await queue.put(pkt)
+
+        services = self._make_services(mock_storage, queue)
+
+        async def run_one():
+            task = asyncio.create_task(_broadcast_consumer(services))
+            await asyncio.sleep(0.05)
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+        await run_one()
+
+        # The station upsert must have been called WITH position data.
+        mock_storage.upsert_station.assert_awaited()
+        call_kwargs = mock_storage.upsert_station.await_args.kwargs
+        assert call_kwargs["latitude"] == 0.0
+        assert call_kwargs["longitude"] == 0.0
+        # The packet must NOT have been back-filled from the stations table
+        # (get_station is only used for packets without a position).
+        mock_storage.get_station.assert_not_awaited()
+
 
 class TestResolveMyPositionCache:
     """Tests for the my_position caching logic in resolve_my_position."""
