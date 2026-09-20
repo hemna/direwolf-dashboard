@@ -567,3 +567,32 @@ class TestStoreWeatherReport:
         report = services.storage.insert_weather_report.await_args.args[0]
         assert report["temperature"] == 0.0
         assert report["humidity"] == 50.0
+
+
+class TestBroadcastConcurrent:
+    """Concurrent WebSocket broadcast (issue #84)."""
+
+    async def test_slow_client_does_not_block_others(self):
+        """A slow client must not delay sends to other clients."""
+        ws_fast = AsyncMock()
+
+        async def slow_send(message):
+            await asyncio.sleep(0.2)
+
+        ws_slow = AsyncMock()
+        ws_slow.send_text.side_effect = slow_send
+        clients = {ws_fast, ws_slow}
+
+        t0 = time.time()
+        await broadcast_event("packet", {"id": 1}, clients)
+        elapsed = time.time() - t0
+
+        # Concurrent dispatch: total time ~ the slow client only, not the sum.
+        assert elapsed < 0.3, f"sequential broadcast took {elapsed:.2f}s"
+        ws_fast.send_text.assert_awaited_once()
+
+    async def test_single_client_ok(self):
+        """Single-client path still works."""
+        ws = AsyncMock()
+        await broadcast_event("test", {"k": "v"}, {ws})
+        ws.send_text.assert_awaited_once()

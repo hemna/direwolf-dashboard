@@ -214,23 +214,31 @@ async def enrich_with_bearing(packet: dict, services: DirewolfServices) -> None:
 
 
 async def broadcast_event(event: str, data: dict, ws_clients: set[WebSocket]) -> None:
-    """Send an event to all connected WebSocket clients."""
+    """Send an event to all connected WebSocket clients.
+
+    Sends are dispatched concurrently so one slow client cannot block the
+    rest (issue #84).
+    """
     if not ws_clients:
         return
 
     message = json.dumps({"event": event, "data": data}, default=str)
     disconnected = set()
 
-    for ws in ws_clients:
+    if len(ws_clients) == 1:
+        ws = next(iter(ws_clients))
         try:
-            t_send = time.time()
             await ws.send_text(message)
-            elapsed = time.time() - t_send
-            if event == "packet":
-                pkt_id = data.get("id", "?")
-                LOG.debug(f"[TIMING] pkt#{pkt_id} send_text took {elapsed:.3f}s")
         except Exception:
             disconnected.add(ws)
+    else:
+        results = await asyncio.gather(
+            *[ws.send_text(message) for ws in ws_clients],
+            return_exceptions=True,
+        )
+        for ws, res in zip(ws_clients, results, strict=True):
+            if isinstance(res, Exception):
+                disconnected.add(ws)
 
     ws_clients -= disconnected
 

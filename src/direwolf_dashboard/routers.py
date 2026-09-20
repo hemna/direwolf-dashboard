@@ -613,11 +613,15 @@ def create_ws_handler(container: ServiceContainer):
                 },
             })
 
+            # Block until the client disconnects (or sends a message, which
+            # this push-only dashboard ignores). Previously this loop polled
+            # receive_text with a 0.1s timeout, waking the event loop ~10x/sec
+            # per client for nothing. (issue #84)
             while True:
                 try:
-                    await asyncio.wait_for(ws.receive_text(), timeout=0.1)
-                except TimeoutError:
-                    pass
+                    await ws.receive_text()
+                except WebSocketDisconnect:
+                    break
         except WebSocketDisconnect:
             pass
         except Exception as e:
