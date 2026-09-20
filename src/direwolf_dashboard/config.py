@@ -167,24 +167,67 @@ def _deep_merge(base: dict, override: dict) -> dict:
     return result
 
 
+# Scalar field type expectations per section, used to coerce/validate config
+# values coming from PUT /config or the YAML file. Numeric strings are
+# coerced; non-numeric values raise ValueError (surfaced as HTTP 400).
+# (issue #91)
+_SCALAR_SPEC = {
+    "station": {"latitude": float, "longitude": float, "zoom": int},
+    "direwolf": {"agw_port": int},
+    "server": {"port": int},
+    "storage": {"retention_days": int},
+    "tiles": {"max_cache_mb": int},
+}
+
+
+def _coerce_scalars(section: dict, spec: dict) -> None:
+    """Coerce/validate scalar fields in-place per the type spec."""
+    for key, typ in spec.items():
+        if key not in section:
+            continue
+        v = section[key]
+        if isinstance(v, bool):
+            raise ValueError(f"{key} must be a {'boolean' if typ is bool else 'number'}")
+        try:
+            if typ is int:
+                section[key] = int(v)
+            elif typ is float:
+                section[key] = float(v)
+            elif typ is bool and not isinstance(v, bool):
+                raise ValueError(f"{key} must be a boolean")
+        except (TypeError, ValueError):
+            raise ValueError(f"{key} must be a {'number' if typ is not bool else 'boolean'}") from None
+
+
 def _dict_to_config(d: dict) -> Config:
-    """Convert a dict to a Config dataclass."""
+    """Convert a dict to a Config dataclass, coercing/validating scalars."""
     station_dict = d.get("station", {}).copy()
     # Filter out removed fields that may exist in old config files
     for removed in ("callsign", "symbol", "symbol_table", "my_position"):
         station_dict.pop(removed, None)
+    _coerce_scalars(station_dict, _SCALAR_SPEC["station"])
     station = StationConfig(**station_dict)
 
     direwolf_dict = d.get("direwolf", {}).copy()
     direwolf_dict.pop("conf_file", None)  # Removed field
+    _coerce_scalars(direwolf_dict, _SCALAR_SPEC["direwolf"])
+
+    server_dict = d.get("server", {}).copy()
+    _coerce_scalars(server_dict, _SCALAR_SPEC["server"])
+
+    storage_dict = d.get("storage", {}).copy()
+    _coerce_scalars(storage_dict, _SCALAR_SPEC["storage"])
+
+    tiles_dict = d.get("tiles", {}).copy()
+    _coerce_scalars(tiles_dict, _SCALAR_SPEC["tiles"])
 
     return Config(
         data_dir=d.get("data_dir", ""),
         station=station,
         direwolf=DirewolfConfig(**direwolf_dict),
-        server=ServerConfig(**d.get("server", {})),
-        storage=StorageConfig(**d.get("storage", {})),
-        tiles=TilesConfig(**d.get("tiles", {})),
+        server=ServerConfig(**server_dict),
+        storage=StorageConfig(**storage_dict),
+        tiles=TilesConfig(**tiles_dict),
         display=DisplayConfig(**d.get("display", {})),
         packet_log=PacketLogConfig(**d.get("packet_log", {})),
     )

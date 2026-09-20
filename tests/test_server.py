@@ -559,3 +559,25 @@ class TestApiTokenAuth:
         with TestClient(app, raise_server_exceptions=False) as client:
             r = client.put("/api/config", json={"storage": {"retention_days": 14}})
             assert r.status_code == 200
+
+
+class TestConfigTypeValidation:
+    """PUT /config validates scalar types (issue #91)."""
+
+    async def test_non_numeric_retention_rejected(self, test_app):
+        app, _storage = test_app
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.put(
+                "/api/config",
+                json={"storage": {"retention_days": "abc"}},
+            )
+            assert r.status_code == 400
+
+    async def test_numeric_string_coerced(self, test_app):
+        app, _storage = test_app
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.put(
+                "/api/config",
+                json={"storage": {"retention_days": "14"}},
+            )
+            assert r.status_code == 200
