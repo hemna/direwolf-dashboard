@@ -368,13 +368,47 @@ def create_api_routes(container: ServiceContainer) -> list:
         except Exception as e:
             raise HTTPException(status_code=400, detail="Invalid JSON body") from e
 
+        def _num(value, name: str, lo: float, hi: float) -> float:
+            try:
+                v = float(value)
+            except (TypeError, ValueError):
+                raise HTTPException(
+                    status_code=400, detail=f"{name} must be a number"
+                ) from None
+            if not (lo <= v <= hi):
+                raise HTTPException(
+                    status_code=400, detail=f"{name} must be in [{lo}, {hi}]"
+                )
+            return v
+
+        def _zoom(value, name: str, lo: int, hi: int) -> int:
+            try:
+                v = int(value)
+            except (TypeError, ValueError):
+                raise HTTPException(
+                    status_code=400, detail=f"{name} must be an integer"
+                ) from None
+            if not (lo <= v <= hi):
+                raise HTTPException(
+                    status_code=400, detail=f"{name} must be in [{lo}, {hi}]"
+                )
+            return v
+
         bbox = body.get("bbox", [])
-        if len(bbox) != 4:
+        if not isinstance(bbox, list) or len(bbox) != 4:
             raise HTTPException(status_code=400, detail="bbox must be [south, west, north, east]")
 
-        south, west, north, east = bbox
-        min_zoom = body.get("min_zoom", 1)
-        max_zoom = min(body.get("max_zoom", 14), 16)
+        south = _num(bbox[0], "south", -90, 90)
+        west = _num(bbox[1], "west", -180, 180)
+        north = _num(bbox[2], "north", -90, 90)
+        east = _num(bbox[3], "east", -180, 180)
+        if south > north:
+            raise HTTPException(status_code=400, detail="south must be <= north")
+        if west > east:
+            raise HTTPException(status_code=400, detail="west must be <= east")
+
+        min_zoom = _zoom(body.get("min_zoom", 1), "min_zoom", 0, 16)
+        max_zoom = _zoom(body.get("max_zoom", 14), "max_zoom", min_zoom, 16)
 
         estimate = services.tile_proxy.estimate_preload(south, west, north, east, min_zoom, max_zoom)
 

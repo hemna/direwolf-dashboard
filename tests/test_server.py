@@ -85,6 +85,9 @@ async def test_app(tmp_path):
         "tile_count": 0,
         "cache_size_mb": 0,
     })
+    tile_proxy.estimate_preload = MagicMock(return_value={
+        "estimated_tiles": 0, "estimated_size_mb": 0
+    })
 
     container.services = DirewolfServices(
         config=config,
@@ -397,3 +400,63 @@ class TestStatsTileCache:
             assert "tile_cache" in data
             assert "tile_count" in data["tile_cache"]
             assert "cache_size_mb" in data["tile_cache"]
+
+
+class TestTilePreloadValidation:
+    """Tile preload input validation (issue #75)."""
+
+    async def test_valid_bbox_ok(self, test_app):
+        app, _storage = test_app
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.post("/api/tiles/preload", json={
+                "bbox": [37.0, -78.0, 38.0, -77.0], "min_zoom": 8, "max_zoom": 10,
+            })
+            assert r.status_code == 200
+
+    async def test_string_values_no_500(self, test_app):
+        """String numbers previously caused a TypeError -> 500.
+
+        Numeric strings now coerce successfully; non-numeric strings 400.
+        """
+        app, _storage = test_app
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.post("/api/tiles/preload", json={
+                "bbox": ["37", "-78", "38", "-77"],
+            })
+            assert r.status_code == 200
+            r = client.post("/api/tiles/preload", json={
+                "bbox": [37, -78, 38, -77], "max_zoom": "14",
+            })
+            assert r.status_code == 200
+            r = client.post("/api/tiles/preload", json={
+                "bbox": ["abc", "-78", "38", "-77"],
+            })
+            assert r.status_code == 400
+            r = client.post("/api/tiles/preload", json={
+                "bbox": [37, -78, 38, -77], "max_zoom": "abc",
+            })
+            assert r.status_code == 400
+
+    async def test_out_of_range_bbox_rejected(self, test_app):
+        app, _storage = test_app
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.post("/api/tiles/preload", json={
+                "bbox": [999, -78, 38, -77],
+            })
+            assert r.status_code == 400
+
+    async def test_inverted_bbox_rejected(self, test_app):
+        app, _storage = test_app
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.post("/api/tiles/preload", json={
+                "bbox": [38, -78, 37, -77],  # south > north
+            })
+            assert r.status_code == 400
+
+    async def test_min_zoom_above_max_rejected(self, test_app):
+        app, _storage = test_app
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.post("/api/tiles/preload", json={
+                "bbox": [37, -78, 38, -77], "min_zoom": 15, "max_zoom": 10,
+            })
+            assert r.status_code == 400
