@@ -395,3 +395,127 @@ class TestHousekeepingJitter:
         assert len(sleep_durations) == 1
         duration = sleep_durations[0]
         assert 3420 <= duration <= 3780, f"Sleep duration {duration} outside jitter range [3420, 3780]"
+
+
+class TestMyPositionCallsignCache:
+    """Cached tracked callsign avoids per-packet DB reads (issue #76)."""
+
+    def _make_services(self, storage):
+        return DirewolfServices(
+            config=Config(),
+            config_path=None,
+            storage=storage,
+            tile_proxy=MagicMock(),
+            processor=MagicMock(),
+            broadcast_queue=asyncio.Queue(),
+            agw_reader=MagicMock(connected=False),
+            log_tailer=MagicMock(active=False),
+            start_time=time.time(),
+        )
+
+    async def test_resolve_populates_callsign(self):
+        """resolve_my_position caches the tracked station callsign."""
+        mock_storage = AsyncMock()
+        mock_storage.get_my_position.return_value = {
+            "type": "station", "callsign": "TRACKED"
+        }
+        mock_storage.get_station.return_value = {
+            "callsign": "TRACKED", "latitude": 37.75, "longitude": -77.45
+        }
+        services = self._make_services(mock_storage)
+
+        result = await resolve_my_position(services)
+
+        assert result == (37.75, -77.45)
+        assert services._my_position_callsign == "TRACKED"
+
+    async def test_consumer_invalidates_tracked_callsign(self):
+        """A position packet from the tracked callsign invalidates the cache
+        so the next resolve picks up the moved station — without polling
+        get_my_position on every packet (issue #76)."""
+        mock_storage = AsyncMock()
+        mock_storage.insert_packet.return_value = 1
+        mock_storage.get_my_position.return_value = {
+            "type": "station", "callsign": "TRACKED"
+        }
+
+        station_state = {"callsign": "TRACKED", "latitude": 37.75, "longitude": -77.45}
+
+        async def fake_get_station(callsign):
+            return station_state
+
+        mock_storage.get_station.side_effect = fake_get_station
+
+        services = self._make_services(mock_storage)
+
+        # Warm the cache with the station's old position
+        result = await resolve_my_position(services)
+        assert result == (37.75, -77.45)
+        assert services._my_position_dirty is False
+        calls_after_warm = mock_storage.get_my_position.call_count
+
+        # Station moves; a new packet arrives (the DB upsert already happened)
+        station_state = {"callsign": "TRACKED", "latitude": 37.9, "longitude": -77.5}
+
+        pkt = {
+            "from_call": "TRACKED",
+            "type": "GPSPacket",
+            "timestamp": time.time(),
+            "latitude": 37.9,
+            "longitude": -77.5,
+        }
+        await services.broadcast_queue.put(pkt)
+
+        async def run_one():
+            task = asyncio.create_task(_broadcast_consumer(services))
+            await asyncio.sleep(0.2)
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+        await run_one()
+
+        assert mock_storage.insert_packet.await_count == 1
+        # The tracked station's own packet triggers exactly ONE refresh read
+        # during processing (inside enrich_with_bearing). Previously the
+        # invalidation path added a SECOND read on every packet.
+        assert mock_storage.get_my_position.call_count == calls_after_warm + 1
+
+        # Cache was invalidated and refreshed during processing: resolve
+        # returns the new position with no additional DB read.
+        result = await resolve_my_position(services)
+        assert result == (37.9, -77.5)
+        assert mock_storage.get_my_position.call_count == calls_after_warm + 1
+
+    async def test_consumer_ignores_other_callsigns(self):
+        """Packets from other callsigns do not touch the cache."""
+        mock_storage = AsyncMock()
+        mock_storage.insert_packet.return_value = 1
+        mock_storage.get_my_position.return_value = {
+            "type": "station", "callsign": "TRACKED"
+        }
+        mock_storage.get_station.return_value = {
+            "callsign": "TRACKED", "latitude": 37.75, "longitude": -77.45
+        }
+
+        services = self._make_services(mock_storage)
+        await resolve_my_position(services)
+        assert services._my_position_dirty is False
+
+        pkt = {
+            "from_call": "OTHER",
+            "type": "GPSPacket",
+            "timestamp": time.time(),
+            "latitude": 38.0,
+            "longitude": -77.0,
+        }
+        await services.broadcast_queue.put(pkt)
+
+        async def run_one():
+            task = asyncio.create_task(_broadcast_consumer(services))
+            await asyncio.sleep(0.05)
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+        await run_one()
+
+        assert services._my_position_dirty is False
