@@ -252,10 +252,19 @@ async def _store_weather_report(packet: dict, services: DirewolfServices) -> Non
         if not isinstance(weather, dict):
             weather = {}
 
-        # Also check top-level keys (aprslib sometimes puts them there)
-        temperature = weather.get("temperature") or parsed.get("temperature")
-        humidity = weather.get("humidity") or parsed.get("humidity")
-        pressure = weather.get("pressure") or parsed.get("pressure")
+        # Also check top-level keys (aprslib sometimes puts them there).
+        # Use explicit None checks so valid 0.0 readings (0C, 0% RH, 0-deg
+        # wind direction) are not dropped by `or` fallback. (issue #72)
+        def _first(*sources, key):
+            for src in sources:
+                v = src.get(key)
+                if v is not None:
+                    return v
+            return None
+
+        temperature = _first(weather, parsed, key="temperature")
+        humidity = _first(weather, parsed, key="humidity")
+        pressure = _first(weather, parsed, key="pressure")
 
         # Compute dewpoint from temperature and humidity if both available
         dewpoint = None
@@ -278,13 +287,13 @@ async def _store_weather_report(packet: dict, services: DirewolfServices) -> Non
             "dewpoint": dewpoint,
             "humidity": humidity,
             "pressure": pressure,
-            "wind_direction": weather.get("wind_direction") or parsed.get("wind_direction"),
-            "wind_speed": weather.get("wind_speed") or parsed.get("wind_speed"),
-            "wind_gust": weather.get("wind_gust") or parsed.get("wind_gust"),
-            "rain_1h": weather.get("rain_1h") or parsed.get("rain_1h"),
-            "rain_24h": weather.get("rain_24h") or parsed.get("rain_24h"),
-            "rain_since_midnight": weather.get("rain_since_midnight") or parsed.get("rain_since_midnight"),
-            "luminosity": weather.get("luminosity") or parsed.get("luminosity"),
+            "wind_direction": _first(weather, parsed, key="wind_direction"),
+            "wind_speed": _first(weather, parsed, key="wind_speed"),
+            "wind_gust": _first(weather, parsed, key="wind_gust"),
+            "rain_1h": _first(weather, parsed, key="rain_1h"),
+            "rain_24h": _first(weather, parsed, key="rain_24h"),
+            "rain_since_midnight": _first(weather, parsed, key="rain_since_midnight"),
+            "luminosity": _first(weather, parsed, key="luminosity"),
         }
 
         await services.storage.insert_weather_report(report)

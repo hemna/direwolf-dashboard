@@ -11,6 +11,7 @@ from direwolf_dashboard.lifecycle import (
     DirewolfServices,
     ServiceContainer,
     _broadcast_consumer,
+    _store_weather_report,
     broadcast_event,
     resolve_my_position,
     shutdown_services,
@@ -519,3 +520,50 @@ class TestMyPositionCallsignCache:
         await run_one()
 
         assert services._my_position_dirty is False
+
+
+class TestStoreWeatherReport:
+    """Tests for _store_weather_report zero-value handling (issue #72)."""
+
+    def _make_services(self):
+        services = MagicMock()
+        services.storage = AsyncMock()
+        return services
+
+    async def test_zero_values_preserved(self):
+        """Valid 0.0 readings (0C, 0% RH, 0-deg wind, 0 m/s) are stored, not
+        dropped by an `or` fallback — regression for issue #72."""
+        parsed = {
+            "weather": {
+                "temperature": 0.0,
+                "humidity": 0.0,
+                "wind_direction": 0.0,
+                "wind_speed": 0.0,
+                "pressure": 1013.0,
+            }
+        }
+        services = self._make_services()
+        with patch("direwolf_dashboard.lifecycle.aprslib.parse", return_value=parsed):
+            await _store_weather_report(
+                {"from_call": "WX0", "timestamp": 123.0, "raw_packet": "WX0>APRS:@..."},
+                services,
+            )
+        report = services.storage.insert_weather_report.await_args.args[0]
+        assert report["temperature"] == 0.0
+        assert report["humidity"] == 0.0
+        assert report["wind_direction"] == 0.0
+        assert report["wind_speed"] == 0.0
+        assert report["pressure"] == 1013.0
+
+    async def test_top_level_fallback_still_works(self):
+        """When weather is empty, top-level parsed keys are used."""
+        parsed = {"temperature": 0.0, "humidity": 50.0}
+        services = self._make_services()
+        with patch("direwolf_dashboard.lifecycle.aprslib.parse", return_value=parsed):
+            await _store_weather_report(
+                {"from_call": "WX1", "timestamp": 123.0, "raw_packet": "WX1>APRS:@..."},
+                services,
+            )
+        report = services.storage.insert_weather_report.await_args.args[0]
+        assert report["temperature"] == 0.0
+        assert report["humidity"] == 50.0
