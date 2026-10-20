@@ -581,3 +581,24 @@ class TestConfigTypeValidation:
                 json={"storage": {"retention_days": "14"}},
             )
             assert r.status_code == 200
+
+
+class TestIndexCaching:
+    """index.html is read once at startup, not per request (issue #87)."""
+
+    async def test_index_content_cached_at_startup(self, tmp_path):
+        """Modifying index.html after handler creation must not change output."""
+        from direwolf_dashboard.routers import create_index_handler
+
+        static_dir = tmp_path
+        index_path = static_dir / "index.html"
+        index_path.write_text("<h1>original</h1>", encoding="utf-8")
+
+        handler = create_index_handler(str(static_dir))
+        first = await handler(None)
+        assert first.body == b"<h1>original</h1>"
+
+        # Change the file on disk — the handler must still serve the cached copy
+        index_path.write_text("<h1>changed</h1>", encoding="utf-8")
+        second = await handler(None)
+        assert second.body == b"<h1>original</h1>"

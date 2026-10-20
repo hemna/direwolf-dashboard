@@ -354,3 +354,39 @@ class TestConfigPostInitIsolated:
                 {"tiles": {"max_cache_mb": "abc"}},
                 config_path,
             )
+
+
+class TestResolveDataDirFallback:
+    """_resolve_data_dir must verify the fallback is writable (issue #93)."""
+
+    def test_uses_default_when_writable(self, tmp_path, monkeypatch):
+        import direwolf_dashboard.config as cfg
+
+        default = str(tmp_path / "default")
+        monkeypatch.setattr(cfg, "DEFAULT_DATA_DIR", default)
+        monkeypatch.setattr(cfg, "FALLBACK_DATA_DIR", str(tmp_path / "fallback"))
+
+        result = cfg._resolve_data_dir()
+        assert result == os.path.expanduser(default)
+
+    def test_falls_back_when_default_unwritable(self, tmp_path, monkeypatch):
+        import direwolf_dashboard.config as cfg
+
+        default = str(tmp_path / "default")
+        fallback = str(tmp_path / "fallback")
+        monkeypatch.setattr(cfg, "DEFAULT_DATA_DIR", default)
+        monkeypatch.setattr(cfg, "FALLBACK_DATA_DIR", fallback)
+
+        real_makedirs = os.makedirs
+
+        def flaky_makedirs(path, *args, **kwargs):
+            if os.path.normpath(path) == os.path.normpath(default):
+                raise OSError("readonly filesystem")
+            return real_makedirs(path, *args, **kwargs)
+
+        monkeypatch.setattr(cfg.os, "makedirs", flaky_makedirs)
+
+        result = cfg._resolve_data_dir()
+        assert result == os.path.expanduser(fallback)
+        # The fallback was actually verified writable (test file removed)
+        assert not os.path.exists(os.path.join(fallback, ".write_test"))
