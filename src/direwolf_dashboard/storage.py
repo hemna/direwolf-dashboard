@@ -143,6 +143,12 @@ class Storage:
             "DELETE FROM sqlite_sequence WHERE name IN ('packets', 'weather_reports')"
         )
         await self._db.commit()
+        # Shrink the DB file after a full wipe — matters on small ramdisks
+        # where the file lives in /tmp. Non-fatal if it fails. (issue #83)
+        try:
+            await self._db.execute("VACUUM")
+        except sqlite3.OperationalError as e:
+            LOG.warning(f"VACUUM after reset failed (non-fatal): {e}")
         LOG.info("Database reset complete")
 
     async def insert_packet(self, packet: dict) -> int:
