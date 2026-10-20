@@ -108,6 +108,8 @@
                     <legend>Server</legend>
                     <label>Port <input type="number" id="cfg-server-port" /></label>
                     <span class="hint">Requires restart</span>
+                    <label>API Token <input type="password" id="cfg-api-token" placeholder="optional" autocomplete="off" /></label>
+                    <span class="hint">Required for settings / wipe / tile preload when set in server config</span>
                 </fieldset>
                 <fieldset>
                     <legend>Storage</legend>
@@ -117,6 +119,17 @@
                         <a id="btn-export-packets-csv" class="secondary btn-as-link" href="/api/packets/export" download="direwolf-packets.csv" title="Download all stored packets as CSV">&#x1F4BE; Export Packets CSV</a>
                         <span id="wipe-feedback" class="hidden"></span>
                     </div>
+                </fieldset>
+                <fieldset>
+                    <legend>Units</legend>
+                    <label>
+                        Display Units
+                        <select id="cfg-units">
+                            <option value="metric">Metric (&deg;C, m/s, hPa, mm)</option>
+                            <option value="imperial">Imperial (&deg;F, mph, inHg, in)</option>
+                        </select>
+                    </label>
+                    <span class="hint">Weather values stored by the network are metric</span>
                 </fieldset>
                 <fieldset>
                     <legend>Map Display</legend>

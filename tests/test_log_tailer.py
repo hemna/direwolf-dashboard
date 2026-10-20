@@ -266,3 +266,40 @@ class TestLogTailer:
         wb4bor = [r for r in received if r["callsign"] == "WB4BOR"]
         assert len(wb4bor) >= 1
         assert wb4bor[0]["audio_level"] == 87
+
+    async def test_partial_line_without_newline_flushed(self, tmp_path):
+        """A final line with no trailing newline must still be dispatched.
+
+        Regression for issue #80.
+        """
+        log_file = tmp_path / "direwolf.log"
+        log_file.write_text("")
+
+        received = []
+
+        async def callback(raw_lines, audio_level, callsign):
+            received.append({
+                "raw_lines": raw_lines,
+                "audio_level": audio_level,
+                "callsign": callsign,
+            })
+
+        tailer = LogTailer(str(log_file), callback, sleep_interval=0.05)
+        task = asyncio.create_task(tailer.run())
+        await asyncio.sleep(0.2)
+
+        # Write a decoded packet line WITHOUT a trailing newline
+        with open(str(log_file), "a") as f:
+            f.write("[0 L>R] WB4BOR>APRS,WIDE1-1:!3745.00N/07730.00W>")
+
+        await asyncio.sleep(0.5)
+
+        await tailer.stop()
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+        assert any(r["callsign"] == "WB4BOR" for r in received), \
+            "partial line without trailing newline was never flushed"

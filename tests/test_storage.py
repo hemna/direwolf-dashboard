@@ -643,3 +643,38 @@ class TestWeatherReports:
 
         assert any(c.upper() == "VACUUM" for c in calls), \
             "reset() must issue a VACUUM to reclaim space"
+
+
+class TestMigrationErrorHandling:
+    """ALTER TABLE migration must only swallow the duplicate-column error (issue #82)."""
+
+    async def test_init_idempotent_with_existing_column(self, tmp_path):
+        """Re-initializing a DB that already has last_path must not raise."""
+        db_path = str(tmp_path / "test.db")
+        s = Storage(db_path)
+        await s.init()
+        await s.close()
+        # Second init over the same DB — the ALTER raises duplicate column.
+        s2 = Storage(db_path)
+        await s2.init()
+        await s2.close()
+
+    async def test_non_duplicate_error_propagates(self, tmp_path):
+        """A genuine OperationalError (not duplicate column) must propagate."""
+        import sqlite3
+        from unittest.mock import patch
+
+        db_path = str(tmp_path / "test.db")
+        s = Storage(db_path)
+        await s.init()
+        real_execute = s._db.execute
+
+        async def flaky_execute(sql, *args, **kwargs):
+            if sql.strip().startswith("ALTER TABLE"):
+                raise sqlite3.OperationalError("database is locked")
+            return await real_execute(sql, *args, **kwargs)
+
+        with patch.object(s._db, "execute", side_effect=flaky_execute):
+            with pytest.raises(sqlite3.OperationalError):
+                await s._apply_migrations()
+        await s.close()

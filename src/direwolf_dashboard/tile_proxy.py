@@ -69,10 +69,12 @@ class TileProxy:
         """
         path = self._tile_path(z, x, y)
 
-        # Check cache (skip zero-byte files from failed prior writes)
+        # Check cache (skip zero-byte files from failed prior writes).
+        # The read runs in an executor so SD-card I/O does not block the
+        # event loop. (issue #86)
         if os.path.exists(path) and os.path.getsize(path) > 0:
-            with open(path, "rb") as f:
-                return f.read()
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(None, _read_file, path)
 
         # Remove stale zero-byte file if present
         if os.path.exists(path) and os.path.getsize(path) == 0:
@@ -157,6 +159,9 @@ class TileProxy:
             Dict with estimated_tiles and estimated_size_mb.
         """
         max_zoom = min(max_zoom, 16)  # Hard cap
+        min_zoom = max(0, min_zoom)
+        if max_zoom < min_zoom:
+            max_zoom = min_zoom
         total_tiles = 0
 
         for z in range(min_zoom, max_zoom + 1):
@@ -187,6 +192,9 @@ class TileProxy:
             progress_callback: Async callable(done: int, total: int) for progress updates.
         """
         max_zoom = min(max_zoom, 16)  # Hard cap
+        min_zoom = max(0, min_zoom)
+        if max_zoom < min_zoom:
+            max_zoom = min_zoom
         self._preload_cancel = False
 
         # Build tile list
@@ -274,3 +282,9 @@ def _deg2tile(lat: float, lon: float, zoom: int) -> tuple[int, int]:
     x = int((lon + 180.0) / 360.0 * n)
     y = int((1.0 - math.asinh(math.tan(lat_rad)) / math.pi) / 2.0 * n)
     return x, y
+
+
+def _read_file(path: str) -> bytes:
+    """Read a file synchronously (for use in a thread executor)."""
+    with open(path, "rb") as f:
+        return f.read()

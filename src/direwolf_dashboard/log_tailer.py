@@ -197,4 +197,34 @@ class LogTailer:
                         current_audio_level = None
                         current_callsign = None
 
+                    # Flush a partial line that never received a trailing
+                    # newline (e.g. the very last line of the log file).
+                    # Without this it would never be dispatched. (issue #80)
+                    if line_buffer:
+                        line = line_buffer.rstrip("\n")
+                        line_buffer = ""
+                        if is_decoded_packet_line(line):
+                            # Start a new accumulation from this final line
+                            accumulated_lines = [line]
+                            current_callsign = extract_callsign(line)
+                            current_audio_level = None
+                        else:
+                            # Metadata line — accumulate then dispatch as-is
+                            accumulated_lines.append(line)
+                            level = extract_audio_level(line)
+                            if level is not None:
+                                current_audio_level = level
+                        if accumulated_lines and current_callsign:
+                            try:
+                                await self.line_callback(
+                                    raw_lines=accumulated_lines,
+                                    audio_level=current_audio_level,
+                                    callsign=current_callsign,
+                                )
+                            except Exception as e:
+                                LOG.error(f"Error in line callback: {e}")
+                        accumulated_lines = []
+                        current_audio_level = None
+                        current_callsign = None
+
                     await asyncio.sleep(self.sleep_interval)

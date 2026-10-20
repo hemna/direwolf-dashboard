@@ -47,6 +47,10 @@ class DirewolfServices:
     # tracked station receives a new position packet.
     _my_position_cache: Optional[tuple[float, float]] = field(default=None, repr=False)
     _my_position_dirty: bool = field(default=True, repr=False)
+    # Callsign tracked as "my position" (type=station). Cached alongside the
+    # coordinates so the broadcast consumer can invalidate the cache on the
+    # matching callsign WITHOUT a DB read per packet. (issue #76)
+    _my_position_callsign: Optional[str] = field(default=None, repr=False)
 
     def get_stats_dict(self) -> dict:
         """Build the stats response dict (sync portion — caller must merge DB stats).
@@ -169,7 +173,11 @@ async def resolve_my_position(services: DirewolfServices) -> Optional[tuple[floa
                 result = (mp["latitude"], mp["longitude"])
             elif mp.get("type") == "station" and mp.get("callsign"):
                 stn = await services.storage.get_station(mp["callsign"])
-                if stn and stn.get("latitude") and stn.get("longitude"):
+                if (
+                    stn
+                    and stn.get("latitude") is not None
+                    and stn.get("longitude") is not None
+                ):
                     result = (stn["latitude"], stn["longitude"])
 
     # Fallback: static position from config YAML (if set)
@@ -179,6 +187,13 @@ async def resolve_my_position(services: DirewolfServices) -> Optional[tuple[floa
         if lat and lon:
             result = (lat, lon)
 
+    # Remember the tracked callsign so _broadcast_consumer can invalidate
+    # the cache without a DB read on every position packet. (issue #76)
+    if mp and mp.get("type") == "station":
+        services._my_position_callsign = mp.get("callsign")
+    else:
+        services._my_position_callsign = None
+
     services._my_position_cache = result
     services._my_position_dirty = False
     return result
@@ -186,7 +201,7 @@ async def resolve_my_position(services: DirewolfServices) -> Optional[tuple[floa
 
 async def enrich_with_bearing(packet: dict, services: DirewolfServices) -> None:
     """Add bearing/distance to packet using my_position as reference."""
-    if not packet.get("latitude") or not packet.get("longitude"):
+    if packet.get("latitude") is None or packet.get("longitude") is None:
         return
 
     my_coords = await resolve_my_position(services)
@@ -203,23 +218,31 @@ async def enrich_with_bearing(packet: dict, services: DirewolfServices) -> None:
 
 
 async def broadcast_event(event: str, data: dict, ws_clients: set[WebSocket]) -> None:
-    """Send an event to all connected WebSocket clients."""
+    """Send an event to all connected WebSocket clients.
+
+    Sends are dispatched concurrently so one slow client cannot block the
+    rest (issue #84).
+    """
     if not ws_clients:
         return
 
     message = json.dumps({"event": event, "data": data}, default=str)
     disconnected = set()
 
-    for ws in ws_clients:
+    if len(ws_clients) == 1:
+        ws = next(iter(ws_clients))
         try:
-            t_send = time.time()
             await ws.send_text(message)
-            elapsed = time.time() - t_send
-            if event == "packet":
-                pkt_id = data.get("id", "?")
-                LOG.debug(f"[TIMING] pkt#{pkt_id} send_text took {elapsed:.3f}s")
         except Exception:
             disconnected.add(ws)
+    else:
+        results = await asyncio.gather(
+            *[ws.send_text(message) for ws in ws_clients],
+            return_exceptions=True,
+        )
+        for ws, res in zip(ws_clients, results, strict=True):
+            if isinstance(res, Exception):
+                disconnected.add(ws)
 
     ws_clients -= disconnected
 
@@ -241,10 +264,19 @@ async def _store_weather_report(packet: dict, services: DirewolfServices) -> Non
         if not isinstance(weather, dict):
             weather = {}
 
-        # Also check top-level keys (aprslib sometimes puts them there)
-        temperature = weather.get("temperature") or parsed.get("temperature")
-        humidity = weather.get("humidity") or parsed.get("humidity")
-        pressure = weather.get("pressure") or parsed.get("pressure")
+        # Also check top-level keys (aprslib sometimes puts them there).
+        # Use explicit None checks so valid 0.0 readings (0C, 0% RH, 0-deg
+        # wind direction) are not dropped by `or` fallback. (issue #72)
+        def _first(*sources, key):
+            for src in sources:
+                v = src.get(key)
+                if v is not None:
+                    return v
+            return None
+
+        temperature = _first(weather, parsed, key="temperature")
+        humidity = _first(weather, parsed, key="humidity")
+        pressure = _first(weather, parsed, key="pressure")
 
         # Compute dewpoint from temperature and humidity if both available
         dewpoint = None
@@ -267,13 +299,13 @@ async def _store_weather_report(packet: dict, services: DirewolfServices) -> Non
             "dewpoint": dewpoint,
             "humidity": humidity,
             "pressure": pressure,
-            "wind_direction": weather.get("wind_direction") or parsed.get("wind_direction"),
-            "wind_speed": weather.get("wind_speed") or parsed.get("wind_speed"),
-            "wind_gust": weather.get("wind_gust") or parsed.get("wind_gust"),
-            "rain_1h": weather.get("rain_1h") or parsed.get("rain_1h"),
-            "rain_24h": weather.get("rain_24h") or parsed.get("rain_24h"),
-            "rain_since_midnight": weather.get("rain_since_midnight") or parsed.get("rain_since_midnight"),
-            "luminosity": weather.get("luminosity") or parsed.get("luminosity"),
+            "wind_direction": _first(weather, parsed, key="wind_direction"),
+            "wind_speed": _first(weather, parsed, key="wind_speed"),
+            "wind_gust": _first(weather, parsed, key="wind_gust"),
+            "rain_1h": _first(weather, parsed, key="rain_1h"),
+            "rain_24h": _first(weather, parsed, key="rain_24h"),
+            "rain_since_midnight": _first(weather, parsed, key="rain_since_midnight"),
+            "luminosity": _first(weather, parsed, key="luminosity"),
         }
 
         await services.storage.insert_weather_report(report)
@@ -307,7 +339,10 @@ async def _broadcast_consumer(services: DirewolfServices) -> None:
                         await _store_weather_report(packet, services)
 
                     # Update stations table if position data present
-                    if packet.get("latitude") and packet.get("longitude"):
+                    if (
+                        packet.get("latitude") is not None
+                        and packet.get("longitude") is not None
+                    ):
                         await services.storage.upsert_station(
                             callsign=packet["from_call"],
                             last_seen=packet["timestamp"],
@@ -319,16 +354,22 @@ async def _broadcast_consumer(services: DirewolfServices) -> None:
                             path=packet.get("path") or None,
                         )
                         # Invalidate the my_position cache if this packet is from
-                        # the callsign we're tracking as "my position".
-                        if services._my_position_cache is not None and not services._my_position_dirty:
-                            mp = await services.storage.get_my_position()
-                            if mp and mp.get("type") == "station" and mp.get("callsign") == packet["from_call"]:
-                                services._my_position_dirty = True
+                        # the callsign we're tracking as "my position". Uses the
+                        # cached callsign — no DB read per packet. (issue #76)
+                        if (
+                            services._my_position_callsign
+                            and services._my_position_callsign == packet["from_call"]
+                        ):
+                            services._my_position_dirty = True
                     else:
                         # Packet has no position — look up last known position
                         # so the frontend can still show the station on the map.
                         stn = await services.storage.get_station(packet["from_call"])
-                        if stn and stn.get("latitude") and stn.get("longitude"):
+                        if (
+                            stn
+                            and stn.get("latitude") is not None
+                            and stn.get("longitude") is not None
+                        ):
                             packet["latitude"] = stn["latitude"]
                             packet["longitude"] = stn["longitude"]
                             packet["symbol"] = packet.get("symbol") or stn.get("symbol")
@@ -361,11 +402,11 @@ async def _broadcast_consumer(services: DirewolfServices) -> None:
             # Broadcast to WebSocket clients
             packet["_broadcast_ts"] = time.time()
             await broadcast_event("packet", packet, services.ws_clients)
-            # Yield to the event loop multiple times so the asyncio transport
-            # flushes buffered WebSocket write callbacks to the network layer.
-            # Without this, frames may batch up and arrive with noticeable delay.
-            for _ in range(5):
-                await asyncio.sleep(0)
+            # Yield once so the asyncio transport can flush buffered
+            # WebSocket write callbacks to the network layer. A single
+            # sleep(0) is sufficient — repeated zero-sleeps do not flush
+            # more, they just busy-spin the loop. (issue #85)
+            await asyncio.sleep(0)
             t3 = time.time()
             pkt_id = packet.get("id", "?")
             LOG.debug(f"[TIMING] pkt#{pkt_id} Broadcast done for {packet.get('from_call','?')} at {t3:.3f} (total={t3 - pkt_ts:.3f}s)")
