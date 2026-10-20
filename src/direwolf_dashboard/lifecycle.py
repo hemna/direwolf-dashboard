@@ -402,11 +402,11 @@ async def _broadcast_consumer(services: DirewolfServices) -> None:
             # Broadcast to WebSocket clients
             packet["_broadcast_ts"] = time.time()
             await broadcast_event("packet", packet, services.ws_clients)
-            # Yield to the event loop multiple times so the asyncio transport
-            # flushes buffered WebSocket write callbacks to the network layer.
-            # Without this, frames may batch up and arrive with noticeable delay.
-            for _ in range(5):
-                await asyncio.sleep(0)
+            # Yield once so the asyncio transport can flush buffered
+            # WebSocket write callbacks to the network layer. A single
+            # sleep(0) is sufficient — repeated zero-sleeps do not flush
+            # more, they just busy-spin the loop. (issue #85)
+            await asyncio.sleep(0)
             t3 = time.time()
             pkt_id = packet.get("id", "?")
             LOG.debug(f"[TIMING] pkt#{pkt_id} Broadcast done for {packet.get('from_call','?')} at {t3:.3f} (total={t3 - pkt_ts:.3f}s)")
