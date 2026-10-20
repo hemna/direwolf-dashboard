@@ -385,3 +385,17 @@ def test_weather_units_setting_in_settings_modal():
     assert 'id="cfg-units"' in content, "cfg-units select must be present"
     assert 'value="metric"' in content
     assert 'value="imperial"' in content
+
+
+def test_symbol_icon_escapes_callsign_and_overlay():
+    """createSymbolIcon must escape radio-derived callsign/symbol-table (issue #79)."""
+    app_js = (
+        Path(direwolf_dashboard.__file__).parent / "static" / "app.js"
+    )
+    content = app_js.read_text(encoding="utf-8")
+    # The station-label span must escape callsign
+    assert '${escHtml(callsign)}</span>' in content, \
+        "createSymbolIcon must escape the callsign in the divIcon HTML"
+    # The overlay div must escape the symbol-table char
+    assert '${escHtml(overlay)}</div>' in content, \
+        "createSymbolIcon must escape the symbol-table overlay"
