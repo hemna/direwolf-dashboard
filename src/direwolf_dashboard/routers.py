@@ -59,7 +59,6 @@ async def _require_api_token(request: Request, services) -> None:
 
 def _generate_gpx(callsign: str, track: list[dict]) -> str:
     """Generate a GPX 1.1 XML string from a station's position track."""
-    from datetime import datetime
     from xml.sax.saxutils import escape as _xml_escape
 
     points = list(reversed(track))
