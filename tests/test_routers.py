@@ -366,3 +366,49 @@ class TestGpxEscaping:
         from direwolf_dashboard.routers import _safe_filename
         assert _safe_filename('ABC<&>/"\\') == "ABC_"
         assert _safe_filename('WB4BOR-1') == "WB4BOR-1"
+
+
+class TestWeatherStationsEndpoint:
+    """/api/weather/stations returns a slim weather-only payload (issue #94)."""
+
+    def _make_services(self, stations, weather_by_cs):
+        services = mock.MagicMock()
+        storage = mock.MagicMock()
+        storage.get_stations = mock.AsyncMock(return_value=stations)
+        storage.get_latest_weather_by_callsign = mock.AsyncMock(return_value=weather_by_cs)
+        services.storage = storage
+        return services
+
+    def test_only_weather_stations_returned(self):
+        """Only stations with weather (symbol '_' or a weather report) are returned."""
+        wx = {"callsign": "W1WX", "temperature": 72.5, "timestamp": 1234567890.0}
+        container = ServiceContainer()
+        container.services = self._make_services(
+            stations=[
+                {"callsign": "W1WX", "symbol": "_"},
+                {"callsign": "W1ABC", "symbol": ">"},
+                {"callsign": "W2WX", "symbol": ">"},  # no symbol, but has weather
+            ],
+            weather_by_cs={"W1WX": wx, "W2WX": {"callsign": "W2WX", "temperature": 65.0}},
+        )
+        client = TestClient(_build_test_app(container), raise_server_exceptions=False)
+        resp = client.get("/api/weather/stations")
+        assert resp.status_code == 200
+        data = resp.json()
+        calls = {s["callsign"] for s in data}
+        assert calls == {"W1WX", "W2WX"}
+        assert "W1ABC" not in calls
+        # Slim payload: no full station fields
+        assert all(set(s.keys()) <= {"callsign", "last_weather"} for s in data)
+
+    def test_empty_when_no_weather(self):
+        """No weather stations -> empty list."""
+        container = ServiceContainer()
+        container.services = self._make_services(
+            stations=[{"callsign": "W1ABC", "symbol": ">"}],
+            weather_by_cs={},
+        )
+        client = TestClient(_build_test_app(container), raise_server_exceptions=False)
+        resp = client.get("/api/weather/stations")
+        assert resp.status_code == 200
+        assert resp.json() == []

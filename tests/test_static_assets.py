@@ -387,6 +387,16 @@ def test_weather_units_setting_in_settings_modal():
     assert 'value="imperial"' in content
 
 
+def test_weather_panel_uses_weather_stations_endpoint():
+    """The weather panel must use the slim /weather/stations endpoint (issue #94)."""
+    app_js = (
+        Path(direwolf_dashboard.__file__).parent / "static" / "app.js"
+    )
+    content = app_js.read_text(encoding="utf-8")
+    assert "API_BASE + '/weather/stations'" in content, \
+        "_loadWeatherPanelData must fetch the dedicated weather-stations endpoint"
+
+
 def test_markdown_links_allowlist_safe_schemes():
     """inlineFormat must reject javascript: URLs in markdown links (issue #90)."""
     app_js = (
