@@ -159,6 +159,14 @@ class AGWReader:
                     backoff = min(backoff * 2, self.max_backoff)
             except asyncio.CancelledError:
                 break
+            except Exception as e:
+                # Unexpected errors (e.g. struct.error from a malformed header)
+                # must not permanently kill the reader — log and reconnect.
+                self._connected = False
+                LOG.error(f"AGW reader error: {e}. Reconnecting in {backoff:.0f}s...")
+                if self._running:
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * 2, self.max_backoff)
             finally:
                 await self._close_connection()
 
