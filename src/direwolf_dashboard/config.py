@@ -23,25 +23,29 @@ FALLBACK_DATA_DIR = "/tmp/direwolf-dashboard"
 def _resolve_data_dir() -> str:
     """Determine the best data directory.
 
-    Uses DEFAULT_DATA_DIR if writable, otherwise falls back to FALLBACK_DATA_DIR.
-    This handles readonly root filesystems like DigiPi where ~/.local/share may
-    not be writable but /tmp is a ramdisk.
+    Tries DEFAULT_DATA_DIR first, then FALLBACK_DATA_DIR, verifying each is
+    actually writable. This handles readonly root filesystems like DigiPi
+    where ~/.local/share may not be writable but /tmp is a ramdisk.
+    (issue #93)
     """
-    expanded = os.path.expanduser(DEFAULT_DATA_DIR)
-    try:
-        os.makedirs(expanded, exist_ok=True)
-        # Verify we can actually write
-        test_file = os.path.join(expanded, ".write_test")
-        with open(test_file, "w") as f:
-            f.write("test")
-        os.remove(test_file)
-        return DEFAULT_DATA_DIR
-    except OSError:
-        LOG.warning(
-            f"Default data directory {expanded} is not writable, "
-            f"falling back to {FALLBACK_DATA_DIR}"
-        )
-        return FALLBACK_DATA_DIR
+    for candidate in (DEFAULT_DATA_DIR, FALLBACK_DATA_DIR):
+        expanded = os.path.expanduser(candidate)
+        try:
+            os.makedirs(expanded, exist_ok=True)
+            # Verify we can actually write
+            test_file = os.path.join(expanded, ".write_test")
+            with open(test_file, "w") as f:
+                f.write("test")
+            os.remove(test_file)
+            return expanded
+        except OSError:
+            LOG.warning(f"Candidate data directory {expanded} is not writable")
+
+    LOG.error(
+        f"No writable data directory found (tried {DEFAULT_DATA_DIR} and "
+        f"{FALLBACK_DATA_DIR}); database init will fail."
+    )
+    return os.path.expanduser(FALLBACK_DATA_DIR)
 
 
 @dataclass

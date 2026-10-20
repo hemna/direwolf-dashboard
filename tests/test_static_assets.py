@@ -400,3 +400,17 @@ def test_simulate_stations_gated_behind_debug_flag():
     gate_snippet = content[gate_start:gate_start + 200]
     assert "window.simulateStations = simulateStations" in gate_snippet, \
         "window.simulateStations must only be assigned inside the debug gate"
+
+
+def test_symbol_icon_escapes_callsign_and_overlay():
+    """createSymbolIcon must escape radio-derived callsign/symbol-table (issue #79)."""
+    app_js = (
+        Path(direwolf_dashboard.__file__).parent / "static" / "app.js"
+    )
+    content = app_js.read_text(encoding="utf-8")
+    # The station-label span must escape callsign
+    assert '${escHtml(callsign)}</span>' in content, \
+        "createSymbolIcon must escape the callsign in the divIcon HTML"
+    # The overlay div must escape the symbol-table char
+    assert '${escHtml(overlay)}</div>' in content, \
+        "createSymbolIcon must escape the symbol-table overlay"
