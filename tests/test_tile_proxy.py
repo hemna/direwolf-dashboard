@@ -107,3 +107,42 @@ class TestCheckCacheBudget:
         assert loop is not None
         stats = await tile_proxy.get_cache_stats()
         assert isinstance(stats, dict)
+
+
+class TestGetTile:
+    async def test_serves_cached_tile_from_executor(self, tile_proxy, tmp_path):
+        """get_tile returns cached PNG bytes without hitting the network.
+
+        The read is executor-offloaded (issue #86) — verify it works and
+        that the network client is never touched on a cache hit.
+        """
+        from unittest.mock import patch
+
+        await tile_proxy.init()
+        # Seed a cached tile
+        cache = tmp_path / "tiles" / "1" / "1"
+        cache.mkdir(parents=True)
+        (cache / "1.png").write_bytes(b"\x89PNG fake tile")
+
+        with patch.object(tile_proxy._client, "get") as mock_get:
+            data = await tile_proxy.get_tile(1, 1, 1)
+
+        assert data == b"\x89PNG fake tile"
+        mock_get.assert_not_called()
+        await tile_proxy.close()
+
+    async def test_missing_tile_returns_none(self, tile_proxy, tmp_path):
+        """A missing cached tile that fails to fetch returns None."""
+        from unittest.mock import AsyncMock
+
+        await tile_proxy.init()
+        tile_proxy._client.get = AsyncMock(return_value=None)
+        # Force a 404-like failure
+        class _R:
+            status_code = 404
+            content = b""
+        tile_proxy._client.get = AsyncMock(return_value=_R())
+
+        data = await tile_proxy.get_tile(9, 1, 1)
+        assert data is None
+        await tile_proxy.close()

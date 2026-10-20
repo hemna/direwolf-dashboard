@@ -395,3 +395,17 @@ def test_weather_panel_uses_weather_stations_endpoint():
     content = app_js.read_text(encoding="utf-8")
     assert "API_BASE + '/weather/stations'" in content, \
         "_loadWeatherPanelData must fetch the dedicated weather-stations endpoint"
+
+
+def test_symbol_icon_escapes_callsign_and_overlay():
+    """createSymbolIcon must escape radio-derived callsign/symbol-table (issue #79)."""
+    app_js = (
+        Path(direwolf_dashboard.__file__).parent / "static" / "app.js"
+    )
+    content = app_js.read_text(encoding="utf-8")
+    # The station-label span must escape callsign
+    assert '${escHtml(callsign)}</span>' in content, \
+        "createSymbolIcon must escape the callsign in the divIcon HTML"
+    # The overlay div must escape the symbol-table char
+    assert '${escHtml(overlay)}</div>' in content, \
+        "createSymbolIcon must escape the symbol-table overlay"
