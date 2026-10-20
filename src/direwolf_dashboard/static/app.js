@@ -3714,7 +3714,11 @@
         }
         console.log(`simulateStations: injecting ${simStations.length} stations over ${delay}ms`);
     }
-    window.simulateStations = simulateStations;
+    // Debug helper — only exposed when the page is loaded with ?debug=1,
+    // so it is not reachable from a console in normal operation. (issue #88)
+    if (new URLSearchParams(window.location.search).get('debug') === '1') {
+        window.simulateStations = simulateStations;
+    }
 
     // -----------------------------------------------------------------------
     // Station List Modal (#33) + CSV Export (#34)
