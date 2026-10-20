@@ -121,6 +121,17 @@
                     </div>
                 </fieldset>
                 <fieldset>
+                    <legend>Units</legend>
+                    <label>
+                        Display Units
+                        <select id="cfg-units">
+                            <option value="metric">Metric (&deg;C, m/s, hPa, mm)</option>
+                            <option value="imperial">Imperial (&deg;F, mph, inHg, in)</option>
+                        </select>
+                    </label>
+                    <span class="hint">Weather values stored by the network are metric</span>
+                </fieldset>
+                <fieldset>
                     <legend>Map Display</legend>
                     <label>
                         <input type="checkbox" id="cfg-show-route-distances" checked />

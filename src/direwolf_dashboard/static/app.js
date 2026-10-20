@@ -210,6 +210,37 @@
         }
     }
 
+    // --- Weather units (issue #78) ---
+    // aprslib stores temperature in Celsius, wind in m/s, pressure in hPa,
+    // rain in mm. The user can choose metric (default, matches stored data)
+    // or imperial (°F / mph / inHg / in) via the Units setting in Settings.
+    const UNITS_KEY = 'dw-units';
+    const UNITS_METRIC = 'metric';
+    const UNITS_IMPERIAL = 'imperial';
+
+    function getUnits() {
+        return localStorage.getItem(UNITS_KEY) === UNITS_IMPERIAL
+            ? UNITS_IMPERIAL : UNITS_METRIC;
+    }
+    function isImperial() { return getUnits() === UNITS_IMPERIAL; }
+    function cToF(c) { return (c * 9 / 5) + 32; }
+    function msToMph(ms) { return ms * 2.23694; }
+    function hpaToInHg(hpa) { return hpa * 0.02953; }
+    function mmToIn(mm) { return mm * 0.0393701; }
+
+    function fmtTemp(c) {
+        return isImperial() ? `${cToF(c).toFixed(1)}°F` : `${c.toFixed(1)}°C`;
+    }
+    function fmtWind(ms) {
+        return isImperial() ? `${msToMph(ms).toFixed(0)} mph` : `${ms.toFixed(1)} m/s`;
+    }
+    function fmtPressure(hpa) {
+        return isImperial() ? `${hpaToInHg(hpa).toFixed(2)} inHg` : `${hpa.toFixed(1)} hPa`;
+    }
+    function fmtRain(mm) {
+        return isImperial() ? `${mmToIn(mm).toFixed(2)} in` : `${mm.toFixed(1)} mm`;
+    }
+
     function createSymbolIcon(symbolTable, symbolChar, callsign) {
         const pos = getSymbolSpritePosition(symbolChar);
         const { spriteUrl, overlay } = parseSymbolTable(symbolTable);
@@ -218,11 +249,13 @@
         html += `<div style="width:24px;height:24px;background-image:url('${spriteUrl}');background-position:${pos.x}px ${pos.y}px;background-repeat:no-repeat;image-rendering:pixelated;"></div>`;
 
         if (overlay) {
-            html += `<div style="position:absolute;top:0;left:0;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:bold;color:#000;text-shadow:0 0 2px #fff, 0 0 2px #fff;">${overlay}</div>`;
+            // overlay is a radio-derived symbol-table char — escape it (#79)
+            html += `<div style="position:absolute;top:0;left:0;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:bold;color:#000;text-shadow:0 0 2px #fff, 0 0 2px #fff;">${escHtml(overlay)}</div>`;
         }
 
         if (callsign) {
-            html += `<span class="station-label" style="position:absolute;left:26px;top:50%;transform:translateY(-50%);white-space:nowrap;">${callsign}</span>`;
+            // callsign is radio/user-controlled — escape it (#79)
+            html += `<span class="station-label" style="position:absolute;left:26px;top:50%;transform:translateY(-50%);white-space:nowrap;">${escHtml(callsign)}</span>`;
         }
         html += '</div>';
 
@@ -1042,7 +1075,7 @@
     }
 
     function addOrUpdateStation(data) {
-        if (!data.latitude || !data.longitude) return;
+        if (data.latitude == null || data.longitude == null) return;
 
         const cs = data.callsign;
         const symbolChar = data.symbol || '-';
@@ -1105,9 +1138,9 @@
         if (d.last_weather) {
             const w = d.last_weather;
             const parts = [];
-            if (w.temperature != null) parts.push(`${w.temperature.toFixed(1)}&thinsp;&deg;F`);
+            if (w.temperature != null) parts.push(fmtTemp(w.temperature));
             if (w.wind_speed != null) {
-                let wind = `${w.wind_speed.toFixed(0)}&thinsp;mph`;
+                let wind = fmtWind(w.wind_speed);
                 if (w.wind_direction != null) wind += ` @ ${w.wind_direction.toFixed(0)}&deg;`;
                 parts.push(wind);
             }
@@ -1119,7 +1152,7 @@
 
         // Distance to My Position
         const myPos = getMyPosition();
-        if (myPos && d.latitude && d.longitude) {
+        if (myPos && d.latitude != null && d.longitude != null) {
             const distKm = haversineKm(d.latitude, d.longitude, myPos.lat, myPos.lng);
             const distMi = (distKm * 0.621371).toFixed(1);
             html += `<div class="popup-distance">&#128205; ${distKm.toFixed(1)}&thinsp;km / ${distMi}&thinsp;mi</div>`;
@@ -1152,7 +1185,7 @@
             btn.addEventListener('click', () => window._viewWeather(callsign));
             popupDiv.appendChild(btn);
         }
-        if (d.latitude && d.longitude) {
+        if (d.latitude != null && d.longitude != null) {
             const btn = document.createElement('button');
             btn.className = 'popup-btn popup-btn-gpx';
             btn.textContent = 'Download GPX';
@@ -1612,7 +1645,7 @@
         if (packet.latitude != null && packet.longitude != null) {
             updatePositionCache(packet.from_call, packet.latitude, packet.longitude);
         }
-        if (packet.latitude && packet.longitude) {
+        if (packet.latitude != null && packet.longitude != null) {
             if (waitingForPosition) {
                 dismissWaiting();
                 const zoom = config.station?.zoom || 12;
@@ -1638,16 +1671,16 @@
         const myPos = getMyPosition();
         if (packet.tx) {
             // For TX packets, prefer myPos but fall back to the packet's own coordinates
-            var txPos = myPos || (packet.latitude && packet.longitude ? { lat: packet.latitude, lng: packet.longitude } : null);
+            var txPos = myPos || (packet.latitude != null && packet.longitude != null ? { lat: packet.latitude, lng: packet.longitude } : null);
             if (txPos) {
                 playTransmitAnimation('My Station', txPos.lat, txPos.lng, packet.path || []);
             }
         } else {
-            if (packet.latitude && packet.longitude) {
+            if (packet.latitude != null && packet.longitude != null) {
                 playTransmitAnimation(packet.from_call, packet.latitude, packet.longitude, packet.path || []);
             }
             // For receive animations, prefer myPos but fall back to packet coords if this is "our" packet heard back
-            var rxPos = myPos || (packet.latitude && packet.longitude ? { lat: packet.latitude, lng: packet.longitude } : null);
+            var rxPos = myPos || (packet.latitude != null && packet.longitude != null ? { lat: packet.latitude, lng: packet.longitude } : null);
             if (rxPos) {
                 const myCall = config.station?.my_position?.callsign || packet.from_call;
                 setTimeout(() => {
@@ -1692,7 +1725,6 @@
     // so colors respect the active theme.  Replaces the Python format_compact_log()
     // function and the bearing-HTML mutation in lifecycle._broadcast_consumer.
     function renderCompactLog(packet) {
-        const esc = (s) => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
         const tx = packet.tx;
         const pktType = packet.type || 'Unknown';
         const fromCall = packet.from_call || '';
@@ -1719,27 +1751,27 @@
             : `<span style="color:${rxColor}">RX&#x2193;</span>`;
         const arrow = `<span style="color:${arrowColor}">&#x2192;</span>`;
 
-        let typeStr = `<span style="color:${typeColor}">${esc(pktType)}</span>`;
-        if (msgNo) typeStr += `:${esc(msgNo)}`;
+        let typeStr = `<span style="color:${typeColor}">${escHtml(pktType)}</span>`;
+        if (msgNo) typeStr += `:${escHtml(msgNo)}`;
 
         let pathStr = '';
         if (path.length) {
-            pathStr = path.map(p => `<span style="color:${arrowColor}">${esc(p)}</span>`).join(arrow) + arrow;
+            pathStr = path.map(p => `<span style="color:${arrowColor}">${escHtml(p)}</span>`).join(arrow) + arrow;
         }
 
-        const fromStr = `<span style="color:${fromColor}">${esc(fromCall)}</span>`;
-        const toStr = `<span style="color:${toColor}">${esc(toCall)}</span>`;
+        const fromStr = `<span style="color:${fromColor}">${escHtml(fromCall)}</span>`;
+        const toStr = `<span style="color:${toColor}">${escHtml(toCall)}</span>`;
 
         let html = `${indicator} ${typeStr} ${fromStr}${arrow}${pathStr}${toStr}`;
 
         if (via) {
-            html += ` <span style="color:${dimColor}">via ${esc(via)}</span>`;
+            html += ` <span style="color:${dimColor}">via ${escHtml(via)}</span>`;
         }
         if (humanInfo) {
-            html += ` : <span style="color:var(--log-human-info)">${esc(humanInfo)}</span>`;
+            html += ` : <span style="color:var(--log-human-info)">${escHtml(humanInfo)}</span>`;
         }
         if (bearing && distMiles != null) {
-            html += ` : <span style="color:${bearingColor}">${esc(bearing)}</span>`
+            html += ` : <span style="color:${bearingColor}">${escHtml(bearing)}</span>`
                   + `<span style="color:${distColor}">@${distMiles.toFixed(2)}miles</span>`;
         }
         return html;
@@ -2060,6 +2092,8 @@
         document.getElementById('cfg-log-file').value = config.direwolf?.log_file || '';
         document.getElementById('cfg-server-port').value = config.server?.port || 8080;
         document.getElementById('cfg-api-token').value = localStorage.getItem(API_TOKEN_KEY) || '';
+
+        document.getElementById('cfg-units').value = getUnits();
         document.getElementById('cfg-retention').value = config.storage?.retention_days || 7;
         document.getElementById('cfg-tile-mode').value = config.tiles?.cache_mode || 'lazy';
         document.getElementById('cfg-max-cache').value = config.tiles?.max_cache_mb || 500;
@@ -2134,6 +2168,10 @@
             if (token) localStorage.setItem(API_TOKEN_KEY, token);
             else localStorage.removeItem(API_TOKEN_KEY);
         }
+
+        // Save units preference locally
+        const unitsInput = document.getElementById('cfg-units');
+        if (unitsInput) localStorage.setItem(UNITS_KEY, unitsInput.value);
 
         const feedback = document.getElementById('settings-feedback');
         try {
@@ -2609,7 +2647,7 @@
             let bestTime = 0;
             for (const cs of stationKeys) {
                 const s = stations[cs];
-                if (s.data && s.data.latitude && s.data.longitude) {
+                if (s.data && s.data.latitude != null && s.data.longitude != null) {
                     const t = s.data.last_seen || 0;
                     if (!best || t > bestTime) {
                         best = s;
@@ -2994,15 +3032,15 @@
 
     function buildCurrentWeatherHtml(report) {
         const fields = [];
-        if (report.temperature != null) fields.push(['Temperature', report.temperature.toFixed(1) + '\u00B0C']);
-        if (report.dewpoint != null) fields.push(['Dewpoint', report.dewpoint.toFixed(1) + '\u00B0C']);
+        if (report.temperature != null) fields.push(['Temperature', fmtTemp(report.temperature)]);
+        if (report.dewpoint != null) fields.push(['Dewpoint', fmtTemp(report.dewpoint)]);
         if (report.humidity != null) fields.push(['Humidity', report.humidity + '%']);
-        if (report.pressure != null) fields.push(['Pressure', report.pressure.toFixed(1) + ' hPa']);
-        if (report.wind_speed != null) fields.push(['Wind Speed', report.wind_speed.toFixed(1) + ' m/s']);
+        if (report.pressure != null) fields.push(['Pressure', fmtPressure(report.pressure)]);
+        if (report.wind_speed != null) fields.push(['Wind Speed', fmtWind(report.wind_speed)]);
         if (report.wind_direction != null) fields.push(['Wind Dir', report.wind_direction + '\u00B0']);
-        if (report.wind_gust != null) fields.push(['Gust', report.wind_gust.toFixed(1) + ' m/s']);
-        if (report.rain_1h != null) fields.push(['Rain 1h', report.rain_1h.toFixed(1) + ' mm']);
-        if (report.rain_24h != null) fields.push(['Rain 24h', report.rain_24h.toFixed(1) + ' mm']);
+        if (report.wind_gust != null) fields.push(['Gust', fmtWind(report.wind_gust)]);
+        if (report.rain_1h != null) fields.push(['Rain 1h', fmtRain(report.rain_1h)]);
+        if (report.rain_24h != null) fields.push(['Rain 24h', fmtRain(report.rain_24h)]);
         if (report.luminosity != null) fields.push(['Luminosity', report.luminosity + ' W/m\u00B2']);
 
         let html = '<div class="weather-current-grid">';
@@ -3027,9 +3065,12 @@
             return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         });
 
-        // Temperature + Dewpoint chart
-        const tempData = reports.map(r => r.temperature);
-        const dewData = reports.map(r => r.dewpoint);
+        // Temperature + Dewpoint chart (values follow the Units setting)
+        const tempData = reports.map(r => r.temperature != null
+            ? (isImperial() ? cToF(r.temperature) : r.temperature) : r.temperature);
+        const dewData = reports.map(r => r.dewpoint != null
+            ? (isImperial() ? cToF(r.dewpoint) : r.dewpoint) : r.dewpoint);
+        const tempUnit = isImperial() ? '\u00B0F' : '\u00B0C';
         const hasTempData = tempData.some(v => v != null);
         const hasDewData = dewData.some(v => v != null);
 
@@ -3037,7 +3078,7 @@
             const datasets = [];
             if (hasTempData) {
                 datasets.push({
-                    label: 'Temperature (\u00B0C)',
+                    label: 'Temperature (' + tempUnit + ')',
                     data: tempData,
                     borderColor: '#ff6384',
                     backgroundColor: 'rgba(255, 99, 132, 0.1)',
@@ -3049,7 +3090,7 @@
             }
             if (hasDewData) {
                 datasets.push({
-                    label: 'Dewpoint (\u00B0C)',
+                    label: 'Dewpoint (' + tempUnit + ')',
                     data: dewData,
                     borderColor: '#36a2eb',
                     backgroundColor: 'rgba(54, 162, 235, 0.1)',
@@ -3073,14 +3114,16 @@
                     },
                     scales: {
                         x: { ticks: { color: textColor, maxTicksLimit: 12 }, grid: { color: gridColor } },
-                        y: { ticks: { color: textColor }, grid: { color: gridColor }, title: { display: true, text: '\u00B0C', color: textColor } },
+                        y: { ticks: { color: textColor }, grid: { color: gridColor }, title: { display: true, text: tempUnit, color: textColor } },
                     },
                 },
             });
         }
 
-        // Barometric Pressure chart
-        const pressureData = reports.map(r => r.pressure);
+        // Barometric Pressure chart (values follow the Units setting)
+        const pressureData = reports.map(r => r.pressure != null
+            ? (isImperial() ? hpaToInHg(r.pressure) : r.pressure) : r.pressure);
+        const pressureUnit = isImperial() ? 'inHg' : 'hPa';
         const hasPressure = pressureData.some(v => v != null);
 
         if (hasPressure) {
@@ -3090,7 +3133,7 @@
                 data: {
                     labels,
                     datasets: [{
-                        label: 'Pressure (hPa)',
+                        label: 'Pressure (' + pressureUnit + ')',
                         data: pressureData,
                         borderColor: '#4bc0c0',
                         backgroundColor: 'rgba(75, 192, 192, 0.1)',
@@ -3109,7 +3152,7 @@
                     },
                     scales: {
                         x: { ticks: { color: textColor, maxTicksLimit: 12 }, grid: { color: gridColor } },
-                        y: { ticks: { color: textColor }, grid: { color: gridColor }, title: { display: true, text: 'hPa', color: textColor } },
+                        y: { ticks: { color: textColor }, grid: { color: gridColor }, title: { display: true, text: pressureUnit, color: textColor } },
                     },
                 },
             });
@@ -3320,13 +3363,13 @@
         let lastEnd = 0;
         for (const ann of annotations) {
             if (ann.start > lastEnd) {
-                html += `<span class="packet-segment-plain">${escapeHtml(raw.substring(lastEnd, ann.start))}</span>`;
+                html += `<span class="packet-segment-plain">${escHtml(raw.substring(lastEnd, ann.start))}</span>`;
             }
-            html += `<span class="packet-segment packet-segment-${ann.color}" title="${ann.field}">${escapeHtml(raw.substring(ann.start, ann.end))}</span>`;
+            html += `<span class="packet-segment packet-segment-${ann.color}" title="${ann.field}">${escHtml(raw.substring(ann.start, ann.end))}</span>`;
             lastEnd = ann.end;
         }
         if (lastEnd < raw.length) {
-            html += `<span class="packet-segment-plain">${escapeHtml(raw.substring(lastEnd))}</span>`;
+            html += `<span class="packet-segment-plain">${escHtml(raw.substring(lastEnd))}</span>`;
         }
         html += '</div>';
         html += '<div class="packet-legend">';
@@ -3344,8 +3387,8 @@
             html += '<div class="decode-section">';
             html += '<div class="decode-section-header" style="color:' + themeColor('--decode-header-station') + ';">Station</div>';
             html += '<table class="decode-table">';
-            html += `<tr><td class="decode-label">From</td><td class="decode-value"><code>${escapeHtml(sections.station.from)}</code></td></tr>`;
-            html += `<tr><td class="decode-label">To</td><td class="decode-value"><code>${escapeHtml(sections.station.to)}</code></td></tr>`;
+            html += `<tr><td class="decode-label">From</td><td class="decode-value"><code>${escHtml(sections.station.from)}</code></td></tr>`;
+            html += `<tr><td class="decode-label">To</td><td class="decode-value"><code>${escHtml(sections.station.to)}</code></td></tr>`;
             if (sections.station.path && sections.station.path.length > 0) {
                 html += '<tr><td class="decode-label">Path</td><td class="decode-value">';
                 html += '<div class="decode-path-chain">';
@@ -3358,7 +3401,7 @@
                     const hasLocation = cleanCall in pathStations;
                     if (i > 0) html += '<span class="decode-path-arrow">&rarr;</span>';
                     html += `<span class="decode-path-hop${isUsed ? ' decode-path-used' : ''}">`;
-                    html += `<code>${escapeHtml(hop)}</code>`;
+                    html += `<code>${escHtml(hop)}</code>`;
                     if (hasLocation) html += '<span class="decode-path-loc-dot" title="Location known"></span>';
                     html += '</span>';
                 }
@@ -3389,8 +3432,8 @@
                 const symName = getSymbolName(symTable, symChar);
                 html += '<tr><td class="decode-label">Symbol</td><td class="decode-value decode-symbol-cell">';
                 html += `<span class="decode-symbol-icon" style="background-image:url('${symInfo.spriteUrl}');background-position:${symPos.x}px ${symPos.y}px;"></span>`;
-                html += `<code>${escapeHtml(symTable + symChar)}</code>`;
-                if (symName) html += `<span class="decode-symbol-name">${escapeHtml(symName)}</span>`;
+                html += `<code>${escHtml(symTable + symChar)}</code>`;
+                if (symName) html += `<span class="decode-symbol-name">${escHtml(symName)}</span>`;
                 html += '</td></tr>';
             }
             if (sections.position.altitude != null) {
@@ -3425,13 +3468,13 @@
             html += '<div class="decode-weather-grid">';
             const wxFields = [
                 ['wind_direction', 'Wind Dir', (v) => v + '\u00B0'],
-                ['wind_speed', 'Wind Spd', (v) => v.toFixed(1) + ' m/s'],
-                ['wind_gust', 'Gust', (v) => v.toFixed(1) + ' m/s'],
-                ['temperature', 'Temp', (v) => v.toFixed(1) + '\u00B0C'],
+                ['wind_speed', 'Wind Spd', (v) => fmtWind(v)],
+                ['wind_gust', 'Gust', (v) => fmtWind(v)],
+                ['temperature', 'Temp', (v) => fmtTemp(v)],
                 ['humidity', 'Humidity', (v) => v + '%'],
-                ['pressure', 'Pressure', (v) => v.toFixed(1) + ' hPa'],
-                ['rain_1h', 'Rain 1h', (v) => v.toFixed(1) + ' mm'],
-                ['rain_24h', 'Rain 24h', (v) => v.toFixed(1) + ' mm'],
+                ['pressure', 'Pressure', (v) => fmtPressure(v)],
+                ['rain_1h', 'Rain 1h', (v) => fmtRain(v)],
+                ['rain_24h', 'Rain 24h', (v) => fmtRain(v)],
             ];
             for (const [key, label, fmt] of wxFields) {
                 if (sections.weather[key] != null) {
@@ -3446,10 +3489,10 @@
             html += '<div class="decode-section decode-section-wide">';
             html += '<div class="decode-section-header" style="color:' + themeColor('--decode-header-message') + ';">Message</div>';
             html += '<table class="decode-table">';
-            html += `<tr><td class="decode-label">To</td><td class="decode-value"><code>${escapeHtml(sections.message.addressee)}</code></td></tr>`;
-            html += `<tr><td class="decode-label">Message</td><td class="decode-value">${escapeHtml(sections.message.message_text)}</td></tr>`;
+            html += `<tr><td class="decode-label">To</td><td class="decode-value"><code>${escHtml(sections.message.addressee)}</code></td></tr>`;
+            html += `<tr><td class="decode-label">Message</td><td class="decode-value">${escHtml(sections.message.message_text)}</td></tr>`;
             if (sections.message.msgNo) {
-                html += `<tr><td class="decode-label">Msg #</td><td class="decode-value">${escapeHtml(sections.message.msgNo)}</td></tr>`;
+                html += `<tr><td class="decode-label">Msg #</td><td class="decode-value">${escHtml(sections.message.msgNo)}</td></tr>`;
             }
             html += '</table></div>';
         }
@@ -3460,7 +3503,7 @@
             html += '<div class="decode-section-header" style="color:' + themeColor('--decode-header-telemetry') + ';">Telemetry</div>';
             html += '<table class="decode-table">';
             for (const [key, value] of Object.entries(sections.telemetry)) {
-                html += `<tr><td class="decode-label">${escapeHtml(key)}</td><td class="decode-value">${escapeHtml(String(value))}</td></tr>`;
+                html += `<tr><td class="decode-label">${escHtml(key)}</td><td class="decode-value">${escHtml(String(value))}</td></tr>`;
             }
             html += '</table></div>';
         }
@@ -3469,7 +3512,7 @@
         if (sections.comment) {
             html += '<div class="decode-section decode-section-wide">';
             html += '<div class="decode-section-header" style="color:' + themeColor('--decode-header-comment') + ';">Comment</div>';
-            html += `<div class="decode-comment">${escapeHtml(sections.comment.text)}</div>`;
+            html += `<div class="decode-comment">${escHtml(sections.comment.text)}</div>`;
             html += '</div>';
         }
 
@@ -3544,7 +3587,7 @@
         // Add station marker with APRS symbol icon
         const stationIcon = createSymbolIcon(symbolTable, symbolChar, stationCall);
         const stationMarker = L.marker([stationLat, stationLon], { icon: stationIcon }).addTo(decodeMiniMap);
-        stationMarker.bindPopup('<strong>' + escapeHtml(stationCall) + '</strong>');
+        stationMarker.bindPopup('<strong>' + escHtml(stationCall) + '</strong>');
 
         // Add path station markers and build polyline
         const linePoints = [[stationLat, stationLon]];
@@ -3562,7 +3605,7 @@
                     clean
                 );
                 const pathMarker = L.marker([pos.latitude, pos.longitude], { icon: pathIcon }).addTo(decodeMiniMap);
-                pathMarker.bindPopup('<strong>' + escapeHtml(clean) + '</strong>');
+                pathMarker.bindPopup('<strong>' + escHtml(clean) + '</strong>');
             }
         }
 
@@ -3587,15 +3630,10 @@
     function renderDecodeError(message) {
         return `<div class="decode-error">
             <div class="decode-error-icon">!</div>
-            <div class="decode-error-message">${escapeHtml(message)}</div>
+            <div class="decode-error-message">${escHtml(message)}</div>
             <div class="decode-error-hint">Check that the packet follows APRS format, e.g.:<br>
             <code>CALLSIGN&gt;DEST,PATH:data</code></div>
         </div>`;
-    }
-
-    function escapeHtml(str) {
-        if (!str) return '';
-        return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
     function copyToClipboard(text) {
@@ -4210,12 +4248,12 @@
 
         tbody.innerHTML = rows.map(s => {
             const w = s.last_weather || {};
-            const temp    = w.temperature != null ? w.temperature.toFixed(1) + '°F' : '—';
+            const temp    = w.temperature != null ? fmtTemp(w.temperature) : '—';
             const wind    = w.wind_speed   != null
-                ? `${w.wind_speed.toFixed(0)} mph${w.wind_direction != null ? ' @ ' + w.wind_direction.toFixed(0) + '°' : ''}`
+                ? `${fmtWind(w.wind_speed)}${w.wind_direction != null ? ' @ ' + w.wind_direction.toFixed(0) + '°' : ''}`
                 : '—';
             const humid   = w.humidity   != null ? w.humidity.toFixed(0) + '%' : '—';
-            const pres    = w.pressure   != null ? w.pressure.toFixed(1) + ' mb' : '—';
+            const pres    = w.pressure   != null ? fmtPressure(w.pressure) : '—';
             const ts      = w.timestamp  != null ? formatAge(w.timestamp) : '—';
             const cs      = s.callsign || '?';
             return `<tr>

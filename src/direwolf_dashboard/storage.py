@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import sqlite3
 import time
 from typing import Optional
 
@@ -97,14 +98,22 @@ class Storage:
         # Create tables and indexes
         await self._db.executescript(SCHEMA_SQL)
         # Migrate existing DBs: add last_path column if it doesn't exist (#64).
-        # SQLite ALTER TABLE does not support IF NOT EXISTS, so catch the
-        # "duplicate column name" error and ignore it.
+        await self._apply_migrations()
+        await self._db.commit()
+
+    async def _apply_migrations(self) -> None:
+        """Apply additive schema migrations.
+
+        SQLite ALTER TABLE does not support IF NOT EXISTS, so catch the
+        "duplicate column name" error and ignore only that case — genuine
+        failures (disk full, locked DB) must propagate. (issue #82)
+        """
         try:
             await self._db.execute("ALTER TABLE stations ADD COLUMN last_path TEXT")
             await self._db.commit()
-        except Exception:
-            pass  # Column already exists — safe to ignore
-        await self._db.commit()
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" not in str(e).lower():
+                raise
 
     async def close(self) -> None:
         """Close the database connection."""

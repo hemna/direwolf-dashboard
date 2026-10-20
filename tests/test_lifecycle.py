@@ -11,6 +11,7 @@ from direwolf_dashboard.lifecycle import (
     DirewolfServices,
     ServiceContainer,
     _broadcast_consumer,
+    _store_weather_report,
     broadcast_event,
     resolve_my_position,
     shutdown_services,
@@ -270,6 +271,44 @@ class TestBroadcastConsumerRollback:
         assert mock_storage.insert_packet.await_count == 2
         mock_storage.rollback.assert_awaited_once()
 
+    async def test_zero_coordinates_upsert_station(self):
+        """A packet at lat=0.0/lon=0.0 (equator/prime meridian) is treated as
+        having a position — regression for issue #71 (falsy 0.0 check)."""
+        mock_storage = AsyncMock()
+        mock_storage.insert_packet.return_value = 1
+        mock_storage.get_my_position.return_value = None
+
+        queue = asyncio.Queue()
+        pkt = {
+            "from_call": "EQ0",
+            "type": "GPSPacket",
+            "timestamp": time.time(),
+            "latitude": 0.0,
+            "longitude": 0.0,
+            "symbol": ">",
+            "symbol_table": "/",
+        }
+        await queue.put(pkt)
+
+        services = self._make_services(mock_storage, queue)
+
+        async def run_one():
+            task = asyncio.create_task(_broadcast_consumer(services))
+            await asyncio.sleep(0.05)
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+        await run_one()
+
+        # The station upsert must have been called WITH position data.
+        mock_storage.upsert_station.assert_awaited()
+        call_kwargs = mock_storage.upsert_station.await_args.kwargs
+        assert call_kwargs["latitude"] == 0.0
+        assert call_kwargs["longitude"] == 0.0
+        # The packet must NOT have been back-filled from the stations table
+        # (get_station is only used for packets without a position).
+        mock_storage.get_station.assert_not_awaited()
+
 
 class TestResolveMyPositionCache:
     """Tests for the my_position caching logic in resolve_my_position."""
@@ -519,3 +558,79 @@ class TestMyPositionCallsignCache:
         await run_one()
 
         assert services._my_position_dirty is False
+
+
+class TestStoreWeatherReport:
+    """Tests for _store_weather_report zero-value handling (issue #72)."""
+
+    def _make_services(self):
+        services = MagicMock()
+        services.storage = AsyncMock()
+        return services
+
+    async def test_zero_values_preserved(self):
+        """Valid 0.0 readings (0C, 0% RH, 0-deg wind, 0 m/s) are stored, not
+        dropped by an `or` fallback — regression for issue #72."""
+        parsed = {
+            "weather": {
+                "temperature": 0.0,
+                "humidity": 0.0,
+                "wind_direction": 0.0,
+                "wind_speed": 0.0,
+                "pressure": 1013.0,
+            }
+        }
+        services = self._make_services()
+        with patch("direwolf_dashboard.lifecycle.aprslib.parse", return_value=parsed):
+            await _store_weather_report(
+                {"from_call": "WX0", "timestamp": 123.0, "raw_packet": "WX0>APRS:@..."},
+                services,
+            )
+        report = services.storage.insert_weather_report.await_args.args[0]
+        assert report["temperature"] == 0.0
+        assert report["humidity"] == 0.0
+        assert report["wind_direction"] == 0.0
+        assert report["wind_speed"] == 0.0
+        assert report["pressure"] == 1013.0
+
+    async def test_top_level_fallback_still_works(self):
+        """When weather is empty, top-level parsed keys are used."""
+        parsed = {"temperature": 0.0, "humidity": 50.0}
+        services = self._make_services()
+        with patch("direwolf_dashboard.lifecycle.aprslib.parse", return_value=parsed):
+            await _store_weather_report(
+                {"from_call": "WX1", "timestamp": 123.0, "raw_packet": "WX1>APRS:@..."},
+                services,
+            )
+        report = services.storage.insert_weather_report.await_args.args[0]
+        assert report["temperature"] == 0.0
+        assert report["humidity"] == 50.0
+
+
+class TestBroadcastConcurrent:
+    """Concurrent WebSocket broadcast (issue #84)."""
+
+    async def test_slow_client_does_not_block_others(self):
+        """A slow client must not delay sends to other clients."""
+        ws_fast = AsyncMock()
+
+        async def slow_send(message):
+            await asyncio.sleep(0.2)
+
+        ws_slow = AsyncMock()
+        ws_slow.send_text.side_effect = slow_send
+        clients = {ws_fast, ws_slow}
+
+        t0 = time.time()
+        await broadcast_event("packet", {"id": 1}, clients)
+        elapsed = time.time() - t0
+
+        # Concurrent dispatch: total time ~ the slow client only, not the sum.
+        assert elapsed < 0.3, f"sequential broadcast took {elapsed:.2f}s"
+        ws_fast.send_text.assert_awaited_once()
+
+    async def test_single_client_ok(self):
+        """Single-client path still works."""
+        ws = AsyncMock()
+        await broadcast_event("test", {"k": "v"}, {ws})
+        ws.send_text.assert_awaited_once()
