@@ -4,6 +4,16 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Added
+- **MapLibre basemap foundation (issue #124)** — vendored `maplibre-gl` 5.24.0
+  (classic UMD + CSS, inline worker) and `pmtiles` 4.5.0 under
+  `static/vendor/`, plus the shared basemap-kit surface (styles, APRS sprites,
+  glyphs, Florence sample region archive) under `static/basemap/` with sprite /
+  glyph / tile URLs rewritten to local `/static` paths so the map needs zero
+  internet on the LAN-only DigiPi. A `basemap.region_archive` config setting
+  drives the served region archive path; the sample `.pmtiles` is served with
+  HTTP Range support (206 + Content-Range).  Closes #124.
+
 ## [1.1.1] - 2026-08-29
 
 ### Fixed

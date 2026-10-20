@@ -7,6 +7,8 @@ from typing import Optional
 
 import yaml
 
+from direwolf_dashboard.basemap import DEFAULT_REGION_ARCHIVE
+
 LOG = logging.getLogger(__name__)
 
 
@@ -97,6 +99,16 @@ class TilesConfig:
 
 
 @dataclass
+class BasemapConfig:
+    """Basemap (MapLibre / kit) settings (issue #124)."""
+
+    # Path of the region archive relative to the static mount; the vendored
+    # styles bake this path in (LAN-offline). An operator swaps the file on
+    # disk (Pi copies its real region archive here).
+    region_archive: str = DEFAULT_REGION_ARCHIVE
+
+
+@dataclass
 class DisplayConfig:
     show_route_distances: bool = True
     show_gpx_overlay: bool = True
@@ -117,6 +129,7 @@ class Config:
     server: ServerConfig = field(default_factory=ServerConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
     tiles: TilesConfig = field(default_factory=TilesConfig)
+    basemap: BasemapConfig = field(default_factory=BasemapConfig)
     display: DisplayConfig = field(default_factory=DisplayConfig)
     packet_log: PacketLogConfig = field(default_factory=PacketLogConfig)
 
@@ -144,6 +157,7 @@ RESTART_REQUIRED_FIELDS = {
     "direwolf.log_file",
     "storage.db_path",
     "tiles.cache_dir",
+    "basemap.region_archive",
 }
 
 
@@ -224,6 +238,7 @@ def _dict_to_config(d: dict) -> Config:
 
     tiles_dict = d.get("tiles", {}).copy()
     _coerce_scalars(tiles_dict, _SCALAR_SPEC["tiles"])
+    basemap_dict = d.get("basemap", {}).copy()
 
     return Config(
         data_dir=d.get("data_dir", ""),
@@ -232,6 +247,7 @@ def _dict_to_config(d: dict) -> Config:
         server=ServerConfig(**server_dict),
         storage=StorageConfig(**storage_dict),
         tiles=TilesConfig(**tiles_dict),
+        basemap=BasemapConfig(**basemap_dict),
         display=DisplayConfig(**d.get("display", {})),
         packet_log=PacketLogConfig(**d.get("packet_log", {})),
     )
