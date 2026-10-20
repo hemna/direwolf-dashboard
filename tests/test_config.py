@@ -2,6 +2,7 @@
 
 import os
 
+import pytest
 import yaml
 
 from direwolf_dashboard.config import (
@@ -312,6 +313,47 @@ class TestConfigPostInitIsolated:
         config = load_config(config_path)
         assert config.storage.db_path != ""
         assert config.tiles.cache_dir != ""
+
+    def test_update_coerces_numeric_strings(self, tmp_path):
+        """Numeric string values are coerced to the expected type (issue #91)."""
+        config_path = str(tmp_path / "config.yaml")
+        config = Config()
+        save_config(config, config_path)
+
+        new_config, updated, restart = update_config(
+            config,
+            {"storage": {"retention_days": "14"}},
+            config_path,
+        )
+
+        assert new_config.storage.retention_days == 14
+        assert isinstance(new_config.storage.retention_days, int)
+
+    def test_update_rejects_non_numeric_value(self, tmp_path):
+        """A non-numeric value must raise ValueError (surfaced as HTTP 400)."""
+        config_path = str(tmp_path / "config.yaml")
+        config = Config()
+        save_config(config, config_path)
+
+        with pytest.raises(ValueError):
+            update_config(
+                config,
+                {"storage": {"retention_days": "abc"}},
+                config_path,
+            )
+
+    def test_update_rejects_non_numeric_max_cache(self, tmp_path):
+        """tiles.max_cache_mb must be numeric (issue #91)."""
+        config_path = str(tmp_path / "config.yaml")
+        config = Config()
+        save_config(config, config_path)
+
+        with pytest.raises(ValueError):
+            update_config(
+                config,
+                {"tiles": {"max_cache_mb": "abc"}},
+                config_path,
+            )
 
 
 class TestResolveDataDirFallback:
