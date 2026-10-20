@@ -387,6 +387,18 @@ def test_weather_units_setting_in_settings_modal():
     assert 'value="imperial"' in content
 
 
+def test_markdown_links_allowlist_safe_schemes():
+    """inlineFormat must reject javascript: URLs in markdown links (issue #90)."""
+    app_js = (
+        Path(direwolf_dashboard.__file__).parent / "static" / "app.js"
+    )
+    content = app_js.read_text(encoding="utf-8")
+    assert "https?:|mailto:" in content, \
+        "inlineFormat must allowlist http/https/mailto link schemes"
+    assert "escHtml(trimmed)" in content, \
+        "link URLs must be escaped before insertion into href"
+
+
 def test_simulate_stations_gated_behind_debug_flag():
     """simulateStations must only be exposed with ?debug=1 (issue #88)."""
     app_js = (
