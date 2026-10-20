@@ -634,13 +634,22 @@ def create_ws_handler(container: ServiceContainer):
 
 
 def create_index_handler(static_dir: str):
-    """Return a handler that serves the SPA index.html."""
+    """Return a handler that serves the SPA index.html.
+
+    The file is read once at startup (explicit UTF-8) instead of on every
+    request — index.html is a bundled static asset. (issue #87)
+    """
+    index_path = os.path.join(str(static_dir), "index.html")
+    content = None
+    if os.path.exists(index_path):
+        with open(index_path, encoding="utf-8") as f:
+            content = f.read()
 
     async def index(request: Request):
-        index_path = os.path.join(str(static_dir), "index.html")
-        if os.path.exists(index_path):
-            with open(index_path) as f:
-                return HTMLResponse(content=f.read())
-        return HTMLResponse(content="<h1>Direwolf Dashboard</h1><p>Static files not found.</p>")
+        if content is None:
+            return HTMLResponse(
+                content="<h1>Direwolf Dashboard</h1><p>Static files not found.</p>"
+            )
+        return HTMLResponse(content=content)
 
     return index
