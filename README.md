@@ -85,6 +85,29 @@ uv pip install -e .
 
 This creates a `.venv` directory inside the project with the `direwolf-dashboard` command available at `.venv/bin/direwolf-dashboard`.
 
+### Offline install (no internet on the Pi)
+
+`pyproject.toml` pins `aprslib` to a fork commit (`hemna/aprs-python`),
+so a fully offline `uv pip install -e .` needs that dependency cached
+first. On any networked machine, build the fork's wheel once, then
+install from it on the Pi (issue #92):
+
+```bash
+# 1) On a networked machine, build the aprslib fork wheel:
+git clone https://github.com/hemna/aprs-python.git
+cd aprs-python
+git checkout ab9f9113831a2bd2948d6178c7ffc1c9c075a6af
+uv build --wheel          # produces dist/aprslib-*.whl
+
+# 2) Copy the wheel to the Pi (e.g. scp / USB), then install everything:
+uv venv
+uv pip install ./aprslib-*.whl
+uv pip install -e .       # now resolves aprslib from the installed wheel
+```
+
+The same applies to the other git-hosted dependency if one is added
+later: cache or wheel it before going offline.
+
 ### Development install
 
 ```bash

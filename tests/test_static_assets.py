@@ -397,3 +397,17 @@ def test_markdown_links_allowlist_safe_schemes():
         "inlineFormat must allowlist http/https/mailto link schemes"
     assert "escHtml(trimmed)" in content, \
         "link URLs must be escaped before insertion into href"
+
+
+def test_symbol_icon_escapes_callsign_and_overlay():
+    """createSymbolIcon must escape radio-derived callsign/symbol-table (issue #79)."""
+    app_js = (
+        Path(direwolf_dashboard.__file__).parent / "static" / "app.js"
+    )
+    content = app_js.read_text(encoding="utf-8")
+    # The station-label span must escape callsign
+    assert '${escHtml(callsign)}</span>' in content, \
+        "createSymbolIcon must escape the callsign in the divIcon HTML"
+    # The overlay div must escape the symbol-table char
+    assert '${escHtml(overlay)}</div>' in content, \
+        "createSymbolIcon must escape the symbol-table overlay"

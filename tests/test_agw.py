@@ -2,9 +2,11 @@
 
 import asyncio
 import struct
+from unittest.mock import patch
 
 import pytest
 
+import direwolf_dashboard.agw as agw_module
 from direwolf_dashboard.agw import (
     AGW_HEADER_SIZE,
     AGWReader,
@@ -343,3 +345,54 @@ class TestAGWReader:
         assert not agw._running
 
 
+
+    async def test_reader_reconnects_on_unexpected_error(self):
+        """A non-connection exception in the read loop (e.g. struct.error)
+        must trigger a reconnect instead of killing the reader (issue #81)."""
+        connect_count = 0
+
+        async def mock_server(reader, writer):
+            nonlocal connect_count
+            connect_count += 1
+            # After registration, send a valid-size frame whose header will
+            # make parse_header raise (patched below).
+            header = build_frame("U", call_from="WB4BOR", call_to="APRS", data=b"")
+            writer.write(header)
+            await writer.drain()
+            await asyncio.sleep(0.5)
+            writer.close()
+            await writer.wait_closed()
+
+        server = await asyncio.start_server(mock_server, "127.0.0.1", 0)
+        port = server.sockets[0].getsockname()[1]
+
+        async def noop_callback(**kwargs):
+            pass
+
+        agw = AGWReader("127.0.0.1", port, noop_callback, max_backoff=1.0)
+
+        # First parse attempt raises ValueError (unexpected, not a connection
+        # error); subsequent calls work normally.
+        calls = {"n": 0}
+        real_parse = agw_module.parse_header
+        def flaky_parse(data):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise ValueError("malformed header")
+            return real_parse(data)
+
+        with patch("direwolf_dashboard.agw.parse_header", side_effect=flaky_parse):
+            task = asyncio.create_task(agw.run())
+            await asyncio.sleep(3.0)
+            await agw.stop()
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        server.close()
+        await server.wait_closed()
+
+        # The reader survived the ValueError and reconnected.
+        assert connect_count >= 2

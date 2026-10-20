@@ -249,11 +249,13 @@
         html += `<div style="width:24px;height:24px;background-image:url('${spriteUrl}');background-position:${pos.x}px ${pos.y}px;background-repeat:no-repeat;image-rendering:pixelated;"></div>`;
 
         if (overlay) {
-            html += `<div style="position:absolute;top:0;left:0;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:bold;color:#000;text-shadow:0 0 2px #fff, 0 0 2px #fff;">${overlay}</div>`;
+            // overlay is a radio-derived symbol-table char — escape it (#79)
+            html += `<div style="position:absolute;top:0;left:0;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:bold;color:#000;text-shadow:0 0 2px #fff, 0 0 2px #fff;">${escHtml(overlay)}</div>`;
         }
 
         if (callsign) {
-            html += `<span class="station-label" style="position:absolute;left:26px;top:50%;transform:translateY(-50%);white-space:nowrap;">${callsign}</span>`;
+            // callsign is radio/user-controlled — escape it (#79)
+            html += `<span class="station-label" style="position:absolute;left:26px;top:50%;transform:translateY(-50%);white-space:nowrap;">${escHtml(callsign)}</span>`;
         }
         html += '</div>';
 
@@ -1723,7 +1725,6 @@
     // so colors respect the active theme.  Replaces the Python format_compact_log()
     // function and the bearing-HTML mutation in lifecycle._broadcast_consumer.
     function renderCompactLog(packet) {
-        const esc = (s) => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
         const tx = packet.tx;
         const pktType = packet.type || 'Unknown';
         const fromCall = packet.from_call || '';
@@ -1750,27 +1751,27 @@
             : `<span style="color:${rxColor}">RX&#x2193;</span>`;
         const arrow = `<span style="color:${arrowColor}">&#x2192;</span>`;
 
-        let typeStr = `<span style="color:${typeColor}">${esc(pktType)}</span>`;
-        if (msgNo) typeStr += `:${esc(msgNo)}`;
+        let typeStr = `<span style="color:${typeColor}">${escHtml(pktType)}</span>`;
+        if (msgNo) typeStr += `:${escHtml(msgNo)}`;
 
         let pathStr = '';
         if (path.length) {
-            pathStr = path.map(p => `<span style="color:${arrowColor}">${esc(p)}</span>`).join(arrow) + arrow;
+            pathStr = path.map(p => `<span style="color:${arrowColor}">${escHtml(p)}</span>`).join(arrow) + arrow;
         }
 
-        const fromStr = `<span style="color:${fromColor}">${esc(fromCall)}</span>`;
-        const toStr = `<span style="color:${toColor}">${esc(toCall)}</span>`;
+        const fromStr = `<span style="color:${fromColor}">${escHtml(fromCall)}</span>`;
+        const toStr = `<span style="color:${toColor}">${escHtml(toCall)}</span>`;
 
         let html = `${indicator} ${typeStr} ${fromStr}${arrow}${pathStr}${toStr}`;
 
         if (via) {
-            html += ` <span style="color:${dimColor}">via ${esc(via)}</span>`;
+            html += ` <span style="color:${dimColor}">via ${escHtml(via)}</span>`;
         }
         if (humanInfo) {
-            html += ` : <span style="color:var(--log-human-info)">${esc(humanInfo)}</span>`;
+            html += ` : <span style="color:var(--log-human-info)">${escHtml(humanInfo)}</span>`;
         }
         if (bearing && distMiles != null) {
-            html += ` : <span style="color:${bearingColor}">${esc(bearing)}</span>`
+            html += ` : <span style="color:${bearingColor}">${escHtml(bearing)}</span>`
                   + `<span style="color:${distColor}">@${distMiles.toFixed(2)}miles</span>`;
         }
         return html;
@@ -3369,13 +3370,13 @@
         let lastEnd = 0;
         for (const ann of annotations) {
             if (ann.start > lastEnd) {
-                html += `<span class="packet-segment-plain">${escapeHtml(raw.substring(lastEnd, ann.start))}</span>`;
+                html += `<span class="packet-segment-plain">${escHtml(raw.substring(lastEnd, ann.start))}</span>`;
             }
-            html += `<span class="packet-segment packet-segment-${ann.color}" title="${ann.field}">${escapeHtml(raw.substring(ann.start, ann.end))}</span>`;
+            html += `<span class="packet-segment packet-segment-${ann.color}" title="${ann.field}">${escHtml(raw.substring(ann.start, ann.end))}</span>`;
             lastEnd = ann.end;
         }
         if (lastEnd < raw.length) {
-            html += `<span class="packet-segment-plain">${escapeHtml(raw.substring(lastEnd))}</span>`;
+            html += `<span class="packet-segment-plain">${escHtml(raw.substring(lastEnd))}</span>`;
         }
         html += '</div>';
         html += '<div class="packet-legend">';
@@ -3393,8 +3394,8 @@
             html += '<div class="decode-section">';
             html += '<div class="decode-section-header" style="color:' + themeColor('--decode-header-station') + ';">Station</div>';
             html += '<table class="decode-table">';
-            html += `<tr><td class="decode-label">From</td><td class="decode-value"><code>${escapeHtml(sections.station.from)}</code></td></tr>`;
-            html += `<tr><td class="decode-label">To</td><td class="decode-value"><code>${escapeHtml(sections.station.to)}</code></td></tr>`;
+            html += `<tr><td class="decode-label">From</td><td class="decode-value"><code>${escHtml(sections.station.from)}</code></td></tr>`;
+            html += `<tr><td class="decode-label">To</td><td class="decode-value"><code>${escHtml(sections.station.to)}</code></td></tr>`;
             if (sections.station.path && sections.station.path.length > 0) {
                 html += '<tr><td class="decode-label">Path</td><td class="decode-value">';
                 html += '<div class="decode-path-chain">';
@@ -3407,7 +3408,7 @@
                     const hasLocation = cleanCall in pathStations;
                     if (i > 0) html += '<span class="decode-path-arrow">&rarr;</span>';
                     html += `<span class="decode-path-hop${isUsed ? ' decode-path-used' : ''}">`;
-                    html += `<code>${escapeHtml(hop)}</code>`;
+                    html += `<code>${escHtml(hop)}</code>`;
                     if (hasLocation) html += '<span class="decode-path-loc-dot" title="Location known"></span>';
                     html += '</span>';
                 }
@@ -3438,8 +3439,8 @@
                 const symName = getSymbolName(symTable, symChar);
                 html += '<tr><td class="decode-label">Symbol</td><td class="decode-value decode-symbol-cell">';
                 html += `<span class="decode-symbol-icon" style="background-image:url('${symInfo.spriteUrl}');background-position:${symPos.x}px ${symPos.y}px;"></span>`;
-                html += `<code>${escapeHtml(symTable + symChar)}</code>`;
-                if (symName) html += `<span class="decode-symbol-name">${escapeHtml(symName)}</span>`;
+                html += `<code>${escHtml(symTable + symChar)}</code>`;
+                if (symName) html += `<span class="decode-symbol-name">${escHtml(symName)}</span>`;
                 html += '</td></tr>';
             }
             if (sections.position.altitude != null) {
@@ -3495,10 +3496,10 @@
             html += '<div class="decode-section decode-section-wide">';
             html += '<div class="decode-section-header" style="color:' + themeColor('--decode-header-message') + ';">Message</div>';
             html += '<table class="decode-table">';
-            html += `<tr><td class="decode-label">To</td><td class="decode-value"><code>${escapeHtml(sections.message.addressee)}</code></td></tr>`;
-            html += `<tr><td class="decode-label">Message</td><td class="decode-value">${escapeHtml(sections.message.message_text)}</td></tr>`;
+            html += `<tr><td class="decode-label">To</td><td class="decode-value"><code>${escHtml(sections.message.addressee)}</code></td></tr>`;
+            html += `<tr><td class="decode-label">Message</td><td class="decode-value">${escHtml(sections.message.message_text)}</td></tr>`;
             if (sections.message.msgNo) {
-                html += `<tr><td class="decode-label">Msg #</td><td class="decode-value">${escapeHtml(sections.message.msgNo)}</td></tr>`;
+                html += `<tr><td class="decode-label">Msg #</td><td class="decode-value">${escHtml(sections.message.msgNo)}</td></tr>`;
             }
             html += '</table></div>';
         }
@@ -3509,7 +3510,7 @@
             html += '<div class="decode-section-header" style="color:' + themeColor('--decode-header-telemetry') + ';">Telemetry</div>';
             html += '<table class="decode-table">';
             for (const [key, value] of Object.entries(sections.telemetry)) {
-                html += `<tr><td class="decode-label">${escapeHtml(key)}</td><td class="decode-value">${escapeHtml(String(value))}</td></tr>`;
+                html += `<tr><td class="decode-label">${escHtml(key)}</td><td class="decode-value">${escHtml(String(value))}</td></tr>`;
             }
             html += '</table></div>';
         }
@@ -3518,7 +3519,7 @@
         if (sections.comment) {
             html += '<div class="decode-section decode-section-wide">';
             html += '<div class="decode-section-header" style="color:' + themeColor('--decode-header-comment') + ';">Comment</div>';
-            html += `<div class="decode-comment">${escapeHtml(sections.comment.text)}</div>`;
+            html += `<div class="decode-comment">${escHtml(sections.comment.text)}</div>`;
             html += '</div>';
         }
 
@@ -3593,7 +3594,7 @@
         // Add station marker with APRS symbol icon
         const stationIcon = createSymbolIcon(symbolTable, symbolChar, stationCall);
         const stationMarker = L.marker([stationLat, stationLon], { icon: stationIcon }).addTo(decodeMiniMap);
-        stationMarker.bindPopup('<strong>' + escapeHtml(stationCall) + '</strong>');
+        stationMarker.bindPopup('<strong>' + escHtml(stationCall) + '</strong>');
 
         // Add path station markers and build polyline
         const linePoints = [[stationLat, stationLon]];
@@ -3611,7 +3612,7 @@
                     clean
                 );
                 const pathMarker = L.marker([pos.latitude, pos.longitude], { icon: pathIcon }).addTo(decodeMiniMap);
-                pathMarker.bindPopup('<strong>' + escapeHtml(clean) + '</strong>');
+                pathMarker.bindPopup('<strong>' + escHtml(clean) + '</strong>');
             }
         }
 
@@ -3636,15 +3637,10 @@
     function renderDecodeError(message) {
         return `<div class="decode-error">
             <div class="decode-error-icon">!</div>
-            <div class="decode-error-message">${escapeHtml(message)}</div>
+            <div class="decode-error-message">${escHtml(message)}</div>
             <div class="decode-error-hint">Check that the packet follows APRS format, e.g.:<br>
             <code>CALLSIGN&gt;DEST,PATH:data</code></div>
         </div>`;
-    }
-
-    function escapeHtml(str) {
-        if (!str) return '';
-        return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
     function copyToClipboard(text) {
