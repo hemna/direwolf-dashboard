@@ -129,11 +129,68 @@ def test_map_init_failure_does_not_block_boot():
     assert "try {\n            await initMap();\n        } catch (e) {" in js
 
 
-def test_tracks_not_fetched_until_ported():
-    """loadTracks must return before hitting /stations/tracks (TODO #126)."""
+def test_tracks_fetched_by_maplibre():
+    """loadTracks must no longer short-circuit before /stations/tracks (#126)."""
     js = APP_JS.read_text(encoding="utf-8")
-    body = js[js.index("async function loadTracks()") :]
-    assert body.index("if (mainMapIsMaplibre) return;") < body.index("/stations/tracks")
+    body = js[js.index("async function loadTracks()"):]
+    assert "/stations/tracks" in body, "loadTracks must still fetch /stations/tracks"
+    assert "if (mainMapIsMaplibre) return;" not in body, "loadTracks must not short-circuit on maplibre"
+
+
+def test_tracks_extended_live_without_guard():
+    """updateStationTrack must not be dead-guarded on the maplibre flag (#126)."""
+    js = APP_JS.read_text(encoding="utf-8")
+    body = js[js.index("function updateStationTrack("):]
+    assert "if (mainMapIsMaplibre) return;" not in body
+
+
+# ---------------------------------------------------------------------------
+# app.js adds the ported GeoJSON sources/layers (issue #126)
+# ---------------------------------------------------------------------------
+
+
+def test_app_js_defines_tracks_source_and_line_layer():
+    js = APP_JS.read_text(encoding="utf-8")
+    assert "map.addSource('station-tracks'" in js, "must add a 'station-tracks' geojson source"
+    assert "id: 'station-tracks-line'" in js, "must add the 'station-tracks-line' line layer"
+    assert "'line-color': themeColor('--station-track')" in js, "tracks must reuse the station-track color"
+
+
+def test_app_js_defines_overlay_source_and_line_layers():
+    js = APP_JS.read_text(encoding="utf-8")
+    assert "map.addSource('station-overlay'" in js, "must add a 'station-overlay' geojson source"
+    assert "id: 'station-overlay-path'" in js, "must add the path line layer"
+    assert "id: 'station-overlay-distance'" in js, "must add the distance line layer"
+    assert "line-dasharray': [6, 4]" in js, "path lines keep the Leaflet dash 6,4"
+    assert "line-dasharray': [4, 8]" in js, "distance lines keep the Leaflet dash 4,8"
+
+
+def test_app_js_defines_tx_arcs_source_and_line_layer():
+    js = APP_JS.read_text(encoding="utf-8")
+    assert "map.addSource('tx-arcs'" in js, "must add a 'tx-arcs' geojson source"
+    assert "id: 'tx-arcs-line'" in js, "must add the 'tx-arcs-line' routing line layer"
+
+
+def test_app_js_radds_overlay_sources_on_style_load():
+    """All dynamic sources/layers must be re-added on style.load (theme switch)."""
+    js = APP_JS.read_text(encoding="utf-8")
+    assert "map.on('style.load', addStationLayers)" in js
+    assert "map.on('style.load', addOverlaySources)" in js
+    assert "function addOverlaySources()" in js
+
+
+def test_no_remaining_todo_126_guards():
+    js = APP_JS.read_text(encoding="utf-8")
+    assert "TODO(#126)" not in js, "all issue #126 TODO guards must be ported/removed"
+
+
+def test_arc_animation_markers_are_maplibre():
+    """The arc effect must use maplibre markers, not Leaflet L.marker icons."""
+    js = APP_JS.read_text(encoding="utf-8")
+    body = js[js.index("function createArcMarker("):]
+    assert "new maplibregl.Marker" in body
+    assert "createTransmitArcIcon" not in js, "dead Leaflet arc icon builders must be removed"
+    assert "createReceiveArcIcon" not in js, "dead Leaflet arc icon builders must be removed"
 
 
 def test_popup_open_handler_registered_before_add():
@@ -146,3 +203,58 @@ def test_popup_open_handler_registered_before_add():
 def test_open_popup_content_refreshed_on_update():
     js = APP_JS.read_text(encoding="utf-8")
     assert "activePopup.setDOMContent(stations[cs].popupDiv)" in js
+
+
+# ---------------------------------------------------------------------------
+# Issue #126 review fixes: filtered tracks (2), wipe clears line sources (3),
+# route distance labels (4)
+# ---------------------------------------------------------------------------
+
+
+def _function_body(js, name, stop_at):
+    """Slice of app.js from `function <name>(` up to the next marker."""
+    start = js.index("function " + name + "(")
+    end = js.index(stop_at, start)
+    return js[start:end]
+
+
+def test_station_filter_predicate_shared():
+    """Markers and track lines must share one callsign/type/txrx predicate."""
+    js = APP_JS.read_text(encoding="utf-8")
+    assert "function stationVisibleByFilters(" in js
+    assert "stationVisibleByFilters(" in _function_body(js, "buildStationFeatureCollection", "// --- Map view")
+    assert "stationVisibleByFilters(" in _function_body(js, "refreshStationTrackSource", "function refreshOverlaySource")
+
+
+def test_tracks_source_respects_station_filters():
+    """Filtered-out stations' tracks must drop out of the track GeoJSON source."""
+    js = APP_JS.read_text(encoding="utf-8")
+    body = _function_body(js, "refreshStationTrackSource", "function refreshOverlaySource")
+    assert "stationVisibleByFilters(cs, stations[cs])" in body
+    body = _function_body(js, "applyFilters", "function applyFilterToRow")
+    assert "refreshStationTrackSource()" in body, "applyFilters must refresh the track source"
+
+
+def test_clear_stations_and_packets_clears_line_sources():
+    """Wiping the DB must clear track lines and the overlay/tx-arc sources."""
+    js = APP_JS.read_text(encoding="utf-8")
+    body = _function_body(js, "clearStationsAndPackets", "// --- Tile Preload")
+    assert "delete stationTracks" in body
+    assert "_overlayFC = { type: 'FeatureCollection', features: [] }" in body
+    assert "_arcFC = { type: 'FeatureCollection', features: [] }" in body
+    for call in ("refreshStationTrackSource()", "refreshOverlaySource()", "refreshArcSource()"):
+        assert call in body, f"clearStationsAndPackets must call {call}"
+
+
+def test_route_distance_labels_ported():
+    """showRouteDistances draws per-hop labels with the Leaflet text/units/class."""
+    js = APP_JS.read_text(encoding="utf-8")
+    body = _function_body(js, "createRoutingPolylines", "// --- Animation Lifecycle")
+    assert "showRouteDistances" in body
+    assert "route-distance-label" in body
+    assert "${distKm.toFixed(2)} km / ${distMiles.toFixed(2)} mi" in body
+    assert "new maplibregl.Marker({ element: el, anchor: 'center' })" in body
+
+    tx = _function_body(js, "playTransmitAnimation", "// --- WebSocket")
+    assert "removeRouting" in tx, "route lines + labels must be removed together"
+    assert "label.remove()" in tx

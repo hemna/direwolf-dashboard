@@ -29,6 +29,11 @@
     let autoScroll = true;
     const MAX_LOG_ROWS = 500;
     let trailHours = 1;  // Current trail duration in hours
+    // Station tracks (callsign -> [[lat, lng], ...]) + the GeoJSON sources
+    // backing them; data lives in JS state so it survives theme switches.
+    const stationTracks = {};
+    let _overlayFC = null; // station popup overlay FeatureCollection
+    let _arcFC = null;     // active tx-arc animation FeatureCollection
     let showRouteDistances = true; // updated from config on load
     let showGpxOverlay = true;     // updated from config on load
     let showStatsOverlay = true;   // updated from config on load
@@ -1009,6 +1014,7 @@
         // (Re-)add the station source + layers after every style load, including
         // after theme switches via map.setStyle().
         map.on('style.load', addStationLayers);
+        map.on('style.load', addOverlaySources);
 
         // Station click -> popup (same HTML the Leaflet popups used).
         map.on('click', 'stations-symbol-base', onStationLayerClick);
@@ -1097,6 +1103,118 @@
         scheduleStationRefresh();
     }
 
+    // --- Dynamic GeoJSON line sources (tracks, popup overlay, tx arcs) ---
+    // Added below the station symbol layers; re-added after every style.load (so
+    // theme switches survive). Their data is stored in JS state, not the map.
+    function addOverlaySources() {
+        if (!mainMapIsMaplibre || !map) return;
+
+        if (!map.getSource('station-tracks')) {
+            map.addSource('station-tracks', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+            map.addLayer({
+                id: 'station-tracks-line',
+                type: 'line',
+                source: 'station-tracks',
+                layout: { 'line-cap': 'round', 'line-join': 'round' },
+                paint: {
+                    'line-color': themeColor('--station-track'),
+                    'line-width': 1.5,
+                    'line-opacity': 0.6,
+                },
+            }, 'stations-symbol-base');
+        }
+
+        if (!map.getSource('station-overlay')) {
+            map.addSource('station-overlay', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+            map.addLayer({
+                id: 'station-overlay-path',
+                type: 'line',
+                source: 'station-overlay',
+                filter: ['==', ['get', 'kind'], 'path'],
+                layout: { 'line-cap': 'round', 'line-join': 'round' },
+                paint: {
+                    'line-color': themeColor('--path-overlay-color') || '#ff9500',
+                    'line-width': 2.5,
+                    'line-opacity': 0.85,
+                    'line-dasharray': [6, 4],
+                },
+            }, 'stations-symbol-base');
+            map.addLayer({
+                id: 'station-overlay-distance',
+                type: 'line',
+                source: 'station-overlay',
+                filter: ['==', ['get', 'kind'], 'distance'],
+                layout: { 'line-cap': 'round', 'line-join': 'round' },
+                paint: {
+                    'line-color': themeColor('--distance-line-color') || '#00bfff',
+                    'line-width': 1.5,
+                    'line-opacity': 0.7,
+                    'line-dasharray': [4, 8],
+                },
+            }, 'stations-symbol-base');
+        }
+
+        if (!map.getSource('tx-arcs')) {
+            map.addSource('tx-arcs', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+            map.addLayer({
+                id: 'tx-arcs-line',
+                type: 'line',
+                source: 'tx-arcs',
+                layout: { 'line-cap': 'round', 'line-join': 'round' },
+                paint: {
+                    'line-color': themeColor('--route-tcpip-line'),
+                    'line-width': 3,
+                    'line-opacity': 0.6,
+                    'line-dasharray': [4, 8],
+                },
+            }, 'stations-symbol-base');
+        }
+
+        // Repopulate from persisted state (data survives the style reload).
+        refreshStationTrackSource();
+        refreshOverlaySource();
+        refreshArcSource();
+    }
+
+    function refreshStationTrackSource() {
+        if (!map || !map.getSource || !map.getSource('station-tracks')) return;
+        const features = [];
+        for (const [cs, pts] of Object.entries(stationTracks)) {
+            if (!pts || pts.length < 2) continue;
+            // Hide tracks of stations filtered out (same predicate as stations).
+            if (!stationVisibleByFilters(cs, stations[cs])) continue;
+            features.push({
+                type: 'Feature',
+                properties: { callsign: cs },
+                // stored [lat, lng] -> GeoJSON [lng, lat]
+                geometry: { type: 'LineString', coordinates: pts.map(p => [p[1], p[0]]) },
+            });
+        }
+        map.getSource('station-tracks').setData({ type: 'FeatureCollection', features });
+    }
+
+    function refreshOverlaySource() {
+        if (!map || !map.getSource || !map.getSource('station-overlay')) return;
+        map.getSource('station-overlay').setData(_overlayFC || { type: 'FeatureCollection', features: [] });
+    }
+
+    function refreshArcSource() {
+        if (!map || !map.getSource || !map.getSource('tx-arcs')) return;
+        map.getSource('tx-arcs').setData(_arcFC || { type: 'FeatureCollection', features: [] });
+    }
+
+    function addArcFeatures(features) {
+        if (!_arcFC) _arcFC = { type: 'FeatureCollection', features: [] };
+        _arcFC.features.push(...features);
+        refreshArcSource();
+    }
+
+    function removeArcFeatures(features) {
+        if (!_arcFC || !_arcFC.features.length) return;
+        _arcFC.features = _arcFC.features.filter(f => !features.includes(f));
+        refreshArcSource();
+    }
+
     function onStationLayerClick(e) {
         if (e.features && e.features.length) {
             openStationPopup(e.features[0].properties.callsign);
@@ -1124,25 +1242,28 @@
         map.getSource('stations').setData(stationFeatureCollection);
     }
 
-    /** Rebuild the station FeatureCollection, honoring the current filters
-     *  (visible-only features; mirrors the old per-marker show/hide). */
-    function buildStationFeatureCollection() {
+    /** Shared filter predicate for the station markers and their track lines:
+     *  callsign (substring), type, and tx/rx. Mirrors the old per-marker
+     *  show/hide and the log-row filter. */
+    function stationVisibleByFilters(cs, s) {
+        if (!s || !s.data) return false;
         const callsign = (document.getElementById('filter-callsign') || {}).value?.toUpperCase() || '';
         const type = (document.getElementById('filter-type') || {}).value || '';
         const txrx = (document.getElementById('filter-txrx') || {}).value || '';
+        if (callsign && !cs.toUpperCase().includes(callsign)) return false;
+        if (type && s.data.type && s.data.type !== type) return false;
+        if (txrx && s.data.tx !== undefined) {
+            const txVal = s.data.tx ? 'tx' : 'rx';
+            if (txVal !== txrx) return false;
+        }
+        return true;
+    }
+
+    function buildStationFeatureCollection() {
         const isMyCall = config.station?.my_position?.callsign;
         const feats = [];
         for (const cs of Object.keys(stationFeatures)) {
-            const s = stations[cs];
-            if (!s) continue;
-            let visible = true;
-            if (callsign && !cs.toUpperCase().includes(callsign)) visible = false;
-            if (type && s.data.type && s.data.type !== type) visible = false;
-            if (txrx && s.data.tx !== undefined) {
-                const txVal = s.data.tx ? 'tx' : 'rx';
-                if (txVal !== txrx) visible = false;
-            }
-            if (!visible) continue;
+            if (!stationVisibleByFilters(cs, stations[cs])) continue;
             stationFeatures[cs].properties.is_my = cs === isMyCall;
             feats.push(stationFeatures[cs]);
         }
@@ -1223,24 +1344,17 @@
     }
 
     async function loadTracks() {
-        // TODO(#126): station track polylines not ported to MapLibre yet;
-        // skip the fetch entirely until they are.
-        if (mainMapIsMaplibre) return;
         try {
             const resp = await fetch(`${API_BASE}/stations/tracks?hours=${trailHours}`);
             const tracks = await resp.json();
-            // Clear all existing tracks
-            for (const cs of Object.keys(stations)) {
-                if (stations[cs].track) {
-                    stations[cs].track.setLatLngs([]);
-                }
-            }
-            // Draw tracks from historical data
+            // Replace all tracks with historical data; live packets extend them
+            // via updateStationTrack.
+            for (const cs of Object.keys(stationTracks)) delete stationTracks[cs];
             for (const [cs, points] of Object.entries(tracks)) {
                 if (!stations[cs]) continue;
-                const latlngs = points.map(p => [p[0], p[1]]);  // [lat, lon]
-                stations[cs].track.setLatLngs(latlngs);
+                stationTracks[cs] = points.map(p => [p[0], p[1]]);  // [lat, lon]
             }
+            refreshStationTrackSource();
         } catch (e) {
             console.error('Failed to load tracks:', e);
         }
@@ -1395,13 +1509,11 @@
     }
 
     function updateStationTrack(callsign, lat, lon) {
-        // TODO(#126): station track polylines not ported to MapLibre yet.
-        if (mainMapIsMaplibre) return;
         const s = stations[callsign];
         if (!s) return;
-        const latlngs = s.track.getLatLngs();
-        latlngs.push([lat, lon]);
-        s.track.setLatLngs(latlngs);
+        if (!stationTracks[callsign]) stationTracks[callsign] = [];
+        stationTracks[callsign].push([lat, lon]);
+        refreshStationTrackSource();
     }
 
     // --- APRS Path Parsing ---
@@ -1436,14 +1548,11 @@
         return R * 2 * Math.asin(Math.sqrt(a));
     }
 
-    var _overlayLayers = [];
     var _selectedCallsign = null;
 
     function clearStationOverlay() {
-        if (!mainMapIsMaplibre) {
-            _overlayLayers.forEach(l => map.removeLayer(l));
-        }
-        _overlayLayers = [];
+        _overlayFC = { type: 'FeatureCollection', features: [] };
+        refreshOverlaySource();
         document.querySelectorAll('.log-row.log-row-selected')
             .forEach(el => el.classList.remove('log-row-selected'));
         _selectedCallsign = null;
@@ -1464,14 +1573,9 @@
         const s = stations[callsign];
         if (!s) return;
 
-        // TODO(#126): station path / distance polylines not ported to MapLibre.
-        if (mainMapIsMaplibre) {
-            highlightStationLogRow(callsign);
-            return;
-        }
-
         const stLat = s.data.latitude;
         const stLng = s.data.longitude;
+        const features = [];
 
         // --- Path lines: station → digipeaters → igate ---
         const pathInfo = parsePath(s.data.last_path || []);
@@ -1485,46 +1589,33 @@
             if (pos) waypoints.push({ lat: pos.lat, lng: pos.lng, label: pathInfo.igate });
         }
         for (let i = 0; i < waypoints.length - 1; i++) {
-            const from = waypoints[i];
-            const to = waypoints[i + 1];
-            const line = L.polyline([[from.lat, from.lng], [to.lat, to.lng]], {
-                color: 'var(--path-overlay-color, #ff9500)',
-                weight: 2.5, opacity: 0.85, dashArray: '6,4',
-            }).addTo(map);
-            _overlayLayers.push(line);
-            if (to.label) {
-                const dot = L.circleMarker([to.lat, to.lng], {
-                    radius: 5, color: '#ff9500', fillColor: '#ff9500',
-                    fillOpacity: 0.9, weight: 1.5,
-                }).bindTooltip(to.label, { permanent: false, direction: 'top', className: 'path-tooltip' }).addTo(map);
-                _overlayLayers.push(dot);
-            }
+            features.push({
+                type: 'Feature',
+                // label (if any) is the digipeater/igate at this hop's far end;
+                // issue #134 consumes it for hop tooltips.
+                properties: { kind: 'path', label: waypoints[i + 1].label },
+                geometry: {
+                    type: 'LineString',
+                    coordinates: [[waypoints[i].lng, waypoints[i].lat], [waypoints[i + 1].lng, waypoints[i + 1].lat]],
+                },
+            });
         }
 
         // --- Distance line to My Position ---
         const myPos = getMyPosition();
         if (myPos) {
-            const distKm = haversineKm(stLat, stLng, myPos.lat, myPos.lng);
-            const distMi = (distKm * 0.621371).toFixed(1);
-            const distLine = L.polyline([[stLat, stLng], [myPos.lat, myPos.lng]], {
-                color: 'var(--distance-line-color, #00bfff)',
-                weight: 1.5, opacity: 0.7, dashArray: '4,8',
-            }).addTo(map);
-            _overlayLayers.push(distLine);
-            const midLat = (stLat + myPos.lat) / 2;
-            const midLng = (stLng + myPos.lng) / 2;
-            const distLabel = L.marker([midLat, midLng], {
-                icon: L.divIcon({
-                    html: `<div class="distance-label">${distKm.toFixed(1)}&thinsp;km&ensp;/&ensp;${distMi}&thinsp;mi</div>`,
-                    className: '',
-                    iconSize: [110, 20],
-                    iconAnchor: [55, 10],
-                }),
-                interactive: false,
-            }).addTo(map);
-            _overlayLayers.push(distLabel);
+            features.push({
+                type: 'Feature',
+                properties: { kind: 'distance' },
+                geometry: {
+                    type: 'LineString',
+                    coordinates: [[stLng, stLat], [myPos.lng, myPos.lat]],
+                },
+            });
         }
 
+        _overlayFC = { type: 'FeatureCollection', features };
+        refreshOverlaySource();
         highlightStationLogRow(callsign);
     }
 
@@ -1555,65 +1646,25 @@
         }
     }
 
-    // --- SVG Arc Animation Icons ---
-    function createTransmitArcIcon(index, color) {
-        const strokeColor = color || themeColor('--route-tx-rf');
+    // --- Arc Animation (MapLibre) ---
+    /** Pulsing ring marker standing in for the old Leaflet SVG arc icons. */
+    function createArcMarker(lat, lng, index, color) {
         const size = 40 + (index * 8);
-        const center = size / 2;
-        const radius = 10 + (index * 7);
-        const arcAngle = 50;
-        const startAngle = 180 + (90 - arcAngle / 2);
-        const endAngle = startAngle + arcAngle;
-        function polarToCartesian(cx, cy, r, angleDeg) {
-            const rad = (angleDeg * Math.PI) / 180;
-            return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
-        }
-        const lStart = polarToCartesian(center, center, radius, startAngle);
-        const lEnd = polarToCartesian(center, center, radius, endAngle);
-        const leftArc = `M ${lStart.x} ${lStart.y} A ${radius} ${radius} 0 0 1 ${lEnd.x} ${lEnd.y}`;
-        const rStartAngle = 360 - endAngle + 180;
-        const rEndAngle = rStartAngle + arcAngle;
-        const rStart = polarToCartesian(center, center, radius, rStartAngle);
-        const rEnd = polarToCartesian(center, center, radius, rEndAngle);
-        const rightArc = `M ${rStart.x} ${rStart.y} A ${radius} ${radius} 0 0 1 ${rEnd.x} ${rEnd.y}`;
-        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-            <path d="${leftArc}" fill="none" stroke="${strokeColor}" stroke-width="3" stroke-linecap="round" stroke-opacity="0.7"/>
-            <path d="${rightArc}" fill="none" stroke="${strokeColor}" stroke-width="3" stroke-linecap="round" stroke-opacity="0.7"/>
-        </svg>`;
-        const svgUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
-        return L.icon({ iconUrl: svgUrl, iconSize: [size, size], iconAnchor: [center, center] });
+        const el = document.createElement('div');
+        el.className = 'arc-burst';
+        el.style.width = size + 'px';
+        el.style.height = size + 'px';
+        el.style.setProperty('--arc-color', color);
+        return new maplibregl.Marker({ element: el, anchor: 'center' })
+            .setLngLat([lng, lat]);
     }
 
-    function createReceiveArcIcon(index) {
-        const size = 40 + (index * 8);
-        const center = size / 2;
-        const radius = 10 + (index * 7);
-        const arcAngle = 50;
-        const startAngle = 90 + (90 - arcAngle / 2);
-        const endAngle = startAngle + arcAngle;
-        function polarToCartesian(cx, cy, r, angleDeg) {
-            const rad = (angleDeg * Math.PI) / 180;
-            return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
-        }
-        const tStart = polarToCartesian(center, center, radius, startAngle);
-        const tEnd = polarToCartesian(center, center, radius, endAngle);
-        const topArc = `M ${tStart.x} ${tStart.y} A ${radius} ${radius} 0 0 1 ${tEnd.x} ${tEnd.y}`;
-        const bStartAngle = 360 - endAngle + 180;
-        const bEndAngle = bStartAngle + arcAngle;
-        const bStart = polarToCartesian(center, center, radius, bStartAngle);
-        const bEnd = polarToCartesian(center, center, radius, bEndAngle);
-        const bottomArc = `M ${bStart.x} ${bStart.y} A ${radius} ${radius} 0 0 1 ${bEnd.x} ${bEnd.y}`;
-        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-            <path d="${topArc}" fill="none" stroke="${themeColor('--route-rx')}" stroke-width="3" stroke-linecap="round" stroke-opacity="0.7"/>
-            <path d="${bottomArc}" fill="none" stroke="${themeColor('--route-rx')}" stroke-width="3" stroke-linecap="round" stroke-opacity="0.7"/>
-        </svg>`;
-        const svgUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
-        return L.icon({ iconUrl: svgUrl, iconSize: [size, size], iconAnchor: [center, center] });
-    }
-
-    // --- Route Polylines ---
+    // --- Route Polylines (GeoJSON features for the 'tx-arcs' line source) ---
+    // Returns { features, labels }: line features plus, when showRouteDistances
+    // is on, per-hop km/mi label markers (`.route-distance-label`, same text
+    // and units as the Leaflet implementation).
     function createRoutingPolylines(stationLat, stationLng, pathInfo) {
-        if (!pathInfo) return [];
+        if (!pathInfo) return { features: [], labels: [] };
         const waypoints = [{ lat: stationLat, lng: stationLng }];
         for (const digiCall of pathInfo.digipeaters) {
             const pos = getStationPosition(digiCall);
@@ -1623,50 +1674,34 @@
             const pos = getStationPosition(pathInfo.igate);
             if (pos) waypoints.push(pos);
         }
-        if (waypoints.length < 2) return [];
-        const elements = [];
+        const features = [];
+        const labels = [];
         for (let i = 0; i < waypoints.length - 1; i++) {
-            const from = L.latLng(waypoints[i].lat, waypoints[i].lng);
-            const to = L.latLng(waypoints[i + 1].lat, waypoints[i + 1].lng);
-            const line = L.polyline(
-                [[from.lat, from.lng], [to.lat, to.lng]],
-                { color: themeColor('--route-tcpip-line'), weight: 3, opacity: 0.6, dashArray: '4,8', lineCap: 'round', lineJoin: 'round' }
-            );
-            elements.push(line);
-
+            const from = waypoints[i];
+            const to = waypoints[i + 1];
+            features.push({
+                type: 'Feature',
+                geometry: {
+                    type: 'LineString',
+                    coordinates: [[from.lng, from.lat], [to.lng, to.lat]],
+                },
+            });
             if (showRouteDistances) {
-                const distMeters = from.distanceTo(to);
-                const distKm = distMeters / 1000;
-                const distMiles = distMeters / 1609.344;
-                const label = `${distKm.toFixed(2)} km / ${distMiles.toFixed(2)} mi`;
-                // Midpoint in screen space
-                const fromPt = map.latLngToContainerPoint(from);
-                const toPt = map.latLngToContainerPoint(to);
-                const midPt = L.point((fromPt.x + toPt.x) / 2, (fromPt.y + toPt.y) / 2);
-                // Compute screen-space angle from the two endpoints
-                const dx = toPt.x - fromPt.x;
-                const dy = toPt.y - fromPt.y;
-                let angle = Math.atan2(dy, dx) * 180 / Math.PI;
-                // Keep text readable (not upside-down)
-                if (angle > 90) angle -= 180;
-                if (angle < -90) angle += 180;
-                // Offset perpendicular to the line (above it) by 8 pixels
-                const len = Math.sqrt(dx * dx + dy * dy) || 1;
-                const perpX = -dy / len * 8;
-                const perpY =  dx / len * 8;
-                const offsetPt = L.point(midPt.x + perpX, midPt.y + perpY);
-                const offsetLatLng = map.containerPointToLatLng(offsetPt);
-                const icon = L.divIcon({
-                    className: 'route-distance-label',
-                    html: `<span style="transform:rotate(${angle.toFixed(1)}deg);transform-origin:center center">${label}</span>`,
-                    iconSize: [120, 16],
-                    iconAnchor: [60, 8],
-                });
-                const marker = L.marker(offsetLatLng, { icon, interactive: false });
-                elements.push(marker);
+                const distKm = haversineKm(from.lat, from.lng, to.lat, to.lng);
+                const distMiles = distKm / 1.609344;
+                const el = document.createElement('div');
+                el.className = 'route-distance-label';
+                el.style.pointerEvents = 'none';
+                const span = document.createElement('span');
+                span.textContent = `${distKm.toFixed(2)} km / ${distMiles.toFixed(2)} mi`;
+                el.appendChild(span);
+                // Geographic midpoint (Leaflet offset the label perpendicular
+                // and rotated it; a centered mid-hop label keeps it readable).
+                labels.push(new maplibregl.Marker({ element: el, anchor: 'center' })
+                    .setLngLat([(from.lng + to.lng) / 2, (from.lat + to.lat) / 2]));
             }
         }
-        return elements;
+        return { features, labels };
     }
 
     // --- Animation Lifecycle ---
@@ -1679,7 +1714,7 @@
         for (let i = activeAnimationElements.length - 1; i >= 0; i--) {
             const entry = activeAnimationElements[i];
             if (now >= entry.removeAt) {
-                try { map.removeLayer(entry.element); } catch (e) { /* already removed */ }
+                try { entry.element(); } catch (e) { /* already removed */ }
                 activeAnimationElements.splice(i, 1);
             }
         }
@@ -1691,30 +1726,28 @@
 
     // --- Animation Playback ---
     function playReceiveAnimation(callsign, lat, lng) {
-        // TODO(#126): transmit/receive arc animations not ported to MapLibre.
-        if (mainMapIsMaplibre) return;
         const now = Date.now();
         const throttleKey = 'rx_' + callsign;
         if (animationThrottle[throttleKey] && now - animationThrottle[throttleKey] < ANIMATION_COOLDOWN_MS) return;
         animationThrottle[throttleKey] = now;
-        const latLng = [lat, lng];
+        const rxColor = themeColor('--route-rx');
+        // Three pulsing rings; same absolute timings as Leaflet (62bf407):
+        // largest added at t=0, smallest at t=300, removed at 800/900/1000.
         const arcMarkers = [];
-        for (let i = 1; i <= 3; i++) {
-            const m = L.marker(latLng, { icon: createReceiveArcIcon(i), interactive: false, zIndexOffset: 1000 });
+        for (let i = 0; i < 3; i++) {
+            const m = createArcMarker(lat, lng, i + 1, rxColor);
             arcMarkers.push(m);
-            trackAnimationElement(m, now + 1100);
+            trackAnimationElement(() => m.remove(), now + 1100);
         }
         arcMarkers[2].addTo(map);
-        setTimeout(() => { arcMarkers[1].addTo(map); }, 150);
-        setTimeout(() => { arcMarkers[0].addTo(map); }, 300);
-        setTimeout(() => { map.removeLayer(arcMarkers[2]); }, 800);
-        setTimeout(() => { map.removeLayer(arcMarkers[1]); }, 900);
-        setTimeout(() => { map.removeLayer(arcMarkers[0]); }, 1000);
+        setTimeout(() => arcMarkers[1].addTo(map), 150);
+        setTimeout(() => arcMarkers[0].addTo(map), 300);
+        setTimeout(() => arcMarkers[2].remove(), 800);
+        setTimeout(() => arcMarkers[1].remove(), 900);
+        setTimeout(() => arcMarkers[0].remove(), 1000);
     }
 
     function playTransmitAnimation(callsign, lat, lng, pathArray) {
-        // TODO(#126): transmit/receive arc animations not ported to MapLibre.
-        if (mainMapIsMaplibre) return;
         const now = Date.now();
         if (animationThrottle[callsign] && now - animationThrottle[callsign] < ANIMATION_COOLDOWN_MS) return;
         animationThrottle[callsign] = now;
@@ -1724,18 +1757,40 @@
                 if (animationThrottle[key] < cutoff) delete animationThrottle[key];
             }
         }
-        const latLng = [lat, lng];
         const pathInfo = parsePath(pathArray);
         const txColor = pathInfo.isTcpip ? themeColor('--route-tx-tcpip') : themeColor('--route-tx-rf');
+        // Pulsing rings at the station; absolute timings as Leaflet (62bf407):
+        // added at 0/150/300, removed at 800/900/1000.
         const arcMarkers = [];
-        for (let i = 1; i <= 3; i++) {
-            const m = L.marker(latLng, { icon: createTransmitArcIcon(i, txColor), interactive: false, zIndexOffset: 1000 });
+        for (let i = 0; i < 3; i++) {
+            const m = createArcMarker(lat, lng, i + 1, txColor);
             arcMarkers.push(m);
-            trackAnimationElement(m, now + 1100);
+            trackAnimationElement(() => m.remove(), now + 1100);
         }
-        const routingLines = createRoutingPolylines(lat, lng, pathInfo);
-        for (const line of routingLines) {
-            trackAnimationElement(line, now + 5500);
+        // Routing arcs as line features + per-hop distance labels, both removed
+        // with the lines (Leaflet timed the lines out at 5000; cleanup guards 5500).
+        const routing = createRoutingPolylines(lat, lng, pathInfo);
+        const routingFeatures = routing.features;
+        const routingLabels = routing.labels;
+        const removeRouting = () => {
+            for (const label of routingLabels) label.remove();
+            removeArcFeatures(routingFeatures);
+        };
+        arcMarkers[0].addTo(map);
+        setTimeout(() => arcMarkers[1].addTo(map), 150);
+        setTimeout(() => {
+            arcMarkers[2].addTo(map);
+            if (routingFeatures.length > 0) {
+                addArcFeatures(routingFeatures);
+                for (const label of routingLabels) label.addTo(map);
+                trackAnimationElement(removeRouting, now + 5500);
+            }
+        }, 300);
+        setTimeout(() => arcMarkers[0].remove(), 800);
+        setTimeout(() => arcMarkers[1].remove(), 900);
+        setTimeout(() => arcMarkers[2].remove(), 1000);
+        if (routingFeatures.length > 0) {
+            setTimeout(removeRouting, 5000);
         }
         const receivers = [];
         for (const digiCall of pathInfo.digipeaters) {
@@ -1746,23 +1801,9 @@
             const pos = getStationPosition(pathInfo.igate);
             if (pos) receivers.push({ callsign: pathInfo.igate, lat: pos.lat, lng: pos.lng });
         }
-        arcMarkers[0].addTo(map);
-        setTimeout(() => { arcMarkers[1].addTo(map); }, 150);
-        setTimeout(() => {
-            arcMarkers[2].addTo(map);
-            for (const line of routingLines) line.addTo(map);
-        }, 300);
-        setTimeout(() => { map.removeLayer(arcMarkers[0]); }, 800);
-        setTimeout(() => { map.removeLayer(arcMarkers[1]); }, 900);
-        setTimeout(() => { map.removeLayer(arcMarkers[2]); }, 1000);
         for (let i = 0; i < receivers.length; i++) {
             const rx = receivers[i];
             setTimeout(() => { playReceiveAnimation(rx.callsign, rx.lat, rx.lng); }, 300 + (i * 300));
-        }
-        if (routingLines.length > 0) {
-            setTimeout(() => {
-                for (const line of routingLines) map.removeLayer(line);
-            }, 5000);
         }
     }
 
@@ -2204,8 +2245,9 @@
             applyFilterToRow(row, callsign, type, txrx, search);
         });
 
-        // Filter map markers (maplibre: rebuild the station GeoJSON source)
+        // Filter map markers + track lines (rebuild the GeoJSON sources)
         scheduleStationRefresh();
+        refreshStationTrackSource();
     }
 
     function applyFilterToRow(row, callsign, type, txrx, search) {
@@ -2525,6 +2567,13 @@
         });
         stations = {};
         scheduleStationRefresh();
+        // Clear track / overlay / arc line data (maplibre GeoJSON sources)
+        for (const cs of Object.keys(stationTracks)) delete stationTracks[cs];
+        _overlayFC = { type: 'FeatureCollection', features: [] };
+        _arcFC = { type: 'FeatureCollection', features: [] };
+        refreshStationTrackSource();
+        refreshOverlaySource();
+        refreshArcSource();
         // Clear position cache
         Object.keys(stationPositionCache).forEach(function (k) {
             delete stationPositionCache[k];
