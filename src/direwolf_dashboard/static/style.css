@@ -943,25 +943,6 @@ a.secondary.btn-as-link:hover {
     transition: width 0.3s;
 }
 
-/* Leaflet overrides for dark theme */
-.leaflet-container {
-    background: var(--bg-secondary);
-}
-
-.leaflet-tile {
-    filter: var(--tile-filter);
-}
-
-.leaflet-popup-content-wrapper {
-    background: var(--modal-bg);
-    color: var(--text-primary);
-    border: 1px solid var(--border);
-}
-
-.leaflet-popup-tip {
-    background: var(--modal-bg);
-}
-
 /* MapLibre popup overrides for dark theme (issue #125) */
 .maplibregl-popup-content {
     background: var(--modal-bg);

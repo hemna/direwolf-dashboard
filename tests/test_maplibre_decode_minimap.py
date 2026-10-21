@@ -42,8 +42,8 @@ def test_minimap_webgl_fallback_and_cleanup():
     assert "decodeMiniMap.remove()" in _fn("closeDecodeModal")
 
 
-def test_icon_markup_shared_with_leaflet_divicon():
-    assert "html: createSymbolIconHtml(symbolTable, symbolChar, callsign)" in _fn("createSymbolIcon")
+def test_icon_markup_from_shared_html_builder():
+    # The Leaflet divIcon twin was removed in #146; only the MapLibre element remains.
     assert "createSymbolIconHtml(symbolTable, symbolChar, callsign)" in _fn("createSymbolIconElement")
 
 

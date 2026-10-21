@@ -5,8 +5,7 @@ The main map in app.js was swapped from Leaflet (L.map('map') + L.tileLayer of
 static/vendor/maplibre-gl.{js,css}, static/vendor/pmtiles.js and the basemap kit
 sprites/glyphs in static/basemap (local, LAN-offline).
 
-The decode mini-map (decodeMiniMap) intentionally stays Leaflet until #128, so
-index.html keeps loading the vendored leaflet assets too.
+Leaflet itself is gone since #146.
 """
 
 import re
@@ -38,10 +37,10 @@ def test_index_loads_maplibre_vendor_assets():
         assert needle in html, f"index.html missing {needle}"
 
 
-def test_index_keeps_leaflet_loaded_until_129():
-    """leaflet.js stays loaded until #129 retires it (GPX on master still uses it)."""
+def test_index_no_longer_loads_leaflet():
+    """Leaflet is fully retired (#146); see test_no_leaflet.py."""
     html = INDEX.read_text(encoding="utf-8")
-    assert '<script src="/static/leaflet/leaflet.js"></script>' in html
+    assert "/static/leaflet/" not in html
 
 
 def test_index_has_no_external_asset_urls():

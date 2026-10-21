@@ -5,6 +5,8 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Removed
+
+- Leaflet is gone: the vendored `static/leaflet/` (leaflet.js/css + marker PNGs), its index.html tags, `.leaflet-*` CSS and the dead `L.divIcon`/`L.marker` fallbacks in app.js. The my-position pin is a bottom-anchored 24px MapLibre Marker, like the old divIcon (#146).
 - **OSM tile-cache proxy retired (issue #129)** — `tile_proxy.py`, the
   `/api/tiles/{z}/{x}/{y}.png` and `/api/tiles/preload` endpoints, the
   `tiles` config section, and the Settings "Map Tiles" pre-download panel are

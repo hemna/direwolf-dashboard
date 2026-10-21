@@ -7,7 +7,7 @@ A lightweight, web-based live display of [Direwolf](https://github.com/wb2osz/di
 ## Features
 
 ### Map & Stations
-- **Live Leaflet map** with APRS symbol icons, callsign labels, and movement trails
+- **Live MapLibre map** with APRS symbol icons, callsign labels, and movement trails
 - **Live stats overlay** — station count, packet count, packets/hour, and server uptime (togglable in Settings)
 - **Animated RF activity** — transmit/receive arc animations with packet route visualization via digipeaters and IGates
 - **Collapsible map legend** showing animation and trail symbols
@@ -46,7 +46,7 @@ A lightweight, web-based live display of [Direwolf](https://github.com/wb2osz/di
 ### Operations
 - **All settings configurable via the web UI** — station info, default map zoom, Direwolf connection, retention, stats overlay
 - **Configurable data directory** — single `data_dir` setting controls where all writable data lives; essential for readonly root filesystems (e.g. DigiPi)
-- **Fully offline** — all assets (JS, CSS, Leaflet, APRS symbol sprites) served locally; no CDN or external URLs
+- **Fully offline** — all assets (JS, CSS, MapLibre, basemap tiles, APRS symbol sprites) served locally; no CDN or external URLs
 - **Single async Python process** — ~30–50 MB RAM, one systemd service
 
 ---
@@ -494,8 +494,7 @@ direwolf-dashboard/
 │       ├── index.html               # Single-page app shell
 │       ├── app.js                   # All client-side JS (vanilla, IIFE)
 │       ├── style.css                # Dark/light theme CSS
-│       ├── symbols/                 # Vendored APRS symbol sprites (offline)
-│       └── leaflet/                 # Vendored Leaflet + plugins
+│       └── symbols/                 # Vendored APRS symbol sprites (offline)
 └── tests/                           # 244 tests (pytest)
 ```
 
