@@ -5,7 +5,7 @@ from unittest import mock
 
 import pytest
 from pmtiles.reader import Reader
-from pmtiles.tile import deserialize_header, zxy_to_tileid
+from pmtiles.tile import deserialize_header
 
 from direwolf_dashboard import basemap_auto, basemap_extract
 from direwolf_dashboard.basemap import bbox_around
