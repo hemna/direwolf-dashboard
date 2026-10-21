@@ -146,3 +146,122 @@ def test_popup_open_handler_registered_before_add():
 def test_open_popup_content_refreshed_on_update():
     js = APP_JS.read_text(encoding="utf-8")
     assert "activePopup.setDOMContent(stations[cs].popupDiv)" in js
+
+
+# ---------------------------------------------------------------------------
+# issue #135: absolute sprite/glyph URLs + zoom parity (-1 vs Leaflet)
+# ---------------------------------------------------------------------------
+
+
+def test_absolutize_style_urls_helper_present():
+    """fetchStyleForTheme must rewrite sprite array entries + glyphs to
+    absolute URLs (MapLibre rejects relative sprite URLs, issue #135)."""
+    js = APP_JS.read_text(encoding="utf-8")
+    assert "function absolutizeStyleUrls(style, base)" in js
+    assert "return absolutizeStyleUrls(style, window.location.href);" in js
+    assert "Array.isArray(style.sprite)" in js, "must handle sprite as array of {id,url}"
+    assert "typeof style.sprite === 'string'" in js, "must handle string sprite"
+    assert "style.glyphs = abs(style.glyphs)" in js
+    # glyph template placeholders must survive URL parsing unescaped
+    assert "replace(/%7Bfontstack%7D/g, '{fontstack}')" in js
+    assert "replace(/%7Brange%7D/g, '{range}')" in js
+
+
+def test_overlay_layer_uses_non_null_filter_and_omits_property():
+    """#135: ['has','overlay_hex'] matched explicit nulls; require a real
+    value, and stop emitting the property at all when there is no overlay."""
+    js = APP_JS.read_text(encoding="utf-8")
+    assert "['has', 'overlay_hex']" not in js
+    assert "filter: ['!=', ['get', 'overlay_hex'], null]" in js
+    assert "overlay_hex: (symbolTable" not in js, "must not set overlay_hex to null"
+    assert "props.overlay_hex = hex2(symbolTable);" in js
+
+
+def test_to_ml_zoom_helper_defined():
+    js = APP_JS.read_text(encoding="utf-8")
+    assert "function toMlZoom(leafletZoom) {" in js
+    assert "Math.max(0, leafletZoom - 1)" in js
+
+
+def test_to_ml_zoom_applied_on_every_maplibre_zoom_entry_point():
+    """MapLibre (512px tiles) zoom == Leaflet zoom - 1, so every configured /
+    Leaflet-semantic zoom passed to the maplibre map must go through toMlZoom."""
+    js = APP_JS.read_text(encoding="utf-8")
+    # Every mapFlyTo/mapSetView line must wrap its zoom in toMlZoom; only the
+    # two passthrough helper definitions themselves are exempt.
+    for line in js.splitlines():
+        if ("mapFlyTo(" in line or "mapSetView(" in line) and "toMlZoom" not in line:
+            assert line.strip().startswith("function mapSetView(") or line.strip().startswith("function mapFlyTo("), (
+                f"zoom not mapped to toMlZoom: {line.strip()}"
+            )
+    # initial map view, center FAB, my-location fly-to, auto-follow, focus,
+    # saveMyPosition fly-to, and every initMapCenter branch use the helper.
+    for needle in (
+        "zoom: toMlZoom(zoom),",                      # initMap initial view
+        "mapFlyTo(pos.lat, pos.lng, toMlZoom(zoom));",  # center FAB + my-location
+        "mapFlyTo(packet.latitude, packet.longitude, toMlZoom(zoom));",  # auto-follow
+        "mapFlyTo(s.data.latitude, s.data.longitude, Math.max(map.getZoom(), toMlZoom(12)));",  # focus
+        "mapSetView(0, 0, toMlZoom(3));",             # cold start
+    ):
+        assert needle in js, f"missing zoom mapping: {needle}"
+
+
+def _extract_js_function(src, name):
+    """Copy a named function (top-level in the IIFE) out of app.js by regex."""
+    m = re.search(r"function %s\(" % re.escape(name), src)
+    if not m:
+        raise AssertionError(f"function {name} not found")
+    start = m.start()
+    i = src.index("{", start)
+    depth = 0
+    for j in range(i, len(src)):
+        if src[j] == "{":
+            depth += 1
+        elif src[j] == "}":
+            depth -= 1
+            if depth == 0:
+                return src[start : j + 1]
+    raise AssertionError(f"unbalanced braces in {name}")
+
+
+def test_absolutize_style_urls_and_zoom_mapping_in_node():
+    """Run the two helpers, verbatim from app.js, under node (issue #135)."""
+    if not shutil.which("node"):
+        pytest.skip("node not installed")
+    js = APP_JS.read_text(encoding="utf-8")
+    absolutize = _extract_js_function(js, "absolutizeStyleUrls")
+    to_ml_zoom = _extract_js_function(js, "toMlZoom")
+
+    fstack = "{fontstack}"
+    range_ph = "{range}"
+    harness = (
+        absolutize
+        + "\n"
+        + to_ml_zoom
+        + "\n"
+        + 'const arr = absolutizeStyleUrls({ sprite: ['
+        + "{ id: 'default', url: '/static/basemap/sprites/dark' },"
+        + "{ id: 'aprs', url: '/static/basemap/sprites/aprs' }],"
+        + 'glyphs: "/static/basemap/fonts/' + fstack + "/" + range_ph + '.pbf" },'
+        + "'http://localhost:8080/');\n"
+        + "console.log('ARR', arr.sprite[0].url, '|', arr.sprite[1].url, '|', arr.glyphs);\n"
+        + "const str = absolutizeStyleUrls({ sprite: '/static/basemap/sprites/dark' }, 'http://localhost:8080/');\n"
+        + "console.log('STR', str.sprite);\n"
+        + "const absInput = absolutizeStyleUrls("
+        + "{ sprite: 'http://cdn.example.com/sprites/dark', glyphs: 'http://cdn.example.com/{fontstack}/{range}.pbf' },"
+        + "'http://localhost/');\n"
+        + "console.log('ABS', absInput.sprite, '|', absInput.glyphs);\n"
+        + "console.log('ZOOM', toMlZoom(13), toMlZoom(12), toMlZoom(1), toMlZoom(0));\n"
+    )
+    result = subprocess.run(["node", "-e", harness], capture_output=True, text=True)
+    assert result.returncode == 0, f"node failed:\n{result.stderr}\n{result.stdout}"
+    out = result.stdout
+    assert "ARR http://localhost:8080/static/basemap/sprites/dark" in out
+    assert "http://localhost:8080/static/basemap/sprites/aprs" in out
+    assert "http://localhost:8080/static/basemap/fonts/{fontstack}/{range}.pbf" in out, (
+        "glyph placeholders must stay literal: " + out
+    )
+    assert "STR http://localhost:8080/static/basemap/sprites/dark" in out
+    assert "ABS http://cdn.example.com/sprites/dark" in out, "absolute input must pass through unchanged"
+    assert "http://cdn.example.com/{fontstack}/{range}.pbf" in out
+    assert "ZOOM 12 11 0 0" in out, "Leaflet z maps to max(0, z-1): " + out
