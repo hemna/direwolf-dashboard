@@ -261,7 +261,8 @@ def test_to_ml_zoom_applied_on_every_maplibre_zoom_entry_point():
     # initial map view, center FAB, my-location fly-to, auto-follow, focus,
     # saveMyPosition fly-to, and every initMapCenter branch use the helper.
     for needle in (
-        "zoom: toMlZoom(zoom),",  # initMap initial view
+        # initMap initial view (a #150 URL zoom is already MapLibre zoom)
+        "zoom: urlMapView ? urlMapView.zoom : toMlZoom(zoom),",
         "mapFlyTo(pos.lat, pos.lng, toMlZoom(zoom));",  # center FAB + my-location
         "mapFlyTo(packet.latitude, packet.longitude, toMlZoom(zoom));",  # auto-follow
         "mapFlyTo(s.data.latitude, s.data.longitude, Math.max(map.getZoom(), toMlZoom(12)));",  # focus
