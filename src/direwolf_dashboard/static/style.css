@@ -2646,6 +2646,12 @@ kbd {
     }
 }
 
+/* GPX control (top-left, #127) stays above the legend (bottom-left) when a
+ * short map viewport makes the two control stacks overlap. */
+.maplibregl-ctrl-top-left {
+    z-index: 3;
+}
+
 /* MapLibre hop tooltip (#134): show only the .path-tooltip box. */
 .path-tooltip-popup .maplibregl-popup-content {
     background: transparent;

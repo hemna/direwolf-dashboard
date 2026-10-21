@@ -240,6 +240,11 @@ All notable changes to this project are documented here.
   Closing the popup clears the highlight.
 
 ### Changed
+- **GPX overlay on the MapLibre map (issue #127)** — GPX files are parsed with
+  DOMParser into a GeoJSON source (track / dashed route lines, start / end /
+  waypoint circles) styled like the Leaflet version; the vendored
+  `leaflet/gpx.js` plugin is removed. Load, Fit Map, Clear, legend and
+  localStorage restore work as before.
 - **Decode mini-map on MapLibre (issue #128)** — the packet-decode Location
   map is a small MapLibre instance on the same kit style and region archive as
   the main map (APRS icon markers, popups, dashed path line, same framing);

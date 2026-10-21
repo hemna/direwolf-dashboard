@@ -39,7 +39,7 @@
     let showStatsOverlay = true;   // updated from config on load
     let showMyLocationOverlay = true; // updated from config on load
     let showTimestamps = false;    // updated from config on load
-    let gpxLayer = null;    // Current GPX overlay layer (L.GPX instance)
+    let gpxLayer = null;    // Loaded GPX: { fc, bounds, distanceKm, nTrk, nWpt } (#127)
     let gpxControlEl = null; // Reference to the GPX control DOM element
     let myLocationOverlayEl = null; // Reference to My Location overlay DOM element
     let waitingForPosition = false;
@@ -631,32 +631,140 @@
         }
     }
 
-    // --- GPX Overlay ---
-    function gpxCircleIcon(fillColor, radius) {
-        var size = radius * 2 + 4;
-        return L.divIcon({
-            className: 'gpx-marker',
-            iconSize: [size, size],
-            iconAnchor: [size / 2, size / 2],
-            html: '<svg width="' + size + '" height="' + size + '">' +
-                  '<circle cx="' + (size / 2) + '" cy="' + (size / 2) + '" r="' + radius + '" ' +
-                  'fill="' + fillColor + '" stroke="white" stroke-width="1.5"/></svg>'
+    // --- GPX Overlay (MapLibre GeoJSON source, issue #127) ---
+    // Replaces the vendored leaflet-gpx plugin: the GPX text is parsed with
+    // DOMParser into GeoJSON (tracks, routes, waypoints, start/end points) and
+    // drawn with line + circle layers styled like the Leaflet version.
+    const GPX_EMPTY_FC = { type: 'FeatureCollection', features: [] };
+
+    function _gpxPoints(nodes) {
+        var pts = [];
+        for (var i = 0; i < nodes.length; i++) {
+            var lat = parseFloat(nodes[i].getAttribute('lat'));
+            var lon = parseFloat(nodes[i].getAttribute('lon'));
+            if (isFinite(lat) && isFinite(lon)) pts.push([lon, lat]);
+        }
+        return pts;
+    }
+
+    function _gpxName(el) {
+        var n = el.getElementsByTagName('name')[0];
+        return n ? n.textContent.trim() : '';
+    }
+
+    /** Parse GPX XML text into { fc, bounds, distanceKm, nTrk, nWpt }.
+     *  Throws on unparseable XML. bounds is [[minLng,minLat],[maxLng,maxLat]]
+     *  or null when there is no geometry. */
+    function parseGpxToGeoJSON(gpxText) {
+        var doc = new DOMParser().parseFromString(gpxText, 'application/xml');
+        if (doc.getElementsByTagName('parsererror').length) throw new Error('Invalid GPX');
+        var features = [];
+        var lines = [];
+        var trks = doc.getElementsByTagName('trk');
+        for (var t = 0; t < trks.length; t++) {
+            var segs = trks[t].getElementsByTagName('trkseg');
+            for (var g = 0; g < segs.length; g++) {
+                var pts = _gpxPoints(segs[g].getElementsByTagName('trkpt'));
+                if (pts.length >= 2) lines.push({ kind: 'track', name: _gpxName(trks[t]), pts: pts });
+            }
+        }
+        var rtes = doc.getElementsByTagName('rte');
+        for (var r = 0; r < rtes.length; r++) {
+            var rp = _gpxPoints(rtes[r].getElementsByTagName('rtept'));
+            if (rp.length >= 2) lines.push({ kind: 'route', name: _gpxName(rtes[r]), pts: rp });
+        }
+        var distanceKm = 0;
+        lines.forEach(function (l) {
+            features.push({ type: 'Feature', properties: { kind: l.kind, name: l.name },
+                geometry: { type: 'LineString', coordinates: l.pts } });
+            for (var i = 1; i < l.pts.length; i++) {
+                distanceKm += haversineKm(l.pts[i - 1][1], l.pts[i - 1][0], l.pts[i][1], l.pts[i][0]);
+            }
         });
+        var wpts = doc.getElementsByTagName('wpt');
+        var nWpt = 0;
+        for (var w = 0; w < wpts.length; w++) {
+            var wp = _gpxPoints([wpts[w]]);
+            if (!wp.length) continue;
+            nWpt++;
+            features.push({ type: 'Feature', properties: { kind: 'wpt', name: _gpxName(wpts[w]) },
+                geometry: { type: 'Point', coordinates: wp[0] } });
+        }
+        if (lines.length) {
+            // leaflet-gpx start/end markers: first point of the first line,
+            // last point of the last line.
+            var last = lines[lines.length - 1].pts;
+            features.push({ type: 'Feature', properties: { kind: 'start' },
+                geometry: { type: 'Point', coordinates: lines[0].pts[0] } });
+            features.push({ type: 'Feature', properties: { kind: 'end' },
+                geometry: { type: 'Point', coordinates: last[last.length - 1] } });
+        }
+        var bounds = null;
+        features.forEach(function (f) {
+            var cs = f.geometry.type === 'Point' ? [f.geometry.coordinates] : f.geometry.coordinates;
+            cs.forEach(function (c) {
+                if (!bounds) bounds = [[c[0], c[1]], [c[0], c[1]]];
+                bounds[0][0] = Math.min(bounds[0][0], c[0]); bounds[0][1] = Math.min(bounds[0][1], c[1]);
+                bounds[1][0] = Math.max(bounds[1][0], c[0]); bounds[1][1] = Math.max(bounds[1][1], c[1]);
+            });
+        });
+        return { fc: { type: 'FeatureCollection', features: features }, bounds: bounds,
+            distanceKm: distanceKm, nTrk: lines.length, nWpt: nWpt };
+    }
+
+    function fitGpxBounds(bounds) {
+        if (!map || !bounds) return;
+        map.fitBounds(bounds, { padding: 40, maxZoom: 16, duration: 0 });
+    }
+
+    /** Add the GPX source + layers (idempotent; re-run after style.load). */
+    function addGpxLayers() {
+        if (!mainMapIsMaplibre || !map || map.getSource('gpx')) return;
+        map.addSource('gpx', { type: 'geojson', data: (gpxLayer && gpxLayer.fc) || GPX_EMPTY_FC });
+        var before = map.getLayer('stations-symbol-base') ? 'stations-symbol-base' : undefined;
+        map.addLayer({
+            id: 'gpx-track', type: 'line', source: 'gpx',
+            filter: ['==', ['get', 'kind'], 'track'],
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+            paint: { 'line-color': themeColor('--gpx-accent'), 'line-opacity': 0.8, 'line-width': 3 },
+        }, before);
+        map.addLayer({
+            id: 'gpx-route', type: 'line', source: 'gpx',
+            filter: ['==', ['get', 'kind'], 'route'],
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+            paint: { 'line-color': themeColor('--gpx-accent'), 'line-opacity': 0.8, 'line-width': 2,
+                'line-dasharray': [4, 3] },
+        }, before);
+        map.addLayer({
+            id: 'gpx-points', type: 'circle', source: 'gpx',
+            filter: ['in', ['get', 'kind'], ['literal', ['wpt', 'start', 'end']]],
+            paint: {
+                'circle-radius': ['match', ['get', 'kind'], 'wpt', 5, 6],
+                'circle-color': ['match', ['get', 'kind'],
+                    'start', themeColor('--gpx-start'),
+                    'end', themeColor('--gpx-end'),
+                    themeColor('--gpx-waypoint')],
+                'circle-stroke-color': '#ffffff',
+                'circle-stroke-width': 1.5,
+            },
+        }, before);
+    }
+
+    function setGpxData(fc) {
+        if (map && map.getSource && map.getSource('gpx')) map.getSource('gpx').setData(fc || GPX_EMPTY_FC);
     }
 
     function initGpxOverlay() {
-        // TODO(#127): GPX overlay not ported to MapLibre yet.
-        if (mainMapIsMaplibre) return;
+        if (!mainMapIsMaplibre || !map) return;
         var gpxFileInput = document.createElement('input');
         gpxFileInput.type = 'file';
         gpxFileInput.accept = '.gpx,.xml';
         gpxFileInput.style.display = 'none';
         document.body.appendChild(gpxFileInput);
 
-        var GpxControl = L.Control.extend({
-            options: { position: 'topleft' },
-            onAdd: function () {
-                var container = L.DomUtil.create('div', 'gpx-control');
+        function buildGpxControl() {
+                var container = document.createElement('div');
+                container.className = 'gpx-control';
                 container.innerHTML =
                     '<div class="gpx-control-header">' +
                         '<span>\u{1F4CD}</span>' +
@@ -698,8 +806,8 @@
                 });
 
                 container.querySelector('.gpx-btn-fit').addEventListener('click', function () {
-                    if (gpxLayer) {
-                        map.fitBounds(gpxLayer.getBounds());
+                    if (gpxLayer && gpxLayer.bounds) {
+                        fitGpxBounds(gpxLayer.bounds);
                     }
                 });
 
@@ -707,18 +815,14 @@
                     clearGpxOverlay(container);
                 });
 
-                L.DomEvent.disableClickPropagation(container);
-                L.DomEvent.disableScrollPropagation(container);
-
-                this._container = container;
                 return container;
-            }
-        });
+        }
 
-        var gpxControl = new GpxControl();
-        gpxControl.addTo(map);
-        var controlEl = gpxControl._container;
+        map.addControl(mlControl(buildGpxControl, 'top-left'));
+        var controlEl = document.querySelector('.gpx-control');
         gpxControlEl = controlEl;
+        map.on('style.load', addGpxLayers);
+        if (map.isStyleLoaded && map.isStyleLoaded()) addGpxLayers();
 
         // Apply initial visibility from config
         if (!showGpxOverlay) {
@@ -759,105 +863,53 @@
     }
 
     function loadGpxData(controlEl, gpxText, filename) {
-        // Remove existing layer
-        if (gpxLayer) {
-            map.removeLayer(gpxLayer);
-            gpxLayer = null;
-        }
-
+        gpxLayer = null;
+        setGpxData(GPX_EMPTY_FC);
         var errorEl = controlEl.querySelector('.gpx-error');
         errorEl.style.display = 'none';
 
+        var gpx;
         try {
-            gpxLayer = new L.GPX(gpxText, {
-                async: true,
-                parseElements: ['track', 'route', 'waypoint'],
-                polyline_options: [
-                    {
-                        color: themeColor('--gpx-accent'),
-                        opacity: 0.8,
-                        weight: 3,
-                        lineCap: 'round',
-                        lineJoin: 'round'
-                    },
-                    {
-                        color: themeColor('--gpx-accent'),
-                        opacity: 0.8,
-                        weight: 2,
-                        dashArray: '8,6',
-                        lineCap: 'round',
-                        lineJoin: 'round'
-                    }
-                ],
-                markers: {
-                    startIcon: gpxCircleIcon(themeColor('--gpx-start'), 6),
-                    endIcon: gpxCircleIcon(themeColor('--gpx-end'), 6),
-                    wptIcons: { '': gpxCircleIcon(themeColor('--gpx-waypoint'), 5) },
-                    wptTypeIcons: {}
-                }
-            }).on('loaded', function (e) {
-                var gpx = e.target;
-                var layers = gpx.getLayers();
-                if (!layers || layers.length === 0) {
-                    showGpxError(controlEl, 'No tracks or waypoints found');
-                    map.removeLayer(gpxLayer);
-                    gpxLayer = null;
-                    return;
-                }
-
-                // Show loaded state
-                var truncName = filename.length > 20 ? filename.substring(0, 17) + '...' : filename;
-                controlEl.querySelector('.gpx-filename').textContent = truncName;
-                controlEl.querySelector('.gpx-filename').title = filename;
-
-                var distKm = (gpx.get_distance() / 1000).toFixed(1);
-                var parts = [distKm + ' km'];
-                // Count tracks and waypoints from the GPX layers
-                var nTrk = 0, nWpt = 0;
-                gpx.getLayers().forEach(function (layer) {
-                    if (layer instanceof L.Polyline) nTrk++;
-                    else if (layer instanceof L.Marker) nWpt++;
-                });
-                // Subtract start/end markers from waypoint count
-                if (nWpt >= 2) { nWpt -= 2; nTrk = Math.max(nTrk, 1); }
-                if (nTrk > 0) parts.push(nTrk + ' trk');
-                if (nWpt > 0) parts.push(nWpt + ' wpt');
-                controlEl.querySelector('.gpx-info').textContent = parts.join(' \u00B7 ');
-
-                controlEl.querySelector('.gpx-empty').style.display = 'none';
-                controlEl.querySelector('.gpx-loaded').style.display = '';
-
-                // Update legend
-                updateLegendGpx(true);
-
-                // Save to localStorage
-                try {
-                    localStorage.setItem('gpx_overlay', JSON.stringify({
-                        filename: filename,
-                        data: gpxText
-                    }));
-                } catch (e) {
-                    if (e.name === 'QuotaExceededError') {
-                        showGpxError(controlEl, 'Too large to save \u2014 won\u2019t persist on reload');
-                    }
-                }
-
-                map.fitBounds(gpx.getBounds());
-            }).on('error', function (e) {
-                showGpxError(controlEl, 'Invalid GPX file');
-                gpxLayer = null;
-            }).addTo(map);
+            gpx = parseGpxToGeoJSON(gpxText);
         } catch (e) {
-            showGpxError(controlEl, 'Failed to parse GPX file');
-            gpxLayer = null;
+            showGpxError(controlEl, 'Invalid GPX file');
+            return;
         }
+        if (!gpx.fc.features.length) {
+            showGpxError(controlEl, 'No tracks or waypoints found');
+            return;
+        }
+        gpxLayer = gpx;
+        addGpxLayers();
+        setGpxData(gpx.fc);
+
+        // Show loaded state
+        var truncName = filename.length > 20 ? filename.substring(0, 17) + '...' : filename;
+        controlEl.querySelector('.gpx-filename').textContent = truncName;
+        controlEl.querySelector('.gpx-filename').title = filename;
+        var parts = [gpx.distanceKm.toFixed(1) + ' km'];
+        if (gpx.nTrk > 0) parts.push(gpx.nTrk + ' trk');
+        if (gpx.nWpt > 0) parts.push(gpx.nWpt + ' wpt');
+        controlEl.querySelector('.gpx-info').textContent = parts.join(' \u00B7 ');
+        controlEl.querySelector('.gpx-empty').style.display = 'none';
+        controlEl.querySelector('.gpx-loaded').style.display = '';
+
+        updateLegendGpx(true);
+
+        try {
+            localStorage.setItem('gpx_overlay', JSON.stringify({ filename: filename, data: gpxText }));
+        } catch (e) {
+            if (e.name === 'QuotaExceededError') {
+                showGpxError(controlEl, 'Too large to save \u2014 won\u2019t persist on reload');
+            }
+        }
+
+        fitGpxBounds(gpx.bounds);
     }
 
     function clearGpxOverlay(controlEl) {
-        if (gpxLayer) {
-            map.removeLayer(gpxLayer);
-            gpxLayer = null;
-        }
+        gpxLayer = null;
+        setGpxData(GPX_EMPTY_FC);
         controlEl.querySelector('.gpx-empty').style.display = '';
         controlEl.querySelector('.gpx-loaded').style.display = 'none';
         controlEl.querySelector('.gpx-error').style.display = 'none';
