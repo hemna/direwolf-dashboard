@@ -31,7 +31,7 @@ All notable changes to this project are documented here.
 
 ### Added
 
-- **Worldwide offline maps (#148).** On startup the dashboard downloads a region around the station (`basemap.radius_km` 40, `basemap.maxzoom` 13) from the Protomaps planet build, using the `pmtiles` CLI or a new pure-Python extractor. It re-downloads when the station moves and falls back to the world map when there's no position or network. Status is reported in `/api/config` under `basemap.auto`. `basemap fetch` uses the same code and config defaults.
+- **Worldwide offline maps (#148).** On startup the dashboard downloads a region around the station (`basemap.radius_km` 40, `basemap.maxzoom` 13) from the first working `basemap.sources` entry (default: the basemap-kit planet on cloud.hemna.com, then the Protomaps daily build), using the `pmtiles` CLI or a new pure-Python extractor. It re-downloads when the station moves and falls back to the world map when there's no position or network. Status is reported in `/api/config` under `basemap.auto`. `basemap fetch` uses the same code and config defaults.
 - **World fallback under the region basemap (issue #144)** — a vendored z0-4
   world archive (6 MB) is drawn beneath the region archive, so panning past
   the region's edge shows coarse land/water/roads instead of a blank map.

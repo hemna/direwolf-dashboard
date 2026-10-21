@@ -212,9 +212,16 @@ Australia, South America, anywhere. Nothing to build or copy by hand.
    or drop a pin / pick your station in the UI ("My Location").
 2. Start the dashboard with internet access once. In the background it extracts
    a square of `basemap.radius_km` (default **40 km**) around you, up to
-   `basemap.maxzoom` (default **13**), from the daily
-   [Protomaps](https://protomaps.com) planet build. It writes
-   `<data_dir>/basemap/region.pmtiles` plus a `region.json` sidecar.
+   `basemap.maxzoom` (default **13**), from the first working entry of
+   `basemap.sources`:
+   1. the basemap-kit planet on cloud.hemna.com
+      (`https://cloud.hemna.com/basemap-kit/archives/planet.pmtiles`, read with
+      HTTP range requests);
+   2. otherwise the daily [Protomaps](https://protomaps.com) planet build.
+
+   A source that returns 404, can't be reached, or isn't a valid vector PMTiles
+   archive is skipped. The result is `<data_dir>/basemap/region.pmtiles` plus a
+   `region.json` sidecar that records which source was used.
 3. Reload the page. From then on the map is fully offline.
 
 A dense city at the defaults is about 30-45 MB; rural areas are much smaller.
@@ -228,7 +235,10 @@ basemap:
   auto_fetch: true      # false = never download; use what's on disk
   radius_km: 40         # half-width of the square, km
   maxzoom: 13           # 14 roughly doubles the size; 15 again
-  planet_url: ""        # "" = yesterday's build.protomaps.com planet; or a local .pmtiles
+  sources:              # tried in order; first valid archive wins
+    - https://cloud.hemna.com/basemap-kit/archives/planet.pmtiles
+    - protomaps          # = yesterday's build.protomaps.com planet
+  # entries may also be other URLs or local .pmtiles paths
 ```
 
 **No position or no internet?** The map still works. A bundled world map
@@ -236,7 +246,7 @@ basemap:
 cities instead of a blank map. The dashboard retries the download every 5
 minutes until it has a position, then every 6 hours after a network failure.
 `GET /api/config` → `basemap.auto` shows the current state (`no_position`,
-`fetching`, `done`, `failed`, ...).
+`fetching`, `done`, `failed`, ...) and `basemap.auto.source`, the archive the region came from.
 
 If you set `basemap.region_archive` yourself, or copy a `region.pmtiles` without
 `region.json` into the data dir, the dashboard keeps it and never overwrites it.
@@ -259,7 +269,7 @@ build and writes `<data_dir>/basemap/region.pmtiles`. Customize with:
 direwolf-dashboard basemap fetch \
   --bbox=-90,40,-88,42 \        # explicit box: MIN_LON,MIN_LAT,MAX_LON,MAX_LAT
   --maxzoom=15 \                # default basemap.maxzoom (13)
-  --planet=https://build.protomaps.com/20261019.pmtiles \
+  --planet=https://build.protomaps.com/20261019.pmtiles \   # overrides basemap.sources
   --output=/tmp/basemap/region.pmtiles
 ```
 

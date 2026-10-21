@@ -113,7 +113,7 @@ def test_no_position_falls_back_to_world(tmp_path):
 
 def test_network_failure_falls_back_to_world(tmp_path):
     st = basemap_auto.AutoFetchStatus()
-    cfg = _cfg(tmp_path, planet_url="http://127.0.0.1:9/planet.pmtiles")
+    cfg = _cfg(tmp_path, sources=["http://127.0.0.1:9/planet.pmtiles"])
     with mock.patch.object(basemap_auto.shutil, "which", return_value=None):
         done = asyncio.run(basemap_auto.auto_fetch_once(cfg, st, _pos((50.08, 14.42))))
     assert done is False and st.state == "failed" and "world" in st.detail
@@ -132,7 +132,7 @@ def test_disabled_and_explicit_archive_are_respected(tmp_path):
 def test_first_run_downloads_region_and_sidecar(tmp_path):
     planet = make_planet(tmp_path / "planet.pmtiles", maxzoom=6)
     data = tmp_path / "data"
-    cfg = _cfg(data, planet_url=str(planet), maxzoom=6)
+    cfg = _cfg(data, sources=[str(planet)], maxzoom=6)
     st = basemap_auto.AutoFetchStatus()
     with mock.patch.object(basemap_auto.shutil, "which", return_value=None):
         assert asyncio.run(basemap_auto.auto_fetch_once(cfg, st, _pos((-33.87, 151.21))))
@@ -155,6 +155,7 @@ def test_cli_used_when_installed(tmp_path):
         open(cmd[3], "wb").write(b"PMTiles-fake")
 
     with mock.patch.object(basemap_auto.shutil, "which", return_value="/usr/bin/pmtiles"), \
+            mock.patch.object(basemap_auto, "probe_source", return_value={}), \
             mock.patch.object(basemap_auto.subprocess, "run", side_effect=fake_run):
         meta = basemap_auto.fetch_region(35.68, 139.69, 40, 13, str(tmp_path), "https://x/p.pmtiles")
     assert meta["method"] == "pmtiles-cli"
@@ -164,7 +165,7 @@ def test_cli_used_when_installed(tmp_path):
 
 def test_loop_polls_for_position_then_fetches(tmp_path):
     planet = make_planet(tmp_path / "planet.pmtiles", maxzoom=3)
-    cfg = _cfg(tmp_path / "d", planet_url=str(planet), maxzoom=3)
+    cfg = _cfg(tmp_path / "d", sources=[str(planet)], maxzoom=3)
     st = basemap_auto.AutoFetchStatus()
     answers = iter([None, (64.14, -21.94)])  # Reykjavik after the first beacon
 
@@ -188,3 +189,60 @@ def test_config_api_reports_auto_status():
     import inspect
     from direwolf_dashboard import routers
     assert 'd["basemap"]["auto"] = services.basemap_status.to_dict()' in inspect.getsource(routers)
+
+
+# --- source order (cloud.hemna.com first, Protomaps fallback) --------------------
+
+def test_default_sources_cloud_then_protomaps():
+    assert Config().basemap.sources == [
+        "https://cloud.hemna.com/basemap-kit/archives/planet.pmtiles", "protomaps"]
+    assert basemap_auto.resolve_source("protomaps").startswith("https://build.protomaps.com/")
+
+
+def _run_sources(tmp_path, sources):
+    cfg = _cfg(tmp_path / "d", sources=sources, maxzoom=4)
+    st = basemap_auto.AutoFetchStatus()
+    with mock.patch.object(basemap_auto.shutil, "which", return_value=None):
+        done = asyncio.run(basemap_auto.auto_fetch_once(cfg, st, _pos((48.85, 2.35))))
+    return done, st, cfg
+
+
+def test_primary_ok_is_used(tmp_path):
+    primary = make_planet(tmp_path / "cloud.pmtiles", maxzoom=4)
+    backup = make_planet(tmp_path / "protomaps.pmtiles", maxzoom=4)
+    done, st, cfg = _run_sources(tmp_path, [str(primary), str(backup)])
+    assert done and st.state == "done" and st.source == str(primary)
+    assert st.to_dict()["source"] == str(primary)
+    meta = json.loads((tmp_path / "d" / "basemap" / "region.json").read_text())
+    assert meta["source"] == str(primary) and meta["tried"] == []
+
+
+def test_primary_404_falls_back(tmp_path):
+    backup = make_planet(tmp_path / "protomaps.pmtiles", maxzoom=4)
+
+    class Resp:
+        status_code = 404
+        content = b"not found"
+
+    with mock.patch("httpx.Client.get", return_value=Resp()):
+        done, st, _ = _run_sources(
+            tmp_path, ["https://cloud.hemna.com/basemap-kit/archives/planet.pmtiles", str(backup)])
+    assert done and st.state == "done" and st.source == str(backup)
+    meta = json.loads((tmp_path / "d" / "basemap" / "region.json").read_text())
+    assert "HTTP 404" in meta["tried"][0]
+
+
+def test_invalid_primary_archive_falls_back(tmp_path):
+    bad = tmp_path / "bad.pmtiles"
+    bad.write_bytes(b"<html>oops</html>" * 20)
+    backup = make_planet(tmp_path / "protomaps.pmtiles", maxzoom=4)
+    done, st, _ = _run_sources(tmp_path, [str(bad), str(backup)])
+    assert done and st.source == str(backup)
+
+
+def test_all_sources_down_world_fallback(tmp_path):
+    done, st, _ = _run_sources(
+        tmp_path, ["http://127.0.0.1:9/planet.pmtiles", "http://127.0.0.1:9/other.pmtiles"])
+    assert done is False and st.state == "failed"
+    assert "all basemap sources failed" in st.detail and "world" in st.detail
+    assert not (tmp_path / "d" / "basemap" / "region.pmtiles").exists()

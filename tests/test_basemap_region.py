@@ -127,8 +127,9 @@ def test_cli_fetch_success(tmp_path):
         return mock.MagicMock(returncode=0)
 
     with (
-        mock.patch("direwolf_dashboard.cli.shutil.which", return_value="/usr/bin/pmtiles"),
-        mock.patch("direwolf_dashboard.cli.subprocess.run", side_effect=fake_run),
+        mock.patch("direwolf_dashboard.basemap_auto.probe_source", return_value={}),
+        mock.patch("direwolf_dashboard.basemap_auto.shutil.which", return_value="/usr/bin/pmtiles"),
+        mock.patch("direwolf_dashboard.basemap_auto.subprocess.run", side_effect=fake_run),
     ):
         result = CliRunner().invoke(
             cli_main, ["-c", str(cfg), "basemap", "fetch", "--output", str(out)]
@@ -143,7 +144,8 @@ def test_cli_fetch_success(tmp_path):
     cmd = captured["cmd"]
     assert cmd[0:2] == ["pmtiles", "extract"]
     planet, tmp_out = cmd[2], cmd[3]
-    assert planet.startswith("https://build.protomaps.com/") and planet.endswith(".pmtiles")
+    # first configured source: the basemap-kit planet on cloud.hemna.com
+    assert planet == "https://cloud.hemna.com/basemap-kit/archives/planet.pmtiles"
     assert tmp_out == str(out) + ".tmp.pmtiles"
     assert cmd[4].startswith("--bbox=")
     assert cmd[5] == "--maxzoom=13"  # basemap.maxzoom default
@@ -167,8 +169,9 @@ def test_cli_fetch_explicit_bbox_and_flags(tmp_path):
         return mock.MagicMock(returncode=0)
 
     with (
-        mock.patch("direwolf_dashboard.cli.shutil.which", return_value="/usr/bin/pmtiles"),
-        mock.patch("direwolf_dashboard.cli.subprocess.run", side_effect=fake_run),
+        mock.patch("direwolf_dashboard.basemap_auto.probe_source", return_value={}),
+        mock.patch("direwolf_dashboard.basemap_auto.shutil.which", return_value="/usr/bin/pmtiles"),
+        mock.patch("direwolf_dashboard.basemap_auto.subprocess.run", side_effect=fake_run),
     ):
         result = CliRunner().invoke(
             cli_main,
@@ -183,8 +186,8 @@ def test_cli_fetch_explicit_bbox_and_flags(tmp_path):
     assert result.exit_code == 0, result.output
     cmd = result.output  # planet/bbox visible in the printed command / banner
     assert "https://example.com/planet.pmtiles" in cmd
-    assert "--bbox=-90.000000,40.000000,-88.000000,42.000000" in cmd
-    assert "--maxzoom=12" in cmd
+    assert "bbox=-90.000000,40.000000,-88.000000,42.000000" in cmd
+    assert "maxzoom=12" in cmd
 
 
 def test_cli_fetch_without_pmtiles_cli_uses_python_extractor(tmp_path):
@@ -195,7 +198,6 @@ def test_cli_fetch_without_pmtiles_cli_uses_python_extractor(tmp_path):
     data_dir = tmp_path / "data"
     cfg = _write_config(tmp_path, data_dir, 43.0, -89.0)
     with (
-        mock.patch("direwolf_dashboard.cli.shutil.which", return_value=None),
         mock.patch("direwolf_dashboard.basemap_auto.shutil.which", return_value=None),
     ):
         result = CliRunner().invoke(
@@ -226,6 +228,7 @@ def test_cli_fetch_default_output_is_data_dir_region(tmp_path):
         return mock.MagicMock(returncode=0)
 
     with (
+        mock.patch("direwolf_dashboard.basemap_auto.probe_source", return_value={}),
         mock.patch("direwolf_dashboard.basemap_auto.shutil.which", return_value="/usr/bin/pmtiles"),
         mock.patch("direwolf_dashboard.basemap_auto.subprocess.run", side_effect=fake_run),
     ):

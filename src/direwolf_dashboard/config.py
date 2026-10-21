@@ -100,9 +100,13 @@ class BasemapConfig:
     auto_fetch: bool = True
     radius_km: float = 40.0
     maxzoom: int = 13
-    # Planet build to extract from ("" = yesterday's https://build.protomaps.com
-    # build). May also be a local .pmtiles path.
-    planet_url: str = ""
+    # Ordered planet sources to extract from; the first that answers with a
+    # valid vector PMTiles wins. "protomaps" = yesterday's build.protomaps.com
+    # build. Entries may also be other URLs or local .pmtiles paths.
+    sources: list = field(default_factory=lambda: [
+        "https://cloud.hemna.com/basemap-kit/archives/planet.pmtiles",
+        "protomaps",
+    ])
 
 
 @dataclass
@@ -155,7 +159,7 @@ RESTART_REQUIRED_FIELDS = {
     "basemap.auto_fetch",
     "basemap.radius_km",
     "basemap.maxzoom",
-    "basemap.planet_url",
+    "basemap.sources",
 }
 
 

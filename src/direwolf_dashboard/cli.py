@@ -2,7 +2,6 @@
 
 import logging
 import os
-import shutil
 import subprocess
 
 import click
@@ -12,13 +11,10 @@ from direwolf_dashboard import __version__
 from direwolf_dashboard.basemap import (
     FETCHED_REGION_ARCHIVE,
     bbox_around,
-    build_extract_command,
-    default_planet_url,
     parse_bbox,
     sha256_file,
 )
-from direwolf_dashboard import basemap_extract
-from direwolf_dashboard.basemap_auto import fetch_region, region_paths
+from direwolf_dashboard.basemap_auto import extract_with_fallback, fetch_region, region_paths
 from direwolf_dashboard.basemap_extract import ExtractError
 from direwolf_dashboard.config import DEFAULT_CONFIG_PATH, load_config
 
@@ -171,7 +167,8 @@ def basemap():
     "--planet",
     "planet",
     default=None,
-    help="Protomaps planet .pmtiles URL (default: yesterday's UTC build).",
+    help="Planet .pmtiles URL or path to extract from (default: basemap.sources in order: "
+    "cloud.hemna.com basemap-kit planet, then yesterday's Protomaps build).",
 )
 @click.option(
     "--output",
@@ -190,8 +187,7 @@ def fetch(ctx, bbox_text, radius_km, maxzoom, planet, output):
     config = load_config(ctx.obj["config_path"])
     radius_km = config.basemap.radius_km if radius_km is None else radius_km
     maxzoom = config.basemap.maxzoom if maxzoom is None else maxzoom
-    if planet is None:
-        planet = config.basemap.planet_url or default_planet_url()
+    sources = [planet] if planet else list(config.basemap.sources)
 
     if not bbox_text and output is None:
         # The common case: same code path as the automatic startup download,
@@ -203,13 +199,16 @@ def fetch(ctx, bbox_text, radius_km, maxzoom, planet, output):
                 "and no --bbox given. Pass --bbox=MIN_LON,MIN_LAT,MAX_LON,MAX_LAT or set "
                 "station.latitude/longitude in the config."
             )
-        click.echo(f"Downloading {radius_km:g} km around {lat:.4f},{lon:.4f} maxzoom={maxzoom} from {planet}")
+        click.echo(f"Downloading {radius_km:g} km around {lat:.4f},{lon:.4f} maxzoom={maxzoom} "
+                   f"(sources: {', '.join(sources)})")
         try:
-            meta = fetch_region(lat, lon, radius_km, maxzoom, config.data_dir, planet)
+            meta = fetch_region(lat, lon, radius_km, maxzoom, config.data_dir, sources)
         except (subprocess.CalledProcessError, ExtractError, OSError, httpx.HTTPError) as e:
             raise click.ClickException(f"region download failed: {e}") from e
         output = region_paths(config.data_dir)[0]
-        click.echo(f"Wrote {output} via {meta['method']}")
+        for t in meta["tried"]:
+            click.echo(f"  skipped source: {t}")
+        click.echo(f"Wrote {output} from {meta['source']} via {meta['method']}")
         click.echo(f"  size: {meta['bytes']:,} bytes")
         click.echo(f"  sha256: {sha256_file(output)}")
         return
@@ -228,22 +227,15 @@ def fetch(ctx, bbox_text, radius_km, maxzoom, planet, output):
     os.makedirs(os.path.dirname(output), exist_ok=True)
     tmp = output + ".tmp.pmtiles"
 
-    click.echo(f"Downloading bbox={','.join(f'{v:.6f}' for v in bbox)} maxzoom={maxzoom}")
-    if shutil.which("pmtiles"):
-        cmd = build_extract_command(planet, tmp, bbox, maxzoom)
-        click.echo(f"Running: {' '.join(cmd)}")
-        try:
-            subprocess.run(cmd, check=True)
-        except subprocess.CalledProcessError as e:
-            raise click.ClickException(f"pmtiles extract failed with exit code {e.returncode}") from e
-    else:
-        click.echo("pmtiles CLI not found; using the built-in Python extractor")
-        get = (basemap_extract.file_get_bytes(planet) if os.path.isfile(planet)
-               else basemap_extract.http_get_bytes(planet))
-        try:
-            basemap_extract.extract(get, tmp, bbox, maxzoom)
-        except (ExtractError, OSError, httpx.HTTPError) as e:
-            raise click.ClickException(f"region download failed: {e}") from e
+    click.echo(f"Downloading bbox={','.join(f'{v:.6f}' for v in bbox)} maxzoom={maxzoom} "
+               f"(sources: {', '.join(sources)})")
+    try:
+        src, method, tried = extract_with_fallback(sources, tmp, bbox, maxzoom)
+    except ExtractError as e:
+        raise click.ClickException(f"region download failed: {e}") from e
+    for t in tried:
+        click.echo(f"  skipped source: {t}")
+    click.echo(f"Source: {src} via {method}")
 
     os.replace(tmp, output)  # atomic: never leave a partial region.pmtiles
 

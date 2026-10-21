@@ -2,8 +2,9 @@
 
 On startup the dashboard checks whether ``<data_dir>/basemap/region.pmtiles``
 covers the station position. If it doesn't (first run, or the station moved),
-it extracts a square region around the station from the Protomaps planet build
-in the background: with the ``pmtiles`` CLI when it's installed, otherwise
+it extracts a square region around the station in the background from the
+first working entry of ``basemap.sources``: by default the basemap-kit planet
+on cloud.hemna.com (haminfo #221), then the Protomaps daily build: with the ``pmtiles`` CLI when it's installed, otherwise
 with the pure-Python extractor. Nothing needs to be hand-built.
 
 Any failure (no position yet, no network, planet unreachable, region too big)
@@ -48,6 +49,7 @@ class AutoFetchStatus:
     state: str = "idle"  # idle|disabled|no_position|skipped|current|fetching|done|failed
     detail: str = ""
     bbox: list | None = None
+    source: str | None = None
     updated: float = field(default_factory=time.time)
 
     def set(self, state: str, detail: str = "", bbox=None) -> None:
@@ -57,7 +59,8 @@ class AutoFetchStatus:
         LOG.info("basemap auto-fetch: %s %s", state, detail)
 
     def to_dict(self) -> dict:
-        return {"state": self.state, "detail": self.detail, "bbox": self.bbox}
+        return {"state": self.state, "detail": self.detail, "bbox": self.bbox,
+                "source": self.source}
 
 
 def region_paths(data_dir: str) -> tuple[str, str]:
@@ -92,35 +95,102 @@ def needs_fetch(lat: float, lon: float, radius_km: float, maxzoom: int,
     return False, "region covers the station"
 
 
+#: basemap-kit publish layout (CONTRACT.md / scripts/publish.py):
+#: https://cloud.hemna.com/basemap-kit/archives/<id>.pmtiles. The kit's
+#: capped-maxzoom planet archive is published as id "planet" (haminfo #221).
+CLOUD_PLANET_URL = "https://cloud.hemna.com/basemap-kit/archives/planet.pmtiles"
+#: Keyword for yesterday's Protomaps daily build.
+PROTOMAPS = "protomaps"
+DEFAULT_SOURCES = [CLOUD_PLANET_URL, PROTOMAPS]
+
+
+def resolve_source(entry: str) -> str:
+    """Map a ``basemap.sources`` entry to a concrete URL or local path."""
+    entry = (entry or "").strip()
+    return default_planet_url() if entry.lower() == PROTOMAPS else entry
+
+
+def _reader(src: str):
+    return (basemap_extract.file_get_bytes(src) if os.path.isfile(src)
+            else basemap_extract.http_get_bytes(src))
+
+
+def probe_source(src: str, get=None) -> dict:
+    """Read the 127-byte header; raise if missing/unreachable/not a vector PMTiles v3."""
+    from pmtiles.tile import TileType, deserialize_header
+
+    get = get or _reader(src)
+    try:
+        raw = get(0, 127)
+        header = deserialize_header(raw)
+    except basemap_extract.ExtractError:
+        raise
+    except Exception as e:  # MagicNumberNotFound, short read, spec version...
+        raise basemap_extract.ExtractError(f"invalid archive: {type(e).__name__} {e}".strip()) from e
+    if header["tile_type"] != TileType.MVT:
+        raise basemap_extract.ExtractError(f"invalid archive: tile type {header['tile_type']}, need MVT")
+    return header
+
+
+def _extract_from(src: str, tmp: str, bbox, maxzoom: int, use_cli) -> str:
+    cli = shutil.which("pmtiles") if use_cli in (None, True) else None
+    if cli:
+        subprocess.run(build_extract_command(src, tmp, bbox, maxzoom) + ["--quiet"],
+                       check=True, timeout=3600)
+        return "pmtiles-cli"
+    basemap_extract.extract(_reader(src), tmp, bbox, maxzoom, log=LOG.debug)
+    return "python"
+
+
 def fetch_region(lat: float, lon: float, radius_km: float, maxzoom: int,
-                 data_dir: str, planet_url: str | None = None,
-                 use_cli: bool | None = None) -> dict:
-    """Download the region now (blocking). Returns the written metadata."""
+                 data_dir: str, sources=None, use_cli: bool | None = None) -> dict:
+    """Download the region now (blocking), trying ``sources`` in order.
+
+    Each source is probed first (header must be a vector PMTiles v3). A 404,
+    network error, invalid archive or failed extract moves on to the next
+    source. Raises ExtractError listing every attempt if all fail.
+    """
+    if isinstance(sources, str):
+        sources = [sources]
+    sources = list(sources or DEFAULT_SOURCES)
     region, meta_path = region_paths(data_dir)
     os.makedirs(os.path.dirname(region), exist_ok=True)
     bbox = bbox_around(lat, lon, radius_km)
-    planet = planet_url or default_planet_url()
     tmp = region + ".tmp.pmtiles"
-    cli = shutil.which("pmtiles") if use_cli in (None, True) else None
-    if cli:
-        subprocess.run(build_extract_command(planet, tmp, bbox, maxzoom) + ["--quiet"],
-                       check=True, timeout=3600)
-        method = "pmtiles-cli"
-    else:
-        get = (basemap_extract.file_get_bytes(planet) if os.path.isfile(planet)
-               else basemap_extract.http_get_bytes(planet))
-        basemap_extract.extract(get, tmp, bbox, maxzoom, log=LOG.debug)
-        method = "python"
+    src, method, tried = extract_with_fallback(sources, tmp, bbox, maxzoom, use_cli)
     os.replace(tmp, region)
+    LOG.info("basemap region downloaded from %s via %s", src, method)
     meta = {
         "lat": lat, "lon": lon, "radius_km": radius_km, "maxzoom": maxzoom,
-        "bbox": list(bbox), "planet": planet, "method": method,
-        "bytes": os.path.getsize(region),
+        "bbox": list(bbox), "source": src, "planet": src, "method": method,
+        "tried": tried, "bytes": os.path.getsize(region),
         "fetched": datetime.now(UTC).isoformat(timespec="seconds"),
     }
     with open(meta_path, "w") as f:
         json.dump(meta, f, indent=2)
     return meta
+
+
+def extract_with_fallback(sources, tmp: str, bbox, maxzoom: int, use_cli=None):
+    """Extract ``bbox`` into ``tmp`` from the first working source.
+
+    Returns ``(source, method, tried)``; ``tried`` lists failed sources.
+    Raises ExtractError listing every attempt if all fail.
+    """
+    tried = []
+    for entry in sources:
+        src = resolve_source(entry)
+        try:
+            probe_source(src)
+            method = _extract_from(src, tmp, bbox, maxzoom, use_cli)
+        except Exception as e:  # noqa: BLE001 - any failure means "next source"
+            tried.append(f"{src}: {type(e).__name__}: {e}")
+            LOG.warning("basemap source failed, trying next: %s (%s)", src, e)
+            if os.path.exists(tmp):
+                os.remove(tmp)
+            continue
+        return src, method, tried
+    raise basemap_extract.ExtractError("all basemap sources failed: " + " | ".join(tried))
 
 
 async def auto_fetch_once(config, status: AutoFetchStatus, position) -> bool:
@@ -143,17 +213,19 @@ async def auto_fetch_once(config, status: AutoFetchStatus, position) -> bool:
     region, meta_path = region_paths(config.data_dir)
     need, why = needs_fetch(lat, lon, bm.radius_km, bm.maxzoom, region, read_meta(meta_path))
     if not need:
+        status.source = (read_meta(meta_path) or {}).get("source")
         status.set("current", why)
         return True
     status.set("fetching", why, bbox_around(lat, lon, bm.radius_km))
     try:
         meta = await asyncio.to_thread(
             fetch_region, lat, lon, bm.radius_km, bm.maxzoom, config.data_dir,
-            bm.planet_url or None)
+            bm.sources or DEFAULT_SOURCES)
     except Exception as e:  # network, CLI, size guard: never crash the server
         status.set("failed", f"{type(e).__name__}: {e}; using the world map")
         return False
-    status.set("done", f"{meta['bytes']:,} bytes via {meta['method']}; reload the page")
+    status.source = meta["source"]
+    status.set("done", f"{meta['bytes']:,} bytes from {meta['source']} via {meta['method']}; reload the page")
     return True
 
 
