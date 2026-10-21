@@ -1988,20 +1988,13 @@ a.secondary.btn-as-link:hover {
     overflow: hidden;
     background: var(--decode-mini-map-bg);
 }
-#decode-mini-map .leaflet-tile {
-    filter: var(--mini-tile-filter);
-}
-#decode-mini-map .leaflet-control-attribution {
+#decode-mini-map .maplibregl-ctrl-attrib {
     font-size: 9px;
     background: var(--decode-map-attr-bg) !important;
     color: var(--overlay-text-dim) !important;
 }
-#decode-mini-map .leaflet-control-attribution a {
+#decode-mini-map .maplibregl-ctrl-attrib a {
     color: var(--decode-map-attr-link) !important;
-}
-#decode-mini-map .leaflet-div-icon {
-    background: transparent !important;
-    border: none !important;
 }
 .decode-map-unavailable {
     height: 200px;
