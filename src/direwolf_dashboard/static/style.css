@@ -2645,3 +2645,13 @@ kbd {
         grid-template-columns: 1fr;
     }
 }
+
+/* MapLibre hop tooltip (#134): show only the .path-tooltip box. */
+.path-tooltip-popup .maplibregl-popup-content {
+    background: transparent;
+    padding: 0;
+    box-shadow: none;
+}
+.path-tooltip-popup .maplibregl-popup-tip {
+    display: none;
+}

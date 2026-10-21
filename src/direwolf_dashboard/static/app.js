@@ -1215,6 +1215,28 @@
             }, 'stations-symbol-base');
         }
 
+        if (!map.getLayer('station-overlay-hops')) {
+            // Hop dots (Leaflet circleMarker r=5, #ff9500) with hover tooltips (#134).
+            map.addLayer({
+                id: 'station-overlay-hops',
+                type: 'circle',
+                source: 'station-overlay',
+                filter: ['==', ['get', 'kind'], 'hop'],
+                paint: {
+                    'circle-radius': 5,
+                    'circle-color': '#ff9500',
+                    'circle-opacity': 0.9,
+                    'circle-stroke-color': '#ff9500',
+                    'circle-stroke-width': 1.5,
+                },
+            }, 'stations-symbol-base');
+        }
+        if (!_hopHoverBound) {
+            _hopHoverBound = true;
+            map.on('mouseenter', 'station-overlay-hops', onHopEnter);
+            map.on('mouseleave', 'station-overlay-hops', onHopLeave);
+        }
+
         if (!map.getSource('tx-arcs')) {
             map.addSource('tx-arcs', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
             map.addLayer({
@@ -1620,9 +1642,39 @@
     }
 
     var _selectedCallsign = null;
+    var _hopHoverBound = false;
+    var _hopTooltip = null;
+    var _distanceLabelMarker = null;
+
+    function onHopEnter(e) {
+        const f = e.features && e.features[0];
+        if (!f || !f.properties.label) return;
+        map.getCanvas().style.cursor = 'pointer';
+        if (_hopTooltip) _hopTooltip.remove();
+        _hopTooltip = new maplibregl.Popup({
+            closeButton: false, closeOnClick: false, anchor: 'bottom',
+            offset: 8, className: 'path-tooltip-popup',
+        })
+            .setLngLat(f.geometry.coordinates)
+            .setHTML('<div class="path-tooltip">' + escHtml(String(f.properties.label)) + '</div>')
+            .addTo(map);
+    }
+
+    function onHopLeave() {
+        map.getCanvas().style.cursor = '';
+        if (_hopTooltip) { _hopTooltip.remove(); _hopTooltip = null; }
+    }
+
+    /** Leaflet distance-label text: "12.3 km / 7.6 mi" (thin/en spaces). */
+    function distanceLabelHtml(distKm) {
+        const distMi = (distKm * 0.621371).toFixed(1);
+        return `<div class="distance-label">${distKm.toFixed(1)}&thinsp;km&ensp;/&ensp;${distMi}&thinsp;mi</div>`;
+    }
 
     function clearStationOverlay() {
         _overlayFC = { type: 'FeatureCollection', features: [] };
+        if (_distanceLabelMarker) { _distanceLabelMarker.remove(); _distanceLabelMarker = null; }
+        if (_hopTooltip) { _hopTooltip.remove(); _hopTooltip = null; }
         refreshOverlaySource();
         document.querySelectorAll('.log-row.log-row-selected')
             .forEach(el => el.classList.remove('log-row-selected'));
@@ -1670,6 +1722,13 @@
                     coordinates: [[waypoints[i].lng, waypoints[i].lat], [waypoints[i + 1].lng, waypoints[i + 1].lat]],
                 },
             });
+            if (waypoints[i + 1].label) {
+                features.push({
+                    type: 'Feature',
+                    properties: { kind: 'hop', label: waypoints[i + 1].label },
+                    geometry: { type: 'Point', coordinates: [waypoints[i + 1].lng, waypoints[i + 1].lat] },
+                });
+            }
         }
 
         // --- Distance line to My Position ---
@@ -1683,6 +1742,14 @@
                     coordinates: [[stLng, stLat], [myPos.lng, myPos.lat]],
                 },
             });
+            if (map && typeof maplibregl !== 'undefined') {
+                const el = document.createElement('div');
+                el.innerHTML = distanceLabelHtml(haversineKm(stLat, stLng, myPos.lat, myPos.lng));
+                el.style.pointerEvents = 'none';
+                _distanceLabelMarker = new maplibregl.Marker({ element: el, anchor: 'center' })
+                    .setLngLat([(stLng + myPos.lng) / 2, (stLat + myPos.lat) / 2])
+                    .addTo(map);
+            }
         }
 
         _overlayFC = { type: 'FeatureCollection', features };
