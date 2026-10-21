@@ -1069,7 +1069,26 @@
         if (style.sources && style.sources.protomaps) {
             style.sources.protomaps.url = 'pmtiles://' + new URL('/basemap/region.pmtiles', window.location.href).href;
         }
+        addWorldFallback(style);
         return absolutizeStyleUrls(style, window.location.href);
+    }
+
+    /** World fallback (#144): a vendored z0-4 planet extract drawn, overzoomed,
+     *  under the region's fills/lines so panning past the region archive's
+     *  bounds shows coarse land/water/roads instead of empty background.
+     *  Labels stay region-only (no doubled text). */
+    const WORLD_TILES_URL = '/static/basemap/regions/world.pmtiles';
+    function addWorldFallback(style) {
+        if (!style.sources || !style.sources.protomaps || !Array.isArray(style.layers)) return;
+        style.sources.world = {
+            type: 'vector',
+            url: 'pmtiles://' + new URL(WORLD_TILES_URL, window.location.href).href,
+        };
+        const worldLayers = style.layers
+            .filter(function (l) { return l.source === 'protomaps' && (l.type === 'fill' || l.type === 'line'); })
+            .map(function (l) { return Object.assign({}, l, { id: 'world-' + l.id, source: 'world' }); });
+        const bg = style.layers.findIndex(function (l) { return l.type === 'background'; });
+        style.layers.splice(bg + 1, 0, ...worldLayers);
     }
 
     /** One GeoJSON source + symbol layers for all stations:

@@ -64,3 +64,11 @@ offline.
 - **Bytes:** 6,596,326 B · sha256 `1efc31f57ce799eb0831ab82c3753160d4939f8888f9e601d3a1c261f4f1b450`
 - This is the dev/test region file the server serves (with HTTP Range support,
   see `tests/test_basemap.py`); a real region archive replaces it.
+
+## World fallback archive (`static/basemap/regions/world.pmtiles`)
+
+- **Source:** `pmtiles extract https://build.protomaps.com/20261020.pmtiles world.pmtiles --maxzoom=4`
+  (whole planet, z0-4), built 2026-10-21. Same bytes as haminfo #244's copy.
+- **Bytes:** 6026234 B · sha256 `ab259c5d3716d9a6b8205ce6b4ec3705cbdb879ea9842d1e861cc02e83912f46`
+- **Use (#144):** drawn overzoomed (fills + lines only) beneath the region
+  archive's layers so areas outside the region's bounds are not blank.

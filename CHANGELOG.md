@@ -19,6 +19,9 @@ All notable changes to this project are documented here.
   z = Leaflet z - 1).
 
 ### Added
+- **World fallback under the region basemap (issue #144)** — a vendored z0-4
+  world archive (6 MB) is drawn beneath the region archive, so panning past
+  the region's edge shows coarse land/water/roads instead of a blank map.
 - **Real map region instead of the Florence sample (issue #132)** — the
   basemap is served from `/basemap/region.pmtiles` (HTTP Range) resolved from
   `basemap.region_archive` (absolute or data-dir-relative path; a fetched
