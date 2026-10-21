@@ -43,6 +43,7 @@
     let gpxControlEl = null; // Reference to the GPX control DOM element
     let myLocationOverlayEl = null; // Reference to My Location overlay DOM element
     let waitingForPosition = false;
+    let urlMapView = null;  // view from a shared #zoom/lat/lon link (#150)
     let myPositionPinMarker = null;
     let pinModeActive = false;
 
@@ -1046,13 +1047,31 @@
         const lon = config.station?.longitude || 0;
         const zoom = config.station?.zoom || 12;
 
+        // Shareable view (#150): read #zoom/lat/lon before anything rewrites it.
+        urlMapView = parseMapHash(window.location.hash);
+
         map = new maplibregl.Map({
             container: 'map',
             style: await fetchStyleForTheme(_currentTheme),
-            center: [lon, lat],
-            zoom: toMlZoom(zoom),
+            center: urlMapView ? [urlMapView.lon, urlMapView.lat] : [lon, lat],
+            zoom: urlMapView ? urlMapView.zoom : toMlZoom(zoom),
+            bearing: urlMapView ? urlMapView.bearing : 0,
+            pitch: urlMapView ? urlMapView.pitch : 0,
         });
         map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
+        map.addControl(mlControl(buildZoomReadout, 'top-left'));
+
+        // Keep the URL hash in the haminfo /map format (#zoom/lat/lon) so a
+        // copied link reopens this exact view (#150).
+        map.on('moveend', function () {
+            const h = formatMapHash(map.getZoom(), map.getCenter().lat, map.getCenter().lng,
+                map.getBearing(), map.getPitch());
+            if (window.location.hash !== h) history.replaceState(null, '', h);
+        });
+        window.addEventListener('hashchange', function () {
+            const v = parseMapHash(window.location.hash);
+            if (v) map.jumpTo({ center: [v.lon, v.lat], zoom: v.zoom, bearing: v.bearing, pitch: v.pitch });
+        });
 
         // Persist map center across page refreshes (zoom is always from config)
         map.on('moveend', function () {
@@ -1406,6 +1425,42 @@
             feats.push(stationFeatures[cs]);
         }
         return { type: 'FeatureCollection', features: feats };
+    }
+
+    // --- Shareable map URL (#150) ---
+    /** Parse a haminfo-style map hash: #zoom/lat/lon[/bearing[/pitch]]
+     *  (MapLibre zoom levels). Returns null for anything else, so other
+     *  hashes and out-of-range values leave the normal centering alone. */
+    function parseMapHash(hash) {
+        if (typeof hash !== 'string') return null;
+        const parts = hash.replace(/^#/, '').split('/');
+        if (parts.length < 3 || parts.length > 5) return null;
+        const n = parts.map(function (p) { return p.trim() === '' ? NaN : Number(p); });
+        if (n.some(function (x) { return !isFinite(x); })) return null;
+        const zoom = n[0], lat = n[1], lon = n[2];
+        if (zoom < 0 || zoom > 24 || lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+        return { zoom: zoom, lat: lat, lon: lon, bearing: n[3] || 0, pitch: n[4] || 0 };
+    }
+    /** Format the view like haminfo's /map: #zoom/lat/lon with 4-decimal
+     *  coordinates; bearing/pitch are appended only when non-zero. */
+    function formatMapHash(zoom, lat, lon, bearing, pitch) {
+        let h = '#' + Number(zoom.toFixed(2)) + '/' + lat.toFixed(4) + '/' + lon.toFixed(4);
+        const b = Math.round(bearing || 0), p = Math.round(pitch || 0);
+        if (b !== 0 || p !== 0) h += '/' + b;
+        if (p !== 0) h += '/' + p;
+        return h;
+    }
+    /** Small "z 12.0" readout so the current zoom level is visible. */
+    function formatZoomReadout(zoom) {
+        return 'z ' + zoom.toFixed(1);
+    }
+    function buildZoomReadout() {
+        const el = mlCreate('map-zoom-readout');
+        el.title = 'Current zoom level (same number as in the URL)';
+        const update = function () { el.textContent = formatZoomReadout(map.getZoom()); };
+        map.on('zoom', update);
+        update();
+        return el;
     }
 
     // --- Map view helpers (maplibre) ---
@@ -2930,6 +2985,10 @@
 
     // --- Cold Start / Map Centering ---
     async function initMapCenter() {
+        // Priority -1 (#150): an explicit #zoom/lat/lon in the URL wins over the
+        // saved center and over waiting/auto-follow; the map already opened there.
+        if (urlMapView) return;
+
         // Priority 0: restore last center from localStorage (zoom always from config)
         var savedLat = localStorage.getItem('dw-map-lat');
         var savedLng = localStorage.getItem('dw-map-lng');
