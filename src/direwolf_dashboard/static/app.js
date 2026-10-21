@@ -263,16 +263,6 @@
         return isImperial() ? `${mmToIn(mm).toFixed(2)} in` : `${mm.toFixed(1)} mm`;
     }
 
-    function createSymbolIcon(symbolTable, symbolChar, callsign) {
-        return L.divIcon({
-            html: createSymbolIconHtml(symbolTable, symbolChar, callsign),
-            className: 'aprs-symbol-icon',
-            iconSize: [24, 24],
-            iconAnchor: [12, 12],
-            popupAnchor: [0, -12],
-        });
-    }
-
     /** DOM element for a maplibregl.Marker with the same APRS icon + label
      *  markup as the Leaflet divIcon (decode mini-map, issue #128). */
     function createSymbolIconElement(symbolTable, symbolChar, callsign) {
@@ -1437,7 +1427,7 @@
     }
 
     /** Wrap a DOM-container builder as a MapLibre control (replaces the old
-     *  L.Control.extend pattern for the main map). */
+     *  Leaflet control pattern for the main map). */
     function mlControl(build, position) {
         return {
             getDefaultPosition: function () { return position; },
@@ -2714,11 +2704,6 @@
         if (resumeBtn) resumeBtn.classList.add('hidden');
         // Remove station features / markers from map
         Object.keys(stations).forEach(function (call) {
-            var s = stations[call];
-            if (!mainMapIsMaplibre) {
-                if (s.marker && map) map.removeLayer(s.marker);
-                if (s.track && map) map.removeLayer(s.track);
-            }
             delete stationFeatures[call];
         });
         stations = {};
@@ -3039,57 +3024,38 @@
     function updateMyPositionMarker() {
         // Remove old pin marker if present
         if (myPositionPinMarker) {
-            if (mainMapIsMaplibre) myPositionPinMarker.remove();
-            else map.removeLayer(myPositionPinMarker);
+            myPositionPinMarker.remove();
             myPositionPinMarker = null;
         }
 
         const mp = config.station?.my_position;
         if (!mp || !mp.type) {
-            if (mainMapIsMaplibre) scheduleStationRefresh();
+            scheduleStationRefresh();
             return;
         }
 
         if (mp.type === 'pin' && mp.latitude != null && mp.longitude != null) {
-            if (mainMapIsMaplibre) {
-                if (!map) return;  // no WebGL2 / map failed to init
-                const el = document.createElement('div');
-                el.className = 'my-position-pin';
-                el.innerHTML = '<div class="pin-marker">📌</div>';
-                const popupEl = document.createElement('div');
-                popupEl.innerHTML = '<b>My Position</b><br>(dropped pin)<br>';
-                const btn = document.createElement('button');
-                btn.className = 'popup-btn popup-btn-remove';
-                btn.textContent = 'Remove Pin';
-                btn.addEventListener('click', window._removeMyPosition);
-                popupEl.appendChild(btn);
-                myPositionPinMarker = new maplibregl.Marker({ element: el })
-                    .setLngLat([mp.longitude, mp.latitude])
-                    .setPopup(new maplibregl.Popup({ offset: 20 }).setDOMContent(popupEl))
-                    .addTo(map);
-            } else {
-                const icon = L.divIcon({
-                    className: 'my-position-pin',
-                    html: '<div class="pin-marker">📌</div>',
-                    iconSize: [24, 24],
-                    iconAnchor: [12, 24],
-                    popupAnchor: [0, -24],
-                });
-                myPositionPinMarker = L.marker([mp.latitude, mp.longitude], { icon: icon })
-                    .addTo(map)
-                    .bindPopup('<b>My Position</b><br>(dropped pin)<br><button class="popup-btn popup-btn-remove" onclick="window._removeMyPosition()">Remove Pin</button>');
-            }
+            if (!map) return;  // no WebGL2 / map failed to init
+            const el = document.createElement('div');
+            el.className = 'my-position-pin';
+            el.style.width = '24px';   // old Leaflet iconSize [24, 24]
+            el.style.height = '24px';
+            el.innerHTML = '<div class="pin-marker">📌</div>';
+            const popupEl = document.createElement('div');
+            popupEl.innerHTML = '<b>My Position</b><br>(dropped pin)<br>';
+            const btn = document.createElement('button');
+            btn.className = 'popup-btn popup-btn-remove';
+            btn.textContent = 'Remove Pin';
+            btn.addEventListener('click', window._removeMyPosition);
+            popupEl.appendChild(btn);
+            // Bottom-anchored like the old Leaflet divIcon (iconAnchor [12, 24]).
+            myPositionPinMarker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
+                .setLngLat([mp.longitude, mp.latitude])
+                .setPopup(new maplibregl.Popup({ offset: 24 }).setDOMContent(popupEl))
+                .addTo(map);
         } else if (mp.type === 'station' && mp.callsign) {
-            if (mainMapIsMaplibre) {
-                // Highlight handled via the is_my glow layers (stations-my-glow*).
-                scheduleStationRefresh();
-            } else {
-                const s = stations[mp.callsign];
-                if (s && s.marker) {
-                    const el = s.marker.getElement?.();
-                    if (el) el.classList.add('my-station');
-                }
-            }
+            // Highlight handled via the is_my glow layers (stations-my-glow*).
+            scheduleStationRefresh();
         }
         updateMyLocationOverlay();
     }
@@ -3931,7 +3897,7 @@
         const pathOrder = sections.station.path || [];
 
         // Small MapLibre instance on the same kit style + region archive as
-        // the main map (issue #128; replaces L.map + the OSM tile proxy).
+        // the main map (issue #128; replaces the old Leaflet map + the OSM tile proxy).
         if (typeof maplibregl === 'undefined' || !document.createElement('canvas').getContext('webgl2')) {
             container.outerHTML = '<div class="decode-map-unavailable">Map unavailable (WebGL2 required)</div>';
             return;
