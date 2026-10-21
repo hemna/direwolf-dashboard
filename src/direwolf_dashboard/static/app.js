@@ -1,7 +1,8 @@
 /**
  * Direwolf Dashboard — Client-side application
  *
- * Handles: WebSocket connection, Leaflet map, packet log, filters, settings
+ * Handles: WebSocket connection, MapLibre main map (decode mini-map stays
+ * Leaflet), packet log, filters, settings
  */
 
 (function () {
@@ -17,7 +18,14 @@
     let ws = null;
     let wsReconnectDelay = 1000;
     let config = {};
-    let stations = {};      // callsign -> { marker, track, data }
+    let stations = {};      // callsign -> { data, popupDiv }
+    // Main map is MapLibre (issue #125); Leaflet-only paths are guarded on this.
+    let mainMapIsMaplibre = false;
+    // GeoJSON features (callsign -> Feature) backing the maplibre station layers.
+    let stationFeatures = {};
+    let stationFeatureCollection = { type: 'FeatureCollection', features: [] };
+    let activePopup = null; // current maplibre popup (for close helpers)
+    let activePopupCallsign = null; // station whose popup is open
     let autoScroll = true;
     const MAX_LOG_ROWS = 500;
     let trailHours = 1;  // Current trail duration in hours
@@ -151,6 +159,15 @@
         document.documentElement.setAttribute('data-theme', theme);
         if (!_embedded) localStorage.setItem('dw-theme', theme);
         updateThemeIcon();
+        // Reload the maplibre style for the new theme; station layers are
+        // re-added on the 'style.load' event (theme-dependent paint colors).
+        if (mainMapIsMaplibre && map) {
+            fetchStyleForTheme(theme).then(function (style) {
+                map.setStyle(style);
+            }).catch(function (e) {
+                console.error('Failed to switch map style:', e);
+            });
+        }
     }
 
     function toggleTheme() {
@@ -319,16 +336,14 @@
     }
 
     function initLegend() {
-        const LegendControl = L.Control.extend({
-            options: { position: 'bottomleft' },
-            onAdd: function () {
-                const container = L.DomUtil.create('div', 'map-legend');
-                var txColor = themeColor('--route-tx-rf');
-                var tcpipColor = themeColor('--route-tx-tcpip');
-                var rxColor = themeColor('--route-rx');
-                var trackColor = themeColor('--station-track');
-                var routeColor = themeColor('--route-tcpip-line');
-                container.innerHTML = `
+        if (!map) return;
+        const container = mlCreate('map-legend');
+        var txColor = themeColor('--route-tx-rf');
+        var tcpipColor = themeColor('--route-tx-tcpip');
+        var rxColor = themeColor('--route-rx');
+        var trackColor = themeColor('--station-track');
+        var routeColor = themeColor('--route-tcpip-line');
+        container.innerHTML = `
                     <div class="map-legend-header">
                         Legend <span class="legend-collapse-icon">&#9650;</span>
                     </div>
@@ -366,62 +381,50 @@
                         </div>
                     </div>
                 `;
-                const header = container.querySelector('.map-legend-header');
-                const legendIcon = container.querySelector('.legend-collapse-icon');
-                header.addEventListener('click', () => {
-                    container.classList.toggle('collapsed');
-                    const isCollapsed = container.classList.contains('collapsed');
-                    legendIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
-                    localStorage.setItem('dw-legend-collapsed', isCollapsed ? '1' : '0');
-                });
-                if (localStorage.getItem('dw-legend-collapsed') === '1') {
-                    container.classList.add('collapsed');
-                    legendIcon.textContent = '\u25BC';
-                }
-                L.DomEvent.disableClickPropagation(container);
-                L.DomEvent.disableScrollPropagation(container);
-                return container;
-            },
+        const header = container.querySelector('.map-legend-header');
+        const legendIcon = container.querySelector('.legend-collapse-icon');
+        header.addEventListener('click', () => {
+            container.classList.toggle('collapsed');
+            const isCollapsed = container.classList.contains('collapsed');
+            legendIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
+            localStorage.setItem('dw-legend-collapsed', isCollapsed ? '1' : '0');
         });
-        new LegendControl().addTo(map);
+        if (localStorage.getItem('dw-legend-collapsed') === '1') {
+            container.classList.add('collapsed');
+            legendIcon.textContent = '\u25BC';
+        }
+        map.addControl(mlControl(function () { return container; }, 'bottom-left'));
     }
 
     // --- Stats Overlay ---
     var statsOverlayEl = null;
 
     function initStatsOverlay() {
-        var StatsControl = L.Control.extend({
-            options: { position: 'topleft' },
-            onAdd: function () {
-                var container = L.DomUtil.create('div', 'stats-overlay');
-                container.innerHTML =
-                    '<div class="stats-overlay-header">Stats <span class="stats-collapse-icon">\u25B2</span></div>' +
-                    '<div class="stats-overlay-body">' +
-                    '<div class="stats-overlay-row"><span class="stats-label">Stations</span><span class="stats-value" id="stats-stations">0</span></div>' +
-                    '<div class="stats-overlay-row"><span class="stats-label">Packets</span><span class="stats-value" id="stats-packets">0</span></div>' +
-                    '<div class="stats-overlay-row"><span class="stats-label">Pkts/hr</span><span class="stats-value" id="stats-rate">0</span></div>' +
-                    '<div class="stats-overlay-row"><span class="stats-label">Tiles</span><span class="stats-value" id="stats-tiles">0</span></div>' +
-                    '<div class="stats-overlay-row"><span class="stats-label">Uptime</span><span class="stats-value" id="stats-uptime">0s</span></div>' +
-                    '</div>';
-                var statsHeader = container.querySelector('.stats-overlay-header');
-                var statsIcon = container.querySelector('.stats-collapse-icon');
-                statsHeader.addEventListener('click', function () {
-                    container.classList.toggle('collapsed');
-                    var isCollapsed = container.classList.contains('collapsed');
-                    statsIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
-                    localStorage.setItem('dw-stats-collapsed', isCollapsed ? '1' : '0');
-                });
-                if (localStorage.getItem('dw-stats-collapsed') === '1') {
-                    container.classList.add('collapsed');
-                    statsIcon.textContent = '\u25BC';
-                }
-                L.DomEvent.disableClickPropagation(container);
-                L.DomEvent.disableScrollPropagation(container);
-                statsOverlayEl = container;
-                return container;
-            },
+        if (!map) return;
+        var container = mlCreate('stats-overlay');
+        container.innerHTML =
+            '<div class="stats-overlay-header">Stats <span class="stats-collapse-icon">\u25B2</span></div>' +
+            '<div class="stats-overlay-body">' +
+            '<div class="stats-overlay-row"><span class="stats-label">Stations</span><span class="stats-value" id="stats-stations">0</span></div>' +
+            '<div class="stats-overlay-row"><span class="stats-label">Packets</span><span class="stats-value" id="stats-packets">0</span></div>' +
+            '<div class="stats-overlay-row"><span class="stats-label">Pkts/hr</span><span class="stats-value" id="stats-rate">0</span></div>' +
+            '<div class="stats-overlay-row"><span class="stats-label">Tiles</span><span class="stats-value" id="stats-tiles">0</span></div>' +
+            '<div class="stats-overlay-row"><span class="stats-label">Uptime</span><span class="stats-value" id="stats-uptime">0s</span></div>' +
+            '</div>';
+        var statsHeader = container.querySelector('.stats-overlay-header');
+        var statsIcon = container.querySelector('.stats-collapse-icon');
+        statsHeader.addEventListener('click', function () {
+            container.classList.toggle('collapsed');
+            var isCollapsed = container.classList.contains('collapsed');
+            statsIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
+            localStorage.setItem('dw-stats-collapsed', isCollapsed ? '1' : '0');
         });
-        new StatsControl().addTo(map);
+        if (localStorage.getItem('dw-stats-collapsed') === '1') {
+            container.classList.add('collapsed');
+            statsIcon.textContent = '\u25BC';
+        }
+        statsOverlayEl = container;
+        map.addControl(mlControl(function () { return container; }, 'top-left'));
         if (!showStatsOverlay && statsOverlayEl) {
             statsOverlayEl.style.display = 'none';
         }
@@ -458,123 +461,109 @@
 
     // --- Filter Overlay ---
     function initFilterOverlay() {
-        var FilterControl = L.Control.extend({
-            options: { position: 'topright' },
-            onAdd: function () {
-                var container = L.DomUtil.create('div', 'filter-overlay');
-                container.innerHTML =
-                    '<div class="filter-overlay-header">Filters <span class="filter-collapse-icon">\u25B2</span></div>' +
-                    '<div class="filter-overlay-body">' +
-                    '<div class="filter-overlay-row">' +
-                        '<label class="filter-overlay-label" for="filter-callsign">Callsign</label>' +
-                        '<input type="text" id="filter-callsign" placeholder="Filter..." />' +
-                    '</div>' +
-                    '<div class="filter-overlay-row">' +
-                        '<label class="filter-overlay-label" for="filter-search">Search</label>' +
-                        '<input type="search" id="filter-search" placeholder="Search log..." />' +
-                    '</div>' +
-                    '<div class="filter-overlay-row">' +
-                        '<label class="filter-overlay-label" for="trail-duration">Trails</label>' +
-                        '<select id="trail-duration" title="Trail duration">' +
-                            '<option value="1" selected>1h</option>' +
-                            '<option value="2">2h</option>' +
-                            '<option value="6">6h</option>' +
-                            '<option value="24">24h</option>' +
-                        '</select>' +
-                    '</div>' +
-                    '<div class="filter-overlay-row">' +
-                        '<label class="filter-overlay-label" for="filter-type">Type</label>' +
-                        '<select id="filter-type">' +
-                            '<option value="">All</option>' +
-                            '<option value="GPSPacket">GPS</option>' +
-                            '<option value="MessagePacket">Message</option>' +
-                            '<option value="WeatherPacket">Weather</option>' +
-                            '<option value="StatusPacket">Status</option>' +
-                            '<option value="ObjectPacket">Object</option>' +
-                            '<option value="TelemetryPacket">Telemetry</option>' +
-                        '</select>' +
-                    '</div>' +
-                    '<div class="filter-overlay-row">' +
-                        '<label class="filter-overlay-label" for="filter-txrx">TX/RX</label>' +
-                        '<select id="filter-txrx">' +
-                            '<option value="">All</option>' +
-                            '<option value="rx">RX</option>' +
-                            '<option value="tx">TX</option>' +
-                        '</select>' +
-                    '</div>' +
-                    '</div>';
-                var filterHeader = container.querySelector('.filter-overlay-header');
-                var filterIcon = container.querySelector('.filter-collapse-icon');
-                filterHeader.addEventListener('click', function () {
-                    container.classList.toggle('collapsed');
-                    var isCollapsed = container.classList.contains('collapsed');
-                    filterIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
-                    localStorage.setItem('dw-filter-collapsed', isCollapsed ? '1' : '0');
-                });
-                if (localStorage.getItem('dw-filter-collapsed') === '1') {
-                    container.classList.add('collapsed');
-                    filterIcon.textContent = '\u25BC';
-                }
-                L.DomEvent.disableClickPropagation(container);
-                L.DomEvent.disableScrollPropagation(container);
-                return container;
-            },
+        if (!map) return;
+        var container = mlCreate('filter-overlay');
+        container.innerHTML =
+            '<div class="filter-overlay-header">Filters <span class="filter-collapse-icon">\u25B2</span></div>' +
+            '<div class="filter-overlay-body">' +
+            '<div class="filter-overlay-row">' +
+                '<label class="filter-overlay-label" for="filter-callsign">Callsign</label>' +
+                '<input type="text" id="filter-callsign" placeholder="Filter..." />' +
+            '</div>' +
+            '<div class="filter-overlay-row">' +
+                '<label class="filter-overlay-label" for="filter-search">Search</label>' +
+                '<input type="search" id="filter-search" placeholder="Search log..." />' +
+            '</div>' +
+            '<div class="filter-overlay-row">' +
+                '<label class="filter-overlay-label" for="trail-duration">Trails</label>' +
+                '<select id="trail-duration" title="Trail duration">' +
+                    '<option value="1" selected>1h</option>' +
+                    '<option value="2">2h</option>' +
+                    '<option value="6">6h</option>' +
+                    '<option value="24">24h</option>' +
+                '</select>' +
+            '</div>' +
+            '<div class="filter-overlay-row">' +
+                '<label class="filter-overlay-label" for="filter-type">Type</label>' +
+                '<select id="filter-type">' +
+                    '<option value="">All</option>' +
+                    '<option value="GPSPacket">GPS</option>' +
+                    '<option value="MessagePacket">Message</option>' +
+                    '<option value="WeatherPacket">Weather</option>' +
+                    '<option value="StatusPacket">Status</option>' +
+                    '<option value="ObjectPacket">Object</option>' +
+                    '<option value="TelemetryPacket">Telemetry</option>' +
+                '</select>' +
+            '</div>' +
+            '<div class="filter-overlay-row">' +
+                '<label class="filter-overlay-label" for="filter-txrx">TX/RX</label>' +
+                '<select id="filter-txrx">' +
+                    '<option value="">All</option>' +
+                    '<option value="rx">RX</option>' +
+                    '<option value="tx">TX</option>' +
+                '</select>' +
+            '</div>' +
+            '</div>';
+        var filterHeader = container.querySelector('.filter-overlay-header');
+        var filterIcon = container.querySelector('.filter-collapse-icon');
+        filterHeader.addEventListener('click', function () {
+            container.classList.toggle('collapsed');
+            var isCollapsed = container.classList.contains('collapsed');
+            filterIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
+            localStorage.setItem('dw-filter-collapsed', isCollapsed ? '1' : '0');
         });
-        new FilterControl().addTo(map);
+        if (localStorage.getItem('dw-filter-collapsed') === '1') {
+            container.classList.add('collapsed');
+            filterIcon.textContent = '\u25BC';
+        }
+        map.addControl(mlControl(function () { return container; }, 'top-right'));
     }
 
     // --- My Location Overlay ---
     function initMyLocationOverlay() {
-        var MyLocControl = L.Control.extend({
-            options: { position: 'topright' },
-            onAdd: function () {
-                var container = L.DomUtil.create('div', 'my-location-overlay');
-                container.innerHTML =
-                    '<div class="my-location-header">' +
-                        '<span class="my-location-title">My Location</span>' +
-                        '<span class="my-location-actions">' +
-                            '<span class="my-location-btn my-location-center" title="Center map on my location">&#8982;</span>' +
-                            '<span class="my-location-btn my-location-clear hidden" title="Clear my location">&times;</span>' +
-                            '<span class="my-location-collapse-icon">\u25B2</span>' +
-                        '</span>' +
-                    '</div>' +
-                    '<div class="my-location-body">' +
-                        '<div class="my-location-type">Not set</div>' +
-                        '<div class="my-location-coords"></div>' +
-                    '</div>';
-                L.DomEvent.disableClickPropagation(container);
-                L.DomEvent.disableScrollPropagation(container);
-                // Wire up center button
-                container.querySelector('.my-location-center').addEventListener('click', function () {
-                    var pos = getMyPosition();
-                    if (pos) {
-                        var zoom = config.station?.zoom || 12;
-                        map.flyTo([pos.lat, pos.lng], zoom);
-                    }
-                });
-                // Wire up clear button
-                container.querySelector('.my-location-clear').addEventListener('click', function () {
-                    if (window._removeMyPosition) window._removeMyPosition();
-                });
-                // Wire up collapse toggle
-                var myLocHeader = container.querySelector('.my-location-header');
-                var myLocIcon = container.querySelector('.my-location-collapse-icon');
-                myLocHeader.addEventListener('click', function (e) {
-                    if (e.target.closest('.my-location-btn')) return;
-                    container.classList.toggle('collapsed');
-                    var isCollapsed = container.classList.contains('collapsed');
-                    myLocIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
-                    localStorage.setItem('dw-myloc-collapsed', isCollapsed ? '1' : '0');
-                });
-                if (localStorage.getItem('dw-myloc-collapsed') === '1') {
-                    container.classList.add('collapsed');
-                    myLocIcon.textContent = '\u25BC';
-                }
-                myLocationOverlayEl = container;
-                return container;
-            },
+        if (!map) return;
+        var container = mlCreate('my-location-overlay');
+        container.innerHTML =
+            '<div class="my-location-header">' +
+                '<span class="my-location-title">My Location</span>' +
+                '<span class="my-location-actions">' +
+                    '<span class="my-location-btn my-location-center" title="Center map on my location">&#8982;</span>' +
+                    '<span class="my-location-btn my-location-clear hidden" title="Clear my location">&times;</span>' +
+                    '<span class="my-location-collapse-icon">\u25B2</span>' +
+                '</span>' +
+            '</div>' +
+            '<div class="my-location-body">' +
+                '<div class="my-location-type">Not set</div>' +
+                '<div class="my-location-coords"></div>' +
+            '</div>';
+        // Wire up center button
+        container.querySelector('.my-location-center').addEventListener('click', function () {
+            var pos = getMyPosition();
+            if (pos) {
+                var zoom = config.station?.zoom || 12;
+                mapFlyTo(pos.lat, pos.lng, zoom);
+            }
         });
-        new MyLocControl().addTo(map);
+        // Wire up clear button
+        container.querySelector('.my-location-clear').addEventListener('click', function () {
+            if (window._removeMyPosition) window._removeMyPosition();
+        });
+        // Wire up collapse toggle
+        var myLocHeader = container.querySelector('.my-location-header');
+        var myLocIcon = container.querySelector('.my-location-collapse-icon');
+        myLocHeader.addEventListener('click', function (e) {
+            if (e.target.closest('.my-location-btn')) return;
+            container.classList.toggle('collapsed');
+            var isCollapsed = container.classList.contains('collapsed');
+            myLocIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
+            localStorage.setItem('dw-myloc-collapsed', isCollapsed ? '1' : '0');
+        });
+        if (localStorage.getItem('dw-myloc-collapsed') === '1') {
+            container.classList.add('collapsed');
+            myLocIcon.textContent = '\u25BC';
+        }
+        myLocationOverlayEl = container;
+        map.addControl(mlControl(function () { return container; }, 'top-right'));
         if (!showMyLocationOverlay && myLocationOverlayEl) {
             myLocationOverlayEl.style.display = 'none';
         }
@@ -637,6 +626,8 @@
     }
 
     function initGpxOverlay() {
+        // TODO(#127): GPX overlay not ported to MapLibre yet.
+        if (mainMapIsMaplibre) return;
         var gpxFileInput = document.createElement('input');
         gpxFileInput.type = 'file';
         gpxFileInput.accept = '.gpx,.xml';
@@ -915,7 +906,15 @@
         initMessagesPanelModal();
         initKeyboardHelpModal();
         await loadConfig();
-        initMap();
+        try {
+            await initMap();
+        } catch (e) {
+            // A basemap/style failure must not stop the rest of the dashboard
+            // (websocket, filters, settings) from booting (#125 review).
+            console.error('Map init failed:', e);
+            const mapEl = document.getElementById('map');
+            if (mapEl) mapEl.innerHTML = '<div class="map-webgl-message">The map failed to load.</div>';
+        }
         initCenterFab();
         initLegend();
         initStatsOverlay();
@@ -964,56 +963,226 @@
         }
     }
 
-    // --- Map ---
-    function initMap() {
+    // --- Map (MapLibre main map, issue #125) ---
+    async function initMap() {
+        const container = document.getElementById('map');
+        if (!container) return;
+
+        // The main map never falls back to Leaflet (#125): Leaflet-only main-map
+        // code paths are dead and guarded on this flag, even when WebGL2 fails.
+        mainMapIsMaplibre = true;
+
+        // WebGL2 gate: no legacy fallback, just a plain message (#125)
+        const probe = document.createElement('canvas');
+        if (!probe.getContext('webgl2')) {
+            container.innerHTML = '<div class="map-webgl-message">The interactive map needs WebGL2, which this browser does not provide. Enable WebGL2 (or use a browser that supports it) to see the map.</div>';
+            return;
+        }
+        if (typeof maplibregl === 'undefined' || typeof pmtiles === 'undefined') {
+            container.innerHTML = '<div class="map-webgl-message">The map libraries failed to load.</div>';
+            return;
+        }
+
+        // Register the pmtiles protocol (region archive over HTTP Range)
+        const protocol = new pmtiles.Protocol();
+        maplibregl.addProtocol('pmtiles', protocol.tile);
+
         const lat = config.station?.latitude || 0;
         const lon = config.station?.longitude || 0;
         const zoom = config.station?.zoom || 12;
 
-        map = L.map('map').setView([lat, lon], zoom);
+        map = new maplibregl.Map({
+            container: 'map',
+            style: await fetchStyleForTheme(_currentTheme),
+            center: [lon, lat],
+            zoom: zoom,
+        });
+        map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
 
         // Persist map center across page refreshes (zoom is always from config)
         map.on('moveend', function () {
-            var c = map.getCenter();
+            const c = map.getCenter();
             localStorage.setItem('dw-map-lat', c.lat);
             localStorage.setItem('dw-map-lng', c.lng);
         });
 
-        // Station click overlay: path lines, distance, log highlight
-        map.on('popupopen', function (e) {
-            for (const cs of Object.keys(stations)) {
-                if (stations[cs].marker === e.popup._source) {
-                    showStationOverlay(cs);
-                    break;
-                }
-            }
-        });
-        map.on('popupclose', function () {
-            clearStationOverlay();
-        });
+        // (Re-)add the station source + layers after every style load, including
+        // after theme switches via map.setStyle().
+        map.on('style.load', addStationLayers);
 
-        var tileLayer = L.tileLayer(API_BASE + '/tiles/{z}/{x}/{y}.png', {
-            attribution: '&copy; OpenStreetMap contributors',
-            maxZoom: 18,
-        }).addTo(map);
-
-        // Retry failed tiles after a delay with cache-busting
-        tileLayer.on('tileerror', function (e) {
-            var tile = e.tile;
-            if (!tile._retryCount) tile._retryCount = 0;
-            if (tile._retryCount < 3) {
-                tile._retryCount++;
-                var delay = tile._retryCount * 3000;
-                setTimeout(function () {
-                    // Strip any previous retry param, then append a fresh one
-                    var base = tile.src.replace(/[?&]_retry=\d+/, '');
-                    var sep = base.indexOf('?') === -1 ? '?' : '&';
-                    tile.src = base + sep + '_retry=' + Date.now();
-                }, delay);
-            }
-        });
+        // Station click -> popup (same HTML the Leaflet popups used).
+        map.on('click', 'stations-symbol-base', onStationLayerClick);
+        map.on('click', 'stations-symbol-overlay', onStationLayerClick);
+        map.on('click', 'stations-label', onStationLayerClick);
+        map.on('mouseenter', 'stations-symbol-base', function () { map.getCanvas().style.cursor = 'pointer'; });
+        map.on('mouseleave', 'stations-symbol-base', function () { map.getCanvas().style.cursor = ''; });
 
         setInterval(cleanupAnimations, 10000);
+    }
+
+    /** Fetch the basemap style for a theme, rewriting the protomaps source to
+     *  the pmtiles:// protocol + absolute archive URL. */
+    async function fetchStyleForTheme(theme) {
+        const name = theme === 'light' ? 'light' : 'dark';
+        const resp = await fetch('/static/basemap/style.' + name + '.json');
+        const style = await resp.json();
+        if (style.sources && style.sources.protomaps) {
+            style.sources.protomaps.url = 'pmtiles://' + new URL(style.sources.protomaps.url, window.location.href).href;
+        }
+        return style;
+    }
+
+    /** One GeoJSON source + symbol layers for all stations:
+     *  base APRS icon (aprs:aprs-p-XX / aprs:aprs-a-XX), optional overlay
+     *  icon (aprs:aprs-o-YY) stacked on top, and a callsign text label. */
+    function addStationLayers() {
+        if (!mainMapIsMaplibre || !map) return;
+        if (map.getSource('stations')) return;
+
+        map.addSource('stations', { type: 'geojson', data: stationFeatureCollection });
+
+        map.addLayer({
+            id: 'stations-symbol-base',
+            type: 'symbol',
+            source: 'stations',
+            layout: {
+                'icon-image': [
+                    'case',
+                    ['==', ['get', 'symbol_table'], '/'],
+                    ['concat', 'aprs:aprs-p-', ['get', 'symbol_hex']],
+                    ['concat', 'aprs:aprs-a-', ['get', 'symbol_hex']],
+                ],
+                'icon-size': 1,
+                'icon-allow-overlap': true,
+                'icon-ignore-placement': true,
+            },
+        });
+        map.addLayer({
+            id: 'stations-symbol-overlay',
+            type: 'symbol',
+            source: 'stations',
+            filter: ['has', 'overlay_hex'],
+            layout: {
+                'icon-image': ['concat', 'aprs:aprs-o-', ['get', 'overlay_hex']],
+                'icon-size': 1,
+                'icon-allow-overlap': true,
+                'icon-ignore-placement': true,
+            },
+        });
+        map.addLayer({
+            id: 'stations-label',
+            type: 'symbol',
+            source: 'stations',
+            layout: {
+                'text-field': ['get', 'callsign'],
+                'text-font': ['NotoSansRegular'],
+                'text-size': 11,
+                'text-anchor': 'top',
+                'text-offset': [0, 1.2],
+                'text-allow-overlap': true,
+                'text-ignore-placement': true,
+            },
+            paint: {
+                'text-color': [
+                    'case',
+                    ['get', 'is_my'],
+                    themeColor('--accent'),
+                    themeColor('--text-primary'),
+                ],
+                'text-halo-color': themeColor('--label-shadow'),
+                'text-halo-width': 1,
+            },
+        });
+
+        scheduleStationRefresh();
+    }
+
+    function onStationLayerClick(e) {
+        if (e.features && e.features.length) {
+            openStationPopup(e.features[0].properties.callsign);
+        }
+    }
+
+    function hex2(ch) {
+        return ch.charCodeAt(0).toString(16).padStart(2, '0');
+    }
+
+    // --- Station GeoJSON source refresh (throttled) ---
+    let _stationRefreshPending = false;
+    function scheduleStationRefresh() {
+        if (_stationRefreshPending) return;
+        _stationRefreshPending = true;
+        setTimeout(function () {
+            _stationRefreshPending = false;
+            refreshStations();
+        }, 50);
+    }
+
+    function refreshStations() {
+        if (!mainMapIsMaplibre || !map || !map.getSource('stations')) return;
+        stationFeatureCollection = buildStationFeatureCollection();
+        map.getSource('stations').setData(stationFeatureCollection);
+    }
+
+    /** Rebuild the station FeatureCollection, honoring the current filters
+     *  (visible-only features; mirrors the old per-marker show/hide). */
+    function buildStationFeatureCollection() {
+        const callsign = (document.getElementById('filter-callsign') || {}).value?.toUpperCase() || '';
+        const type = (document.getElementById('filter-type') || {}).value || '';
+        const txrx = (document.getElementById('filter-txrx') || {}).value || '';
+        const isMyCall = config.station?.my_position?.callsign;
+        const feats = [];
+        for (const cs of Object.keys(stationFeatures)) {
+            const s = stations[cs];
+            if (!s) continue;
+            let visible = true;
+            if (callsign && !cs.toUpperCase().includes(callsign)) visible = false;
+            if (type && s.data.type && s.data.type !== type) visible = false;
+            if (txrx && s.data.tx !== undefined) {
+                const txVal = s.data.tx ? 'tx' : 'rx';
+                if (txVal !== txrx) visible = false;
+            }
+            if (!visible) continue;
+            stationFeatures[cs].properties.is_my = cs === isMyCall;
+            feats.push(stationFeatures[cs]);
+        }
+        return { type: 'FeatureCollection', features: feats };
+    }
+
+    // --- Map view helpers (maplibre) ---
+    function mapSetView(lat, lng, zoom) {
+        if (!map) return;
+        map.jumpTo({ center: [lng, lat], zoom: zoom });
+    }
+    function mapFlyTo(lat, lng, zoom) {
+        if (!map) return;
+        map.flyTo({ center: [lng, lat], zoom: zoom });
+    }
+    function closeActivePopup() {
+        if (activePopup) { activePopup.remove(); activePopup = null; }
+    }
+
+    /** Wrap a DOM-container builder as a MapLibre control (replaces the old
+     *  L.Control.extend pattern for the main map). */
+    function mlControl(build, position) {
+        return {
+            getDefaultPosition: function () { return position; },
+            onAdd: function () {
+                this._container = build();
+                this._container.classList.add('maplibregl-ctrl');
+                return this._container;
+            },
+            onRemove: function () {
+                if (this._container && this._container.parentNode) {
+                    this._container.parentNode.removeChild(this._container);
+                }
+            },
+        };
+    }
+    function mlCreate(className) {
+        const el = document.createElement('div');
+        el.className = className;
+        return el;
     }
 
     function initCenterFab() {
@@ -1023,7 +1192,7 @@
             const pos = getMyPosition();
             if (pos) {
                 const zoom = config.station?.zoom || 12;
-                map.flyTo([pos.lat, pos.lng], zoom);
+                mapFlyTo(pos.lat, pos.lng, zoom);
             }
         });
     }
@@ -1054,6 +1223,9 @@
     }
 
     async function loadTracks() {
+        // TODO(#126): station track polylines not ported to MapLibre yet;
+        // skip the fetch entirely until they are.
+        if (mainMapIsMaplibre) return;
         try {
             const resp = await fetch(`${API_BASE}/stations/tracks?hours=${trailHours}`);
             const tracks = await resp.json();
@@ -1081,29 +1253,30 @@
         const symbolChar = data.symbol || '-';
         const symbolTable = data.symbol_table || '/';
 
-        if (stations[cs]) {
-            // Update existing marker
-            stations[cs].marker.setLatLng([data.latitude, data.longitude]);
-            // Update icon if symbol changed
-            const oldKey = (stations[cs].data.symbol_table || '/') + (stations[cs].data.symbol || '-');
-            const newKey = symbolTable + symbolChar;
-            if (oldKey !== newKey) {
-                stations[cs].marker.setIcon(createSymbolIcon(symbolTable, symbolChar, cs));
-            }
-            stations[cs].data = data;
-            updateStationPopup(cs);
-        } else {
-            // Create new marker with APRS symbol icon
-            const icon = createSymbolIcon(symbolTable, symbolChar, cs);
-            const marker = L.marker([data.latitude, data.longitude], { icon: icon }).addTo(map);
+        if (!stations[cs]) {
+            stations[cs] = { data: data, popupDiv: null };
+        }
+        stations[cs].data = data;
 
-            stations[cs] = {
-                marker: marker,
-                track: L.polyline([], { color: themeColor('--station-track'), weight: 1.5, opacity: 0.6 }).addTo(map),
-                data: data,
-            };
+        // Update the GeoJSON feature backing the maplibre station layers.
+        stationFeatures[cs] = {
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [data.longitude, data.latitude] },
+            properties: {
+                callsign: cs,
+                symbol_hex: hex2(symbolChar),
+                symbol_table: symbolTable,
+                overlay_hex: (symbolTable !== '/' && symbolTable !== '\\') ? hex2(symbolTable) : null,
+                type: data.type || '',
+                tx: data.tx || false,
+            },
+        };
 
-            updateStationPopup(cs);
+        scheduleStationRefresh();
+        updateStationPopup(cs);
+        // Keep an open popup live: it holds the previous DOM node otherwise.
+        if (activePopup && activePopupCallsign === cs && stations[cs].popupDiv) {
+            activePopup.setDOMContent(stations[cs].popupDiv);
         }
     }
 
@@ -1192,10 +1365,38 @@
             btn.addEventListener('click', () => window._downloadGpx(callsign));
             popupDiv.appendChild(btn);
         }
-        s.marker.bindPopup(popupDiv);
+        s.popupDiv = popupDiv;
+    }
+
+    /** Open a maplibre popup for a station at its coordinates (reuses the
+     *  same popup HTML as the Leaflet popups did). */
+    function openStationPopup(callsign) {
+        const s = stations[callsign];
+        if (!s || s.data.latitude == null) return;
+        updateStationPopup(callsign);
+        if (!s.popupDiv) return;
+        closeActivePopup();
+        activePopupCallsign = callsign;
+        activePopup = new maplibregl.Popup({ offset: 20 })
+            .setLngLat([s.data.longitude, s.data.latitude])
+            .setDOMContent(s.popupDiv);
+        // Register before addTo(): 'open' fires synchronously inside addTo().
+        activePopup.on('open', function () { showStationOverlay(callsign); });
+        activePopup.on('close', function () { clearStationOverlay(); });
+        activePopup.addTo(map);
+    }
+
+    /** Pan to a station and open its popup (station-list Focus buttons). */
+    function focusStation(callsign) {
+        const s = stations[callsign];
+        if (!map || !s || s.data.latitude == null) return;
+        mapFlyTo(s.data.latitude, s.data.longitude, Math.max(map.getZoom(), 12));
+        openStationPopup(callsign);
     }
 
     function updateStationTrack(callsign, lat, lon) {
+        // TODO(#126): station track polylines not ported to MapLibre yet.
+        if (mainMapIsMaplibre) return;
         const s = stations[callsign];
         if (!s) return;
         const latlngs = s.track.getLatLngs();
@@ -1239,11 +1440,22 @@
     var _selectedCallsign = null;
 
     function clearStationOverlay() {
-        _overlayLayers.forEach(l => map.removeLayer(l));
+        if (!mainMapIsMaplibre) {
+            _overlayLayers.forEach(l => map.removeLayer(l));
+        }
         _overlayLayers = [];
         document.querySelectorAll('.log-row.log-row-selected')
             .forEach(el => el.classList.remove('log-row-selected'));
         _selectedCallsign = null;
+    }
+
+    function highlightStationLogRow(callsign) {
+        // --- Highlight log rows ---
+        const escaped = CSS.escape(callsign);
+        document.querySelectorAll(`.log-row[data-callsign="${escaped}"]`)
+            .forEach(el => el.classList.add('log-row-selected'));
+        const first = document.querySelector(`.log-row[data-callsign="${escaped}"]`);
+        if (first) first.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
 
     function showStationOverlay(callsign) {
@@ -1251,6 +1463,13 @@
         _selectedCallsign = callsign;
         const s = stations[callsign];
         if (!s) return;
+
+        // TODO(#126): station path / distance polylines not ported to MapLibre.
+        if (mainMapIsMaplibre) {
+            highlightStationLogRow(callsign);
+            return;
+        }
+
         const stLat = s.data.latitude;
         const stLng = s.data.longitude;
 
@@ -1306,12 +1525,7 @@
             _overlayLayers.push(distLabel);
         }
 
-        // --- Highlight log rows ---
-        const escaped = CSS.escape(callsign);
-        document.querySelectorAll(`.log-row[data-callsign="${escaped}"]`)
-            .forEach(el => el.classList.add('log-row-selected'));
-        const first = document.querySelector(`.log-row[data-callsign="${escaped}"]`);
-        if (first) first.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        highlightStationLogRow(callsign);
     }
 
     // --- Station Position Helpers ---
@@ -1477,6 +1691,8 @@
 
     // --- Animation Playback ---
     function playReceiveAnimation(callsign, lat, lng) {
+        // TODO(#126): transmit/receive arc animations not ported to MapLibre.
+        if (mainMapIsMaplibre) return;
         const now = Date.now();
         const throttleKey = 'rx_' + callsign;
         if (animationThrottle[throttleKey] && now - animationThrottle[throttleKey] < ANIMATION_COOLDOWN_MS) return;
@@ -1497,6 +1713,8 @@
     }
 
     function playTransmitAnimation(callsign, lat, lng, pathArray) {
+        // TODO(#126): transmit/receive arc animations not ported to MapLibre.
+        if (mainMapIsMaplibre) return;
         const now = Date.now();
         if (animationThrottle[callsign] && now - animationThrottle[callsign] < ANIMATION_COOLDOWN_MS) return;
         animationThrottle[callsign] = now;
@@ -1649,7 +1867,7 @@
             if (waitingForPosition) {
                 dismissWaiting();
                 const zoom = config.station?.zoom || 12;
-                map.flyTo([packet.latitude, packet.longitude], zoom);
+                mapFlyTo(packet.latitude, packet.longitude, zoom);
             }
             addOrUpdateStation({
                 callsign: packet.from_call,
@@ -1916,6 +2134,7 @@
     // --- Filters ---
     function initFilters() {
         const callsignInput = document.getElementById('filter-callsign');
+        if (!callsignInput) return; // filter overlay not rendered (e.g. no WebGL2)
         const typeSelect = document.getElementById('filter-type');
         const txrxSelect = document.getElementById('filter-txrx');
         const trailSelect = document.getElementById('trail-duration');
@@ -1985,25 +2204,8 @@
             applyFilterToRow(row, callsign, type, txrx, search);
         });
 
-        // Filter map markers
-        Object.keys(stations).forEach(cs => {
-            const s = stations[cs];
-            let visible = true;
-            if (callsign && !cs.toUpperCase().includes(callsign)) visible = false;
-            if (type && s.data.type && s.data.type !== type) visible = false;
-            if (txrx && s.data.tx !== undefined) {
-                const txVal = s.data.tx ? 'tx' : 'rx';
-                if (txVal !== txrx) visible = false;
-            }
-
-            if (visible) {
-                if (!map.hasLayer(s.marker)) map.addLayer(s.marker);
-                if (!map.hasLayer(s.track)) map.addLayer(s.track);
-            } else {
-                if (map.hasLayer(s.marker)) map.removeLayer(s.marker);
-                if (map.hasLayer(s.track)) map.removeLayer(s.track);
-            }
-        });
+        // Filter map markers (maplibre: rebuild the station GeoJSON source)
+        scheduleStationRefresh();
     }
 
     function applyFilterToRow(row, callsign, type, txrx, search) {
@@ -2312,13 +2514,17 @@
         autoScroll = true;
         var resumeBtn = document.getElementById('btn-resume');
         if (resumeBtn) resumeBtn.classList.add('hidden');
-        // Remove station markers and tracks from map
+        // Remove station features / markers from map
         Object.keys(stations).forEach(function (call) {
             var s = stations[call];
-            if (s.marker && map) map.removeLayer(s.marker);
-            if (s.track && map) map.removeLayer(s.track);
+            if (!mainMapIsMaplibre) {
+                if (s.marker && map) map.removeLayer(s.marker);
+                if (s.track && map) map.removeLayer(s.track);
+            }
+            delete stationFeatures[call];
         });
         stations = {};
+        scheduleStationRefresh();
         // Clear position cache
         Object.keys(stationPositionCache).forEach(function (k) {
             delete stationPositionCache[k];
@@ -2449,7 +2655,7 @@
         // After CSS transition ends on map container, tell Leaflet to resize
         mapContainer.addEventListener('transitionend', (e) => {
             if (e.propertyName === 'height' || e.propertyName === 'flex') {
-                if (map) map.invalidateSize();
+                if (map) map.resize();
             }
         });
     }
@@ -2507,7 +2713,7 @@
 
         // Invalidate map size after a brief delay for transition
         if (map) {
-            setTimeout(() => map.invalidateSize(), 350);
+            setTimeout(() => map.resize(), 350);
         }
     }
 
@@ -2547,7 +2753,7 @@
             var maxMap = window.innerHeight - (toolbar ? toolbar.offsetHeight : 40) - (footer ? footer.offsetHeight : 24) - minLog;
             var newHeight = Math.max(minMap, Math.min(maxMap, startHeight + (clientY - startY)));
             mapContainer.style.height = newHeight + 'px';
-            map.invalidateSize();
+            map.resize();
         }
 
         function onMouseMove(e) { doResize(e.clientY); }
@@ -2571,7 +2777,7 @@
             if (mapContainer.style.height) {
                 localStorage.setItem(MAP_HEIGHT_KEY, mapContainer.style.height);
             }
-            map.invalidateSize();
+            map.resize();
         }
 
         handle.addEventListener('mousedown', function (e) { beginResize(e.clientY, e); });
@@ -2618,7 +2824,7 @@
         var savedLng = localStorage.getItem('dw-map-lng');
         if (savedLat !== null && savedLng !== null) {
             const zoom = config.station?.zoom || 12;
-            map.setView([parseFloat(savedLat), parseFloat(savedLng)], zoom);
+            mapSetView(parseFloat(savedLat), parseFloat(savedLng), zoom);
             return;
         }
 
@@ -2626,7 +2832,7 @@
         const myPos = getMyPosition();
         if (myPos) {
             const zoom = config.station?.zoom || 12;
-            map.setView([myPos.lat, myPos.lng], zoom);
+            mapSetView(myPos.lat, myPos.lng, zoom);
             return;
         }
 
@@ -2635,7 +2841,7 @@
         const lon = config.station?.longitude || 0;
         if (lat !== 0 || lon !== 0) {
             const zoom = config.station?.zoom || 12;
-            map.setView([lat, lon], zoom);
+            mapSetView(lat, lon, zoom);
             return;
         }
 
@@ -2657,13 +2863,13 @@
             }
             if (best) {
                 const zoom = config.station?.zoom || 12;
-                map.setView([best.data.latitude, best.data.longitude], zoom);
+                mapSetView(best.data.latitude, best.data.longitude, zoom);
                 return;
             }
         }
 
         // Priority 4: Cold start - center (0,0) zoom 3, show waiting modal
-        map.setView([0, 0], 3);
+        mapSetView(0, 0, 3);
         showWaitingModal();
     }
 
@@ -2705,36 +2911,58 @@
 
     // --- My Position Marker ---
     function updateMyPositionMarker() {
-        // Remove old marker if present
+        // Remove old pin marker if present
         if (myPositionPinMarker) {
-            map.removeLayer(myPositionPinMarker);
+            if (mainMapIsMaplibre) myPositionPinMarker.remove();
+            else map.removeLayer(myPositionPinMarker);
             myPositionPinMarker = null;
-        }
-        // Remove my-station class from all station markers
-        for (const cs of Object.keys(stations)) {
-            const el = stations[cs].marker?.getElement?.();
-            if (el) el.classList.remove('my-station');
         }
 
         const mp = config.station?.my_position;
-        if (!mp || !mp.type) return;
+        if (!mp || !mp.type) {
+            if (mainMapIsMaplibre) scheduleStationRefresh();
+            return;
+        }
 
         if (mp.type === 'pin' && mp.latitude != null && mp.longitude != null) {
-            const icon = L.divIcon({
-                className: 'my-position-pin',
-                html: '<div class="pin-marker">📌</div>',
-                iconSize: [24, 24],
-                iconAnchor: [12, 24],
-                popupAnchor: [0, -24],
-            });
-            myPositionPinMarker = L.marker([mp.latitude, mp.longitude], { icon: icon })
-                .addTo(map)
-                .bindPopup('<b>My Position</b><br>(dropped pin)<br><button class="popup-btn popup-btn-remove" onclick="window._removeMyPosition()">Remove Pin</button>');
+            if (mainMapIsMaplibre) {
+                if (!map) return;  // no WebGL2 / map failed to init
+                const el = document.createElement('div');
+                el.className = 'my-position-pin';
+                el.innerHTML = '<div class="pin-marker">📌</div>';
+                const popupEl = document.createElement('div');
+                popupEl.innerHTML = '<b>My Position</b><br>(dropped pin)<br>';
+                const btn = document.createElement('button');
+                btn.className = 'popup-btn popup-btn-remove';
+                btn.textContent = 'Remove Pin';
+                btn.addEventListener('click', window._removeMyPosition);
+                popupEl.appendChild(btn);
+                myPositionPinMarker = new maplibregl.Marker({ element: el })
+                    .setLngLat([mp.longitude, mp.latitude])
+                    .setPopup(new maplibregl.Popup({ offset: 20 }).setDOMContent(popupEl))
+                    .addTo(map);
+            } else {
+                const icon = L.divIcon({
+                    className: 'my-position-pin',
+                    html: '<div class="pin-marker">📌</div>',
+                    iconSize: [24, 24],
+                    iconAnchor: [12, 24],
+                    popupAnchor: [0, -24],
+                });
+                myPositionPinMarker = L.marker([mp.latitude, mp.longitude], { icon: icon })
+                    .addTo(map)
+                    .bindPopup('<b>My Position</b><br>(dropped pin)<br><button class="popup-btn popup-btn-remove" onclick="window._removeMyPosition()">Remove Pin</button>');
+            }
         } else if (mp.type === 'station' && mp.callsign) {
-            const s = stations[mp.callsign];
-            if (s && s.marker) {
-                const el = s.marker.getElement?.();
-                if (el) el.classList.add('my-station');
+            if (mainMapIsMaplibre) {
+                // Highlight handled via the is_my label color in the GeoJSON source.
+                scheduleStationRefresh();
+            } else {
+                const s = stations[mp.callsign];
+                if (s && s.marker) {
+                    const el = s.marker.getElement?.();
+                    if (el) el.classList.add('my-station');
+                }
             }
         }
         updateMyLocationOverlay();
@@ -2759,7 +2987,7 @@
                 const pos = getMyPosition();
                 if (pos) {
                     const zoom = config.station?.zoom || 12;
-                    map.flyTo([pos.lat, pos.lng], zoom);
+                    mapFlyTo(pos.lat, pos.lng, zoom);
                 }
                 // Dismiss waiting if active
                 if (waitingForPosition) dismissWaiting();
@@ -2772,22 +3000,22 @@
     // Expose to popup onclick handlers
     window._setMyPositionStation = function (callsign) {
         saveMyPosition({ type: 'station', callsign: callsign });
-        map.closePopup();
+        closeActivePopup();
     };
 
     window._removeMyPosition = function () {
         saveMyPosition(null);
-        map.closePopup();
+        closeActivePopup();
     };
 
     // --- Weather Modal ---
     window._viewWeather = function (callsign) {
-        map.closePopup();
+        closeActivePopup();
         openWeatherModal(callsign);
     };
 
     window._downloadGpx = function (callsign) {
-        map.closePopup();
+        closeActivePopup();
         // Trigger download via a temporary link
         const url = API_BASE + '/station/' + encodeURIComponent(callsign) + '/gpx?hours=24';
         const a = document.createElement('a');
@@ -3182,7 +3410,7 @@
 
         // Right-click on map for context popup
         map.on('contextmenu', (e) => {
-            showPinContextPopup(e.latlng);
+            showPinContextPopup(e.lngLat);
         });
 
         // Long-press on map (mobile)
@@ -3190,7 +3418,7 @@
         map.on('mousedown', (e) => {
             if (!e.originalEvent) return;
             longPressTimer = setTimeout(() => {
-                showPinContextPopup(e.latlng);
+                showPinContextPopup(e.lngLat);
             }, 700);
         });
         map.on('mouseup', () => { clearTimeout(longPressTimer); });
@@ -3216,7 +3444,7 @@
         const btn = document.getElementById('btn-drop-pin');
         if (btn) btn.classList.remove('active');
         map.getContainer().style.cursor = '';
-        dropPinAt(e.latlng.lat, e.latlng.lng);
+        dropPinAt(e.lngLat.lat, e.lngLat.lng);
     }
 
     function dropPinAt(lat, lng) {
@@ -3232,14 +3460,15 @@
         ctxBtn.className = 'popup-btn popup-btn-set';
         ctxBtn.textContent = 'Set as My Position';
         ctxBtn.addEventListener('click', () => {
-            map.closePopup();
+            closeActivePopup();
             dropPinAt(latlng.lat, latlng.lng);
         });
         ctxDiv.appendChild(ctxBtn);
-        L.popup()
-            .setLatLng(latlng)
-            .setContent(ctxDiv)
-            .openOn(map);
+        closeActivePopup();
+        activePopup = new maplibregl.Popup()
+            .setLngLat([lng, lat])
+            .setDOMContent(ctxDiv)
+            .addTo(map);
     }
 
     // --- Decode APRS Packet ---
@@ -3804,10 +4033,9 @@
                 e.preventDefault();
                 // Pan map to station and close modal
                 const stn = stations[s.callsign];
-                if (stn && stn.marker) {
+                if (stn && stn.data.latitude != null) {
                     document.getElementById('station-list-modal').classList.add('hidden');
-                    map.setView(stn.marker.getLatLng(), Math.max(map.getZoom(), 12));
-                    stn.marker.openPopup();
+                    focusStation(s.callsign);
                 }
             });
             callTd.appendChild(callLink);
@@ -3844,10 +4072,9 @@
             viewBtn.textContent = 'Focus';
             viewBtn.addEventListener('click', () => {
                 const stn = stations[s.callsign];
-                if (stn && stn.marker) {
+                if (stn && stn.data.latitude != null) {
                     document.getElementById('station-list-modal').classList.add('hidden');
-                    map.setView(stn.marker.getLatLng(), Math.max(map.getZoom(), 12));
-                    stn.marker.openPopup();
+                    focusStation(s.callsign);
                 }
             });
             actTd.appendChild(viewBtn);

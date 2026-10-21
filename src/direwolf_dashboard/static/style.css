@@ -962,6 +962,34 @@ a.secondary.btn-as-link:hover {
     background: var(--modal-bg);
 }
 
+/* MapLibre popup overrides for dark theme (issue #125) */
+.maplibregl-popup-content {
+    background: var(--modal-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+}
+.maplibregl-popup-anchor-top .maplibregl-popup-tip { border-bottom-color: var(--modal-bg); }
+.maplibregl-popup-anchor-bottom .maplibregl-popup-tip { border-top-color: var(--modal-bg); }
+.maplibregl-popup-anchor-left .maplibregl-popup-tip { border-right-color: var(--modal-bg); }
+.maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: var(--modal-bg); }
+.maplibregl-popup-close-button {
+    color: var(--text-secondary);
+}
+
+/* Plain message shown in #map when WebGL2 is unavailable (issue #125) */
+.map-webgl-message {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    padding: 24px;
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+
 .station-label {
     font-size: 11px;
     font-weight: bold;
