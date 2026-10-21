@@ -246,3 +246,19 @@ def test_all_sources_down_world_fallback(tmp_path):
     assert done is False and st.state == "failed"
     assert "all basemap sources failed" in st.detail and "world" in st.detail
     assert not (tmp_path / "d" / "basemap" / "region.pmtiles").exists()
+
+
+def test_low_zoom_primary_deferred_to_street_detail_fallback(tmp_path):
+    """A z2 hosted world planet must not win over a full-detail fallback."""
+    lowz = make_planet(tmp_path / "cloud-world-z2.pmtiles", maxzoom=2)
+    full = make_planet(tmp_path / "protomaps.pmtiles", maxzoom=4)
+    done, st, _ = _run_sources(tmp_path, [str(lowz), str(full)])
+    assert done and st.source == str(full)
+
+
+def test_low_zoom_primary_used_when_fallback_down(tmp_path):
+    lowz = make_planet(tmp_path / "cloud-world-z2.pmtiles", maxzoom=2)
+    done, st, _ = _run_sources(tmp_path, [str(lowz), "http://127.0.0.1:9/p.pmtiles"])
+    assert done and st.source == str(lowz)
+    meta = json.loads((tmp_path / "d" / "basemap" / "region.json").read_text())
+    assert any("deferred" in t for t in meta["tried"])

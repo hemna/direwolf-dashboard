@@ -174,23 +174,46 @@ def fetch_region(lat: float, lon: float, radius_km: float, maxzoom: int,
 def extract_with_fallback(sources, tmp: str, bbox, maxzoom: int, use_cli=None):
     """Extract ``bbox`` into ``tmp`` from the first working source.
 
-    Returns ``(source, method, tried)``; ``tried`` lists failed sources.
+    A source whose archive stops below ``maxzoom`` (e.g. a low-zoom hosted
+    world planet) is deferred: later sources with full street detail are
+    tried first, and the low-zoom one is used only if none of them work.
+    Returns ``(source, method, tried)``; ``tried`` lists skipped sources.
     Raises ExtractError listing every attempt if all fail.
     """
     tried = []
+    deferred = []
     for entry in sources:
         src = resolve_source(entry)
         try:
-            probe_source(src)
-            method = _extract_from(src, tmp, bbox, maxzoom, use_cli)
+            header = probe_source(src)
         except Exception as e:  # noqa: BLE001 - any failure means "next source"
             tried.append(f"{src}: {type(e).__name__}: {e}")
             LOG.warning("basemap source failed, trying next: %s (%s)", src, e)
-            if os.path.exists(tmp):
-                os.remove(tmp)
             continue
-        return src, method, tried
+        hz = (header or {}).get("max_zoom", maxzoom)
+        if hz < maxzoom:
+            deferred.append(src)
+            tried.append(f"{src}: only z{hz} < maxzoom {maxzoom}; deferred")
+            continue
+        got = _try_extract(src, tmp, bbox, maxzoom, use_cli, tried)
+        if got:
+            return src, got, tried
+    for src in deferred:
+        got = _try_extract(src, tmp, bbox, maxzoom, use_cli, tried)
+        if got:
+            return src, got, tried
     raise basemap_extract.ExtractError("all basemap sources failed: " + " | ".join(tried))
+
+
+def _try_extract(src, tmp, bbox, maxzoom, use_cli, tried):
+    try:
+        return _extract_from(src, tmp, bbox, maxzoom, use_cli)
+    except Exception as e:  # noqa: BLE001
+        tried.append(f"{src}: {type(e).__name__}: {e}")
+        LOG.warning("basemap source failed, trying next: %s (%s)", src, e)
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        return None
 
 
 async def auto_fetch_once(config, status: AutoFetchStatus, position) -> bool:

@@ -220,7 +220,9 @@ Australia, South America, anywhere. Nothing to build or copy by hand.
    2. otherwise the daily [Protomaps](https://protomaps.com) planet build.
 
    A source that returns 404, can't be reached, or isn't a valid vector PMTiles
-   archive is skipped. The result is `<data_dir>/basemap/region.pmtiles` plus a
+   archive is skipped. A source that stops below `basemap.maxzoom` (the hosted
+   world planet is capped at a low zoom to keep hosting small) is only used when
+   no full-detail source works; then you get a coarser map instead of none. The result is `<data_dir>/basemap/region.pmtiles` plus a
    `region.json` sidecar that records which source was used.
 3. Reload the page. From then on the map is fully offline.
 
