@@ -204,26 +204,61 @@ override the path individually if needed.
 
 ## Map region (offline basemap)
 
-By default the dashboard ships with a small **Florence, IT** sample region
-(`static/basemap/regions/sample.pmtiles`), so testing outside Florence shows an
-empty basemap. To get the real region around your station onto the Pi:
+**Worldwide, automatic.** On first start the dashboard downloads the map
+region around your station itself, wherever you are: Europe, Japan,
+Australia, South America, anywhere. Nothing to build or copy by hand.
 
-**Option A — fetch on a networked machine (+ the `pmtiles` CLI):**
+1. Set your position: `station.latitude` / `station.longitude` in the config,
+   or drop a pin / pick your station in the UI ("My Location").
+2. Start the dashboard with internet access once. In the background it extracts
+   a square of `basemap.radius_km` (default **40 km**) around you, up to
+   `basemap.maxzoom` (default **13**), from the daily
+   [Protomaps](https://protomaps.com) planet build. It writes
+   `<data_dir>/basemap/region.pmtiles` plus a `region.json` sidecar.
+3. Reload the page. From then on the map is fully offline.
+
+A dense city at the defaults is about 30-45 MB; rural areas are much smaller.
+The download uses the `pmtiles` CLI if it's installed, otherwise a built-in
+Python extractor (no extra install on the Pi). If the station later moves more
+than a quarter of the radius, or you raise the radius or zoom, the region is
+downloaded again on the next start.
+
+```yaml
+basemap:
+  auto_fetch: true      # false = never download; use what's on disk
+  radius_km: 40         # half-width of the square, km
+  maxzoom: 13           # 14 roughly doubles the size; 15 again
+  planet_url: ""        # "" = yesterday's build.protomaps.com planet; or a local .pmtiles
+```
+
+**No position or no internet?** The map still works. A bundled world map
+(zoom 0-4, #144) covers every country, so you see coastlines, borders and
+cities instead of a blank map. The dashboard retries the download every 5
+minutes until it has a position, then every 6 hours after a network failure.
+`GET /api/config` → `basemap.auto` shows the current state (`no_position`,
+`fetching`, `done`, `failed`, ...).
+
+If you set `basemap.region_archive` yourself, or copy a `region.pmtiles` without
+`region.json` into the data dir, the dashboard keeps it and never overwrites it.
+
+### Manual download (optional)
+
+**Option A: fetch now, or on a networked machine:**
 
 ```bash
-# e.g. on a laptop with internet; the pmtiles CLI is required once:
-#   go install github.com/protomaps/go-pmtiles/cmd/pmtiles@latest
+# same download as the automatic one; uses the pmtiles CLI if present,
+# otherwise the built-in Python extractor
 direwolf-dashboard basemap fetch
 ```
 
 This extracts a square region around your configured `station.latitude` /
-`station.longitude` (default radius 75 km) from yesterday's Protomaps planet
+`station.longitude` (default `basemap.radius_km`, 40 km) from yesterday's Protomaps planet
 build and writes `<data_dir>/basemap/region.pmtiles`. Customize with:
 
 ```bash
 direwolf-dashboard basemap fetch \
   --bbox=-90,40,-88,42 \        # explicit box: MIN_LON,MIN_LAT,MAX_LON,MAX_LAT
-  --maxzoom=15 \                # default 15
+  --maxzoom=15 \                # default basemap.maxzoom (13)
   --planet=https://build.protomaps.com/20261019.pmtiles \
   --output=/tmp/basemap/region.pmtiles
 ```

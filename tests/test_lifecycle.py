@@ -104,7 +104,7 @@ class TestStartupServices:
         assert services.log_tailer is mock_tailer
         assert services.broadcast_queue is not None
         assert services.start_time > 0
-        assert len(services.background_tasks) == 5  # agw, tailer, broadcast, housekeep, stats
+        assert len(services.background_tasks) == 6  # agw, tailer, broadcast, housekeep, stats, basemap auto-fetch
 
         # Cleanup: cancel background tasks to avoid warnings
         for task in services.background_tasks:

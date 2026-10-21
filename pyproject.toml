@@ -35,6 +35,8 @@ dependencies = [
     "click>=8.1.0",
     "websockets>=12.0",
     "httpx>=0.25.0",
+    # Pure-Python region extract for worldwide offline maps (no go-pmtiles needed).
+    "pmtiles>=3.4.0",
 ]
 
 [project.optional-dependencies]

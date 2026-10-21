@@ -6,6 +6,7 @@ import shutil
 import subprocess
 
 import click
+import httpx
 
 from direwolf_dashboard import __version__
 from direwolf_dashboard.basemap import (
@@ -16,6 +17,9 @@ from direwolf_dashboard.basemap import (
     parse_bbox,
     sha256_file,
 )
+from direwolf_dashboard import basemap_extract
+from direwolf_dashboard.basemap_auto import fetch_region, region_paths
+from direwolf_dashboard.basemap_extract import ExtractError
 from direwolf_dashboard.config import DEFAULT_CONFIG_PATH, load_config
 
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
@@ -152,17 +156,16 @@ def basemap():
     "--radius-km",
     "radius_km",
     type=float,
-    default=75.0,
-    show_default=True,
-    help="Radius (km) of the square bbox around config.station, used when --bbox is absent.",
+    default=None,
+    help="Radius (km) of the square bbox around the station, used when --bbox is absent "
+    "(default: basemap.radius_km, 40).",
 )
 @click.option(
     "--maxzoom",
     "maxzoom",
     type=int,
-    default=15,
-    show_default=True,
-    help="Maximum zoom level to extract.",
+    default=None,
+    help="Maximum zoom level to extract (default: basemap.maxzoom, 13).",
 )
 @click.option(
     "--planet",
@@ -185,13 +188,14 @@ def fetch(ctx, bbox_text, radius_km, maxzoom, planet, output):
     resulting archive stays LAN-offline. (issue #132)
     """
     config = load_config(ctx.obj["config_path"])
+    radius_km = config.basemap.radius_km if radius_km is None else radius_km
+    maxzoom = config.basemap.maxzoom if maxzoom is None else maxzoom
+    if planet is None:
+        planet = config.basemap.planet_url or default_planet_url()
 
-    if bbox_text:
-        try:
-            bbox = parse_bbox(bbox_text)
-        except ValueError as e:
-            raise click.ClickException(str(e)) from None
-    else:
+    if not bbox_text and output is None:
+        # The common case: same code path as the automatic startup download,
+        # so the region.json sidecar is written and auto-fetch sees it as current.
         lat, lon = config.station.latitude, config.station.longitude
         if not lat and not lon:
             raise click.ClickException(
@@ -199,33 +203,47 @@ def fetch(ctx, bbox_text, radius_km, maxzoom, planet, output):
                 "and no --bbox given. Pass --bbox=MIN_LON,MIN_LAT,MAX_LON,MAX_LAT or set "
                 "station.latitude/longitude in the config."
             )
-        bbox = bbox_around(lat, lon, radius_km)
+        click.echo(f"Downloading {radius_km:g} km around {lat:.4f},{lon:.4f} maxzoom={maxzoom} from {planet}")
+        try:
+            meta = fetch_region(lat, lon, radius_km, maxzoom, config.data_dir, planet)
+        except (subprocess.CalledProcessError, ExtractError, OSError, httpx.HTTPError) as e:
+            raise click.ClickException(f"region download failed: {e}") from e
+        output = region_paths(config.data_dir)[0]
+        click.echo(f"Wrote {output} via {meta['method']}")
+        click.echo(f"  size: {meta['bytes']:,} bytes")
+        click.echo(f"  sha256: {sha256_file(output)}")
+        return
 
-    if planet is None:
-        planet = default_planet_url()
+    if bbox_text:
+        try:
+            bbox = parse_bbox(bbox_text)
+        except ValueError as e:
+            raise click.ClickException(str(e)) from None
+    else:
+        bbox = bbox_around(config.station.latitude, config.station.longitude, radius_km)
 
     if output is None:
         output = os.path.join(config.data_dir, FETCHED_REGION_ARCHIVE)
     output = os.path.abspath(os.path.expanduser(output))
-
-    pmtiles_bin = shutil.which("pmtiles")
-    if not pmtiles_bin:
-        raise click.ClickException(
-            "The 'pmtiles' CLI is required to fetch a region but was not found on PATH.\n"
-            "Install it from https://github.com/protomaps/go-pmtiles "
-            "(e.g. 'go install github.com/protomaps/go-pmtiles/cmd/pmtiles@latest')."
-        )
-
     os.makedirs(os.path.dirname(output), exist_ok=True)
     tmp = output + ".tmp.pmtiles"
-    cmd = build_extract_command(planet, tmp, bbox, maxzoom)
 
     click.echo(f"Downloading bbox={','.join(f'{v:.6f}' for v in bbox)} maxzoom={maxzoom}")
-    click.echo(f"Running: {' '.join(cmd)}")
-    try:
-        subprocess.run(cmd, check=True)
-    except subprocess.CalledProcessError as e:
-        raise click.ClickException(f"pmtiles extract failed with exit code {e.returncode}") from e
+    if shutil.which("pmtiles"):
+        cmd = build_extract_command(planet, tmp, bbox, maxzoom)
+        click.echo(f"Running: {' '.join(cmd)}")
+        try:
+            subprocess.run(cmd, check=True)
+        except subprocess.CalledProcessError as e:
+            raise click.ClickException(f"pmtiles extract failed with exit code {e.returncode}") from e
+    else:
+        click.echo("pmtiles CLI not found; using the built-in Python extractor")
+        get = (basemap_extract.file_get_bytes(planet) if os.path.isfile(planet)
+               else basemap_extract.http_get_bytes(planet))
+        try:
+            basemap_extract.extract(get, tmp, bbox, maxzoom)
+        except (ExtractError, OSError, httpx.HTTPError) as e:
+            raise click.ClickException(f"region download failed: {e}") from e
 
     os.replace(tmp, output)  # atomic: never leave a partial region.pmtiles
 

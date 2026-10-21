@@ -146,11 +146,11 @@ def test_cli_fetch_success(tmp_path):
     assert planet.startswith("https://build.protomaps.com/") and planet.endswith(".pmtiles")
     assert tmp_out == str(out) + ".tmp.pmtiles"
     assert cmd[4].startswith("--bbox=")
-    assert cmd[5] == "--maxzoom=15"
+    assert cmd[5] == "--maxzoom=13"  # basemap.maxzoom default
     # bbox matches the default radius box around the station position
     bbox_arg = cmd[4]
     got = tuple(float(v) for v in bbox_arg[len("--bbox="):].split(","))
-    assert got == pytest.approx(bbox_around(43.0, -89.0, 75.0))
+    assert got == pytest.approx(bbox_around(43.0, -89.0, 40.0))  # basemap.radius_km default
 
     # Output reports size + sha256
     assert f"sha256: {sha256_file(str(out))}" in result.output
@@ -187,13 +187,25 @@ def test_cli_fetch_explicit_bbox_and_flags(tmp_path):
     assert "--maxzoom=12" in cmd
 
 
-def test_cli_fetch_missing_pmtiles(tmp_path):
-    cfg = _write_config(tmp_path, tmp_path / "data", 43.0, -89.0)
-    with mock.patch("direwolf_dashboard.cli.shutil.which", return_value=None):
-        result = CliRunner().invoke(cli_main, ["-c", str(cfg), "basemap", "fetch"])
-    assert result.exit_code == 1
-    assert "pmtiles" in result.output
-    assert "https://github.com/protomaps/go-pmtiles" in result.output
+def test_cli_fetch_without_pmtiles_cli_uses_python_extractor(tmp_path):
+    """No go-pmtiles on the Pi: the built-in extractor does the job (worldwide maps)."""
+    from tests.pmtiles_fixture import make_planet
+
+    planet = make_planet(tmp_path / "planet.pmtiles", maxzoom=6)
+    data_dir = tmp_path / "data"
+    cfg = _write_config(tmp_path, data_dir, 43.0, -89.0)
+    with (
+        mock.patch("direwolf_dashboard.cli.shutil.which", return_value=None),
+        mock.patch("direwolf_dashboard.basemap_auto.shutil.which", return_value=None),
+    ):
+        result = CliRunner().invoke(
+            cli_main, ["-c", str(cfg), "basemap", "fetch", "--planet", str(planet)]
+        )
+    assert result.exit_code == 0, result.output
+    assert "via python" in result.output
+    region = data_dir / "basemap" / "region.pmtiles"
+    assert region.read_bytes()[:7] == b"PMTiles"
+    assert (data_dir / "basemap" / "region.json").exists()
 
 
 def test_cli_fetch_no_position_no_bbox(tmp_path):
@@ -214,8 +226,8 @@ def test_cli_fetch_default_output_is_data_dir_region(tmp_path):
         return mock.MagicMock(returncode=0)
 
     with (
-        mock.patch("direwolf_dashboard.cli.shutil.which", return_value="/usr/bin/pmtiles"),
-        mock.patch("direwolf_dashboard.cli.subprocess.run", side_effect=fake_run),
+        mock.patch("direwolf_dashboard.basemap_auto.shutil.which", return_value="/usr/bin/pmtiles"),
+        mock.patch("direwolf_dashboard.basemap_auto.subprocess.run", side_effect=fake_run),
     ):
         result = CliRunner().invoke(cli_main, ["-c", str(cfg), "basemap", "fetch"])
     assert result.exit_code == 0, result.output
@@ -365,11 +377,15 @@ def test_config_payload_exposes_active_region(tmp_path):
     services = mock.MagicMock()
     services.config = config
     services.storage.get_my_position = mock.AsyncMock(return_value=None)
+    from direwolf_dashboard.basemap_auto import AutoFetchStatus
+    services.basemap_status = AutoFetchStatus()
+    services.basemap_status.set("no_position", "no station position yet; using the world map")
     container.services = services
     app = Starlette(routes=[Mount("/api", routes=create_api_routes(container))])
     with TestClient(app, raise_server_exceptions=False) as client:
         r = client.get("/api/config")
     assert r.status_code == 200
+    assert r.json()["basemap"]["auto"]["state"] == "no_position"
     region = r.json()["basemap"]["region"]
     assert region == {"name": "sample.pmtiles", "size": SAMPLE.stat().st_size}
 
