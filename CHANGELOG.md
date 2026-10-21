@@ -5,6 +5,14 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Added
+- **MapLibre main map (issue #125)**: The main map is now MapLibre GL JS with
+  the pmtiles protocol. It draws the vendored kit light/dark style (following
+  the dashboard theme) from the local region archive, so it needs no internet.
+  Stations are drawn from a GeoJSON source as symbol layers using the kit
+  `aprs` sprite, and popups are `maplibregl.Popup`. Browsers without WebGL2 get
+  a plain message. Station tracks/arcs (#126) and the GPX overlay (#127) are
+  disabled on the main map until their slices land. The decode mini-map stays
+  on Leaflet (#128).
 - **MapLibre basemap foundation (issue #124)** — vendored `maplibre-gl` 5.24.0
   (classic UMD + CSS, inline worker) and `pmtiles` 4.5.0 under
   `static/vendor/`, plus the shared basemap-kit surface (styles, APRS sprites,

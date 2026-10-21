@@ -122,9 +122,9 @@ def test_styles_rewritten_to_local_urls(client):
         assert glyphs.startswith("/static/basemap/fonts/"), f"{theme} glyphs not local: {glyphs}"
         for s in style["sprite"]:
             assert s["url"].startswith("/static/basemap/sprites/"), f"{theme} sprite not local: {s['url']}"
-        assert style["sources"]["protomaps"]["url"] == DEFAULT_TILE_URL, (
-            f"{theme} tile URL != config default {DEFAULT_TILE_URL}"
-        )
+        assert (
+            style["sources"]["protomaps"]["url"] == DEFAULT_TILE_URL
+        ), f"{theme} tile URL != config default {DEFAULT_TILE_URL}"
 
         r = client.get(f"/static/basemap/style.{theme}.json")
         assert r.status_code == 200
@@ -208,12 +208,16 @@ def test_region_pmtiles_range_support(client):
 
 
 # ---------------------------------------------------------------------------
-# Done-when: no page consumes the new assets yet (that's slice 2)
+# Done-when: #125 (MapLibre main map) now consumes the new assets
 # ---------------------------------------------------------------------------
 
 
-def test_no_page_consumes_new_assets_yet():
-    for rel in ("index.html", "app.js"):
-        text = (STATIC / rel).read_text(encoding="utf-8")
-        for needle in ("maplibre-gl", "pmtiles", "/static/basemap"):
-            assert needle not in text, f"{rel} already references {needle}"
+def test_pages_consume_new_assets():
+    """The MapLibre main map (issue #125) loads the vendored assets."""
+    index = (STATIC / "index.html").read_text(encoding="utf-8")
+    app = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert "maplibre-gl.js" in index
+    assert "pmtiles.js" in index
+    assert "maplibre-gl.css" in index
+    assert "/static/basemap/style." in app
+    assert "new maplibregl.Map({" in app
