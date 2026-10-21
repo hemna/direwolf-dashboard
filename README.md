@@ -239,9 +239,34 @@ To copy it to the Pi instead of fetching there, deliver the `.pmtiles` to
 `<data_dir>/basemap/region.pmtiles` (e.g. `scp region.pmtiles pi@digipi.local:` →
 `sudo mv region.pmtiles /tmp/direwolf-dashboard/basemap/`).
 
+**Option B — build with basemap-kit's `scripts/build_regions.py`:**
+
+```bash
+# regions.json with one entry, e.g. central Virginia (~165 x 120 km, z0-15, ~48 MB):
+#   {"schemaVersion":1,"regions":[{"id":"va-appomattox","name":"Central Virginia",
+#     "maxzoom":15,"bounds":[-79.6,36.8,-78.1,37.9]}]}
+python3 basemap-kit/scripts/build_regions.py --regions regions.json --out build \
+  --planet https://build.protomaps.com/$(date -u +%Y%m%d).pmtiles
+scp build/archives/va-appomattox.pmtiles pi@digipi.local:
+```
+
+Then on the Pi keep it somewhere persistent (the default `data_dir` under
+`/tmp` is wiped on reboot) and point the config at it:
+
+```yaml
+basemap:
+  region_archive: /home/pi/direwolf-dashboard/va-appomattox.pmtiles
+```
+
+Restart the dashboard; `/api/config` should report `basemap.region.name` as
+`va-appomattox.pmtiles`. Keep archives well under the Pi's free space
+(z15 roughly triples the size of z14).
+
 **Serving stays LAN-offline.** The dashboard serves the archive at
 `/basemap/region.pmtiles` (with HTTP Range support) from the data dir when
-present, falling back to the vendored sample. You can also point
+present, falling back to the vendored sample. A fetched
+`<data_dir>/basemap/region.pmtiles` is picked up automatically while
+`basemap.region_archive` is left at its default. You can also point
 `basemap.region_archive` at an absolute path or a data-dir-relative file in the
 config. `/api/config` reports the active archive under `basemap.region`
 (`name` + `size`).

@@ -13,6 +13,12 @@ All notable changes to this project are documented here.
   z = Leaflet z - 1).
 
 ### Added
+- **Real map region instead of the Florence sample (issue #132)** — the
+  basemap is served from `/basemap/region.pmtiles` (HTTP Range) resolved from
+  `basemap.region_archive` (absolute or data-dir-relative path; a fetched
+  `<data_dir>/basemap/region.pmtiles` wins over the sample by default). New
+  `direwolf-dashboard basemap fetch` CLI extracts a region around the station;
+  README documents building one with basemap-kit `build_regions.py`.
 - **MapLibre station tracks, path lines and transmit arcs (issue #126)** — the
   main map's movement trails, station path/distance lines and TX/RX routing
   arcs are MapLibre line layers again (same colors, widths, dashes and
