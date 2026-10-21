@@ -8,7 +8,7 @@ A lightweight, web-based live display of [Direwolf](https://github.com/wb2osz/di
 
 ### Map & Stations
 - **Live Leaflet map** with APRS symbol icons, callsign labels, and movement trails
-- **Live stats overlay** — station count, packet count, packets/hour, tile cache size, and server uptime (togglable in Settings)
+- **Live stats overlay** — station count, packet count, packets/hour, and server uptime (togglable in Settings)
 - **Animated RF activity** — transmit/receive arc animations with packet route visualization via digipeaters and IGates
 - **Collapsible map legend** showing animation and trail symbols
 - **Trail duration selector** — choose 1h, 2h, 6h, or 24h of station movement history
@@ -42,10 +42,9 @@ A lightweight, web-based live display of [Direwolf](https://github.com/wb2osz/di
 ### Data & Storage
 - **Dual data sources** — connects to Direwolf's AGW socket (TX/RX distinction) and tails the log file (audio levels, decode stats)
 - **SQLite storage** with configurable retention (default 7 days) and one-click database wipe from the UI
-- **Tile caching proxy** — lazy on-demand caching or pre-download for offline use, with automatic retry on transient errors, concurrency limiting, and tile cache size displayed in Settings
 
 ### Operations
-- **All settings configurable via the web UI** — station info, default map zoom, Direwolf connection, retention, tile cache, stats overlay
+- **All settings configurable via the web UI** — station info, default map zoom, Direwolf connection, retention, stats overlay
 - **Configurable data directory** — single `data_dir` setting controls where all writable data lives; essential for readonly root filesystems (e.g. DigiPi)
 - **Fully offline** — all assets (JS, CSS, Leaflet, APRS symbol sprites) served locally; no CDN or external URLs
 - **Single async Python process** — ~30–50 MB RAM, one systemd service
@@ -148,9 +147,8 @@ On first launch, the dashboard creates a default config at `~/.config/direwolf-d
 
 - The map centers at 0,0 with zoom level 12 — open **Settings** to set your station coordinates and the map will center on your location
 - If running on a **DigiPi**, the dashboard automatically imports your callsign, coordinates, and symbol from `/etc/direwolf/direwolf.conf` on first launch
-- A **live stats overlay** appears in the top-left of the map showing station count, packets, packets/hour, tile cache size, and server uptime — toggle it off in Settings if you prefer a clean map
+- A **live stats overlay** appears in the top-left of the map showing station count, packets, packets/hour, and server uptime — toggle it off in Settings if you prefer a clean map
 - The packet log starts in **expanded** mode on desktop and **hidden** mode on mobile — use the toggle button in the toolbar (or press `L`) to switch between expanded, peek, and hidden views
-- Map tiles are cached lazily on first view — for offline/field use, switch to **Pre-download** mode in Settings to cache tiles for your area ahead of time
 
 ---
 
@@ -159,7 +157,7 @@ On first launch, the dashboard creates a default config at `~/.config/direwolf-d
 The config file lives at `~/.config/direwolf-dashboard/config.yaml`:
 
 ```yaml
-# Root directory for all writable data (database + tile cache).
+# Root directory for all writable data (database).
 # Defaults to ~/.local/share/direwolf-dashboard
 # On DigiPi (readonly root FS), set to /tmp/direwolf-dashboard
 data_dir: "~/.local/share/direwolf-dashboard"
@@ -183,13 +181,6 @@ storage:
   db_path: ""
   retention_days: 7
 
-tiles:
-  # Defaults to <data_dir>/tiles if left empty
-  cache_dir: ""
-  cache_mode: "lazy"
-  tile_url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-  max_cache_mb: 500
-
 display:
   show_stats_overlay: true
 ```
@@ -202,7 +193,9 @@ direwolf-dashboard -c /path/to/config.yaml serve
 
 ### Configurable data directory
 
-The `data_dir` setting controls where all writable data is stored. When `storage.db_path` or `tiles.cache_dir` are left empty (the default), they resolve to `<data_dir>/packets.db` and `<data_dir>/tiles` respectively. You can still override each path individually if needed.
+The `data_dir` setting controls where all writable data is stored. When `storage.db_path`
+is left empty (the default), it resolves to `<data_dir>/packets.db`. You can still
+override the path individually if needed.
 
 > [!TIP]
 > On **DigiPi** or any system with a readonly root filesystem, set `data_dir` to a ramdisk path like `/tmp/direwolf-dashboard`. The directory is created automatically on startup.
@@ -320,7 +313,7 @@ sudo systemctl restart direwolf-dashboard
 ### DigiPi — readonly root filesystem
 
 DigiPi uses a readonly root filesystem to protect the SD card. The dashboard needs a
-writable directory for its SQLite database and tile cache. A ramdisk is mounted at
+writable directory for its SQLite database. A ramdisk is mounted at
 `/tmp` on DigiPi — point `data_dir` there:
 
 1. **Create the config directory and file** (on a writable partition, e.g. `/home/pi`):
@@ -349,11 +342,6 @@ writable directory for its SQLite database and tile cache. A ramdisk is mounted 
      db_path: ""          # resolves to /tmp/direwolf-dashboard/packets.db
      retention_days: 7
 
-   tiles:
-     cache_dir: ""        # resolves to /tmp/direwolf-dashboard/tiles
-     cache_mode: "lazy"
-     tile_url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-     max_cache_mb: 200
    EOF
    ```
 
@@ -376,10 +364,8 @@ writable directory for its SQLite database and tile cache. A ramdisk is mounted 
 
 > [!NOTE]
 > Data stored in `/tmp` is **not persistent across reboots**. This is intentional for
-> DigiPi — the ramdisk prevents repeated writes to the SD card. Station positions,
-> packet history, and tile caches are rebuilt from live RF traffic after each reboot.
-> Pre-downloaded tiles (`tiles.cache_mode: preload`) are lost on reboot; use `lazy`
-> mode and accept a brief warm-up period after restart.
+> DigiPi — the ramdisk prevents repeated writes to the SD card. Station positions and
+> packet history are rebuilt from live RF traffic after each reboot.
 
 ---
 
@@ -416,11 +402,10 @@ All endpoints are under `/api/`.
 | `/api/station/{callsign}/gpx` | GET | Download station track as GPX |
 | `/api/weather/{callsign}` | GET | Weather history for a station |
 | `/api/health` | GET | Service health (`{"status":"ok","uptime_seconds":N}`) |
-| `/api/stats` | GET | Packet/station counts and tile cache stats |
+| `/api/stats` | GET | Packet/station counts |
 | `/api/config` | GET/PUT | Read or update configuration |
 | `/api/storage` | DELETE | Wipe the packet database (requires `{"confirm":true}`) |
 | `/api/decode` | POST | Decode a raw APRS packet string |
-| `/api/tiles/{z}/{x}/{y}.png` | GET | Tile proxy / cache |
 
 ### Packet export examples
 
@@ -451,15 +436,14 @@ Single async Python process using Starlette + uvicorn:
                                               (7-day)        (live clients)
                                                   │               │
                                               REST API ◄──── Starlette Server
-                                              Tile Proxy      Static Files
+                                              Static Files
 ```
 
 - **AGW Reader** — connects to Direwolf's AGWPE interface, distinguishes TX (`T` frames) from RX (`U` frames), extracts Via path from AGW headers
 - **Log Tailer** — async tail -f with log rotation detection, extracts audio levels and raw console output
 - **Packet Processor** — merges both data sources, parses APRS via `aprslib`, computes bearing/distance, formats APRSD-style compact log
 - **Storage** — SQLite in WAL mode with automatic housekeeping and runtime wipe support
-- **Tile Proxy** — caches OpenStreetMap tiles to disk with lazy or pre-download modes, retry with exponential backoff on transient errors, connection concurrency limiting, and automatic zero-byte tile recovery
-- **Stats Broadcaster** — pushes live statistics (station count, packets, tile cache size, uptime) to all connected clients every 10 seconds
+- **Stats Broadcaster** — pushes live statistics (station count, packets, uptime) to all connected clients every 10 seconds
 
 ---
 
@@ -503,10 +487,9 @@ direwolf-dashboard/
 │   ├── lifecycle.py                 # Service container, startup/shutdown
 │   ├── log_tailer.py                # Async log file tailer
 │   ├── processor.py                 # Packet processing + formatting
-│   ├── routers.py                   # REST API + WebSocket + tile proxy routes
+│   ├── routers.py                   # REST API + WebSocket routes
 │   ├── server.py                    # Starlette app factory
 │   ├── storage.py                   # SQLite storage layer
-│   ├── tile_proxy.py                # Map tile caching proxy
 │   └── static/
 │       ├── index.html               # Single-page app shell
 │       ├── app.js                   # All client-side JS (vanilla, IIFE)

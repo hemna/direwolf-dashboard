@@ -26,7 +26,6 @@ class TestDirewolfServices:
             config=Config(),
             config_path=None,
             storage=MagicMock(),
-            tile_proxy=MagicMock(),
             processor=MagicMock(),
             broadcast_queue=asyncio.Queue(),
             agw_reader=MagicMock(connected=True),
@@ -38,8 +37,6 @@ class TestDirewolfServices:
         assert stats["uptime_seconds"] >= 100
         assert stats["agw_connected"] is True
         assert stats["log_tailer_active"] is True
-        # tile_cache is no longer in get_stats_dict() — it is fetched
-        # asynchronously by callers via await tile_proxy.get_cache_stats()
 
     def test_get_stats_dict_disconnected(self):
         """Stats when AGW is disconnected."""
@@ -47,7 +44,6 @@ class TestDirewolfServices:
             config=Config(),
             config_path=None,
             storage=MagicMock(),
-            tile_proxy=MagicMock(),
             processor=MagicMock(),
             broadcast_queue=asyncio.Queue(),
             agw_reader=MagicMock(connected=False),
@@ -77,18 +73,14 @@ class TestStartupServices:
     @patch("direwolf_dashboard.lifecycle.LogTailer")
     @patch("direwolf_dashboard.lifecycle.AGWReader")
     @patch("direwolf_dashboard.lifecycle.PacketProcessor")
-    @patch("direwolf_dashboard.lifecycle.TileProxy")
     @patch("direwolf_dashboard.lifecycle.Storage")
     async def test_startup_creates_all_services(
-        self, MockStorage, MockTileProxy, MockProcessor, MockAGWReader, MockLogTailer
+        self, MockStorage, MockProcessor, MockAGWReader, MockLogTailer
     ):
         """Verify startup_services returns a fully populated DirewolfServices."""
         # Setup mocks
         mock_storage = AsyncMock()
         MockStorage.return_value = mock_storage
-
-        mock_tile_proxy = AsyncMock()
-        MockTileProxy.return_value = mock_tile_proxy
 
         mock_processor = MagicMock()
         MockProcessor.return_value = mock_processor
@@ -107,7 +99,6 @@ class TestStartupServices:
         assert services.config is config
         assert services.config_path == "/tmp/test.yaml"
         assert services.storage is mock_storage
-        assert services.tile_proxy is mock_tile_proxy
         assert services.processor is mock_processor
         assert services.agw_reader is mock_agw
         assert services.log_tailer is mock_tailer
@@ -137,7 +128,6 @@ class TestShutdownServices:
         """Verify shutdown stops readers, cancels tasks, closes resources."""
         mock_agw = AsyncMock()
         mock_tailer = AsyncMock()
-        mock_tile_proxy = AsyncMock()
         mock_storage = AsyncMock()
 
         # Create a real task to test cancellation
@@ -150,7 +140,6 @@ class TestShutdownServices:
             config=Config(),
             config_path=None,
             storage=mock_storage,
-            tile_proxy=mock_tile_proxy,
             processor=MagicMock(),
             broadcast_queue=asyncio.Queue(),
             agw_reader=mock_agw,
@@ -167,7 +156,6 @@ class TestShutdownServices:
         with pytest.raises(asyncio.CancelledError):
             await task
         assert task.cancelled()
-        mock_tile_proxy.close.assert_awaited_once()
         mock_storage.close.assert_awaited_once()
 
 
@@ -209,7 +197,6 @@ class TestBroadcastConsumerRollback:
             config=Config(),
             config_path=None,
             storage=storage,
-            tile_proxy=MagicMock(),
             processor=MagicMock(),
             broadcast_queue=queue,
             agw_reader=MagicMock(connected=False),
@@ -318,7 +305,6 @@ class TestResolveMyPositionCache:
             config=Config(),
             config_path=None,
             storage=storage,
-            tile_proxy=MagicMock(),
             processor=MagicMock(),
             broadcast_queue=asyncio.Queue(),
             agw_reader=MagicMock(connected=False),
@@ -413,7 +399,6 @@ class TestHousekeepingJitter:
             config=MagicMock(),
             config_path=None,
             storage=mock_storage,
-            tile_proxy=MagicMock(),
             processor=MagicMock(),
             broadcast_queue=asyncio.Queue(),
             agw_reader=MagicMock(connected=False),
@@ -444,7 +429,6 @@ class TestMyPositionCallsignCache:
             config=Config(),
             config_path=None,
             storage=storage,
-            tile_proxy=MagicMock(),
             processor=MagicMock(),
             broadcast_queue=asyncio.Queue(),
             agw_reader=MagicMock(connected=False),

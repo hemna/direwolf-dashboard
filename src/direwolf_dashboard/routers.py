@@ -1,6 +1,5 @@
 """Router factory functions — create Starlette route lists bound to a ServiceContainer."""
 
-import asyncio
 import csv
 import io
 import logging
@@ -273,8 +272,6 @@ def create_api_routes(container: ServiceContainer) -> list:
         services = _get_services(container)
         db_stats = await services.storage.get_stats()
         db_stats.update(services.get_stats_dict())
-        if services.tile_proxy:
-            db_stats["tile_cache"] = await services.tile_proxy.get_cache_stats()
         return JSONResponse(db_stats)
 
     async def config_handler(request: Request):
@@ -368,96 +365,6 @@ def create_api_routes(container: ServiceContainer) -> list:
             raise
         except Exception as e:
             raise HTTPException(status_code=400, detail={"errors": str(e)}) from e
-
-    async def get_tile(request: Request):
-        services = _get_services(container)
-        try:
-            z = int(request.path_params["z"])
-            x = int(request.path_params["x"])
-            y = int(request.path_params["y"])
-        except (ValueError, KeyError) as e:
-            raise HTTPException(status_code=400, detail="Invalid tile coordinates") from e
-        if z < 0 or z > 19:
-            raise HTTPException(status_code=400, detail="Zoom level must be 0-19")
-        max_coord = (1 << z) - 1
-        if x < 0 or x > max_coord or y < 0 or y > max_coord:
-            raise HTTPException(status_code=400, detail="Tile coordinates out of range")
-        tile_data = await services.tile_proxy.get_tile(z, x, y)
-        if tile_data:
-            return Response(content=tile_data, media_type="image/png")
-        raise HTTPException(status_code=404, detail="Tile not found")
-
-    async def tiles_preload_handler(request: Request):
-        services = _get_services(container)
-        await _require_api_token(request, services)
-        if request.method == "DELETE":
-            if services.tile_proxy:
-                services.tile_proxy.cancel_preload()
-            return JSONResponse({"status": "cancelled"})
-
-        # POST
-        try:
-            body = await request.json()
-        except Exception as e:
-            raise HTTPException(status_code=400, detail="Invalid JSON body") from e
-
-        def _num(value, name: str, lo: float, hi: float) -> float:
-            try:
-                v = float(value)
-            except (TypeError, ValueError):
-                raise HTTPException(
-                    status_code=400, detail=f"{name} must be a number"
-                ) from None
-            if not (lo <= v <= hi):
-                raise HTTPException(
-                    status_code=400, detail=f"{name} must be in [{lo}, {hi}]"
-                )
-            return v
-
-        def _zoom(value, name: str, lo: int, hi: int) -> int:
-            try:
-                v = int(value)
-            except (TypeError, ValueError):
-                raise HTTPException(
-                    status_code=400, detail=f"{name} must be an integer"
-                ) from None
-            if not (lo <= v <= hi):
-                raise HTTPException(
-                    status_code=400, detail=f"{name} must be in [{lo}, {hi}]"
-                )
-            return v
-
-        bbox = body.get("bbox", [])
-        if not isinstance(bbox, list) or len(bbox) != 4:
-            raise HTTPException(status_code=400, detail="bbox must be [south, west, north, east]")
-
-        south = _num(bbox[0], "south", -90, 90)
-        west = _num(bbox[1], "west", -180, 180)
-        north = _num(bbox[2], "north", -90, 90)
-        east = _num(bbox[3], "east", -180, 180)
-        if south > north:
-            raise HTTPException(status_code=400, detail="south must be <= north")
-        if west > east:
-            raise HTTPException(status_code=400, detail="west must be <= east")
-
-        min_zoom = _zoom(body.get("min_zoom", 1), "min_zoom", 0, 16)
-        max_zoom = _zoom(body.get("max_zoom", 14), "max_zoom", min_zoom, 16)
-
-        estimate = services.tile_proxy.estimate_preload(south, west, north, east, min_zoom, max_zoom)
-
-        if not body.get("confirm"):
-            return JSONResponse(estimate)
-
-        async def progress_cb(done, total):
-            await broadcast_event(
-                "preload_progress", {"done": done, "total": total}, services.ws_clients
-            )
-
-        task = asyncio.create_task(
-            services.tile_proxy.preload(south, west, north, east, min_zoom, max_zoom, progress_cb)
-        )
-        services.background_tasks.append(task)
-        return JSONResponse({"status": "started", **estimate})
 
     async def wipe_storage(request: Request):
         services = _get_services(container)
@@ -604,8 +511,6 @@ def create_api_routes(container: ServiceContainer) -> list:
         Route("/station/{callsign}", get_station),
         Route("/stats", get_stats),
         Route("/config", config_handler, methods=["GET", "PUT"]),
-        Route("/tiles/{z}/{x}/{y}.png", get_tile),
-        Route("/tiles/preload", tiles_preload_handler, methods=["POST", "DELETE"]),
         Route("/storage", wipe_storage, methods=["DELETE"]),
         Route("/decode", decode_packet, methods=["POST"]),
         Route("/weather/stations", get_weather_stations),

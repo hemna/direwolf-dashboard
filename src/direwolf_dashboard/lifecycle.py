@@ -22,7 +22,6 @@ from direwolf_dashboard.processor import (
     degrees_to_cardinal,
 )
 from direwolf_dashboard.storage import Storage
-from direwolf_dashboard.tile_proxy import TileProxy
 
 LOG = logging.getLogger(__name__)
 
@@ -34,7 +33,6 @@ class DirewolfServices:
     config: Config
     config_path: str | None
     storage: Storage
-    tile_proxy: TileProxy
     processor: PacketProcessor
     broadcast_queue: asyncio.Queue
     agw_reader: AGWReader
@@ -55,8 +53,6 @@ class DirewolfServices:
     def get_stats_dict(self) -> dict:
         """Build the stats response dict (sync portion — caller must merge DB stats).
 
-        Note: tile_cache is not included here because get_cache_stats() is async.
-        Callers that need tile stats should await tile_proxy.get_cache_stats() separately.
         """
         return {
             "uptime_seconds": int(time.time() - self.start_time),
@@ -79,14 +75,6 @@ async def startup_services(config: Config, config_path: str | None = None) -> Di
     await storage.init()
     LOG.info(f"Database initialized: {config.storage.db_path}")
 
-    # Init tile proxy
-    tile_proxy = TileProxy(
-        cache_dir=config.tiles.cache_dir,
-        tile_url_template=config.tiles.tile_url,
-        max_cache_mb=config.tiles.max_cache_mb,
-    )
-    await tile_proxy.init()
-
     # Init broadcast queue and processor
     broadcast_queue: asyncio.Queue = asyncio.Queue(maxsize=50)
     processor = PacketProcessor(broadcast_queue=broadcast_queue)
@@ -108,7 +96,6 @@ async def startup_services(config: Config, config_path: str | None = None) -> Di
         config=config,
         config_path=config_path,
         storage=storage,
-        tile_proxy=tile_proxy,
         processor=processor,
         broadcast_queue=broadcast_queue,
         agw_reader=agw_reader,
@@ -137,8 +124,6 @@ async def shutdown_services(services: DirewolfServices) -> None:
         await services.log_tailer.stop()
     for task in services.background_tasks:
         task.cancel()
-    if services.tile_proxy:
-        await services.tile_proxy.close()
     if services.storage:
         await services.storage.close()
 
@@ -443,8 +428,6 @@ async def _stats_broadcaster(services: DirewolfServices) -> None:
             if services.storage and services.ws_clients:
                 db_stats = await services.storage.get_stats()
                 db_stats.update(services.get_stats_dict())
-                if services.tile_proxy:
-                    db_stats["tile_cache"] = await services.tile_proxy.get_cache_stats()
                 await broadcast_event("stats", db_stats, services.ws_clients)
         except asyncio.CancelledError:
             break

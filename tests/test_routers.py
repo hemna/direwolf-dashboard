@@ -30,8 +30,6 @@ class TestCreateApiRoutes:
             "/stats",
             "/config",
             "/storage",
-            "/tiles/{z}/{x}/{y}.png",
-            "/tiles/preload",
             "/health",
         }
         assert expected.issubset(paths), f"Missing routes: {expected - paths}"

@@ -110,7 +110,7 @@
                     <label>Port <input type="number" id="cfg-server-port" /></label>
                     <span class="hint">Requires restart</span>
                     <label>API Token <input type="password" id="cfg-api-token" placeholder="optional" autocomplete="off" /></label>
-                    <span class="hint">Required for settings / wipe / tile preload when set in server config</span>
+                    <span class="hint">Required for settings / wipe when set in server config</span>
                 </fieldset>
                 <fieldset>
                     <legend>Storage</legend>
@@ -171,36 +171,6 @@
                         <label>Dim <input type="color" id="lc-dim" /></label>
                     </div>
                     <button id="btn-reset-log-colors" class="secondary" type="button">Reset to Defaults</button>
-                </fieldset>
-                <fieldset>
-                    <legend>Map Tiles</legend>
-                    <label>
-                        Cache Mode
-                        <select id="cfg-tile-mode">
-                            <option value="lazy">Lazy (on-demand)</option>
-                            <option value="preload">Pre-download</option>
-                        </select>
-                    </label>
-                    <label>Max Cache (MB) <input type="number" id="cfg-max-cache" /></label>
-                    <span class="hint" id="tile-cache-stats"></span>
-                    <div id="preload-section" class="hidden">
-                        <h3>Pre-download Tiles</h3>
-                        <button id="btn-use-map-view">Use Current Map View</button>
-                        <label>South <input type="number" step="0.01" id="preload-south" /></label>
-                        <label>West <input type="number" step="0.01" id="preload-west" /></label>
-                        <label>North <input type="number" step="0.01" id="preload-north" /></label>
-                        <label>East <input type="number" step="0.01" id="preload-east" /></label>
-                        <label>Min Zoom <input type="number" id="preload-min-zoom" value="8" /></label>
-                        <label>Max Zoom <input type="number" id="preload-max-zoom" value="14" /></label>
-                        <button id="btn-estimate">Estimate</button>
-                        <div id="preload-estimate" class="hidden"></div>
-                        <button id="btn-download" class="hidden">Download</button>
-                        <button id="btn-cancel-download" class="hidden">Cancel</button>
-                        <div id="preload-progress" class="hidden">
-                            <div class="progress-bar"><div class="progress-fill"></div></div>
-                            <span id="preload-progress-text"></span>
-                        </div>
-                    </div>
                 </fieldset>
                 <div class="modal-actions">
                     <button id="btn-save-settings" class="primary">Save</button>

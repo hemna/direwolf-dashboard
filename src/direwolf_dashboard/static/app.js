@@ -427,7 +427,6 @@
             '<div class="stats-overlay-row"><span class="stats-label">Stations</span><span class="stats-value" id="stats-stations">0</span></div>' +
             '<div class="stats-overlay-row"><span class="stats-label">Packets</span><span class="stats-value" id="stats-packets">0</span></div>' +
             '<div class="stats-overlay-row"><span class="stats-label">Pkts/hr</span><span class="stats-value" id="stats-rate">0</span></div>' +
-            '<div class="stats-overlay-row"><span class="stats-label">Tiles</span><span class="stats-value" id="stats-tiles">0</span></div>' +
             '<div class="stats-overlay-row"><span class="stats-label">Uptime</span><span class="stats-value" id="stats-uptime">0s</span></div>' +
             '</div>';
         var statsHeader = container.querySelector('.stats-overlay-header');
@@ -458,11 +457,6 @@
         if (el) el.textContent = stats.packets_total || 0;
         el = document.getElementById('stats-rate');
         if (el) el.textContent = stats.packets_last_hour || 0;
-        el = document.getElementById('stats-tiles');
-        if (el) {
-            var tc = stats.tile_cache || {};
-            el.textContent = (tc.cache_size_mb || 0) + ' MB';
-        }
         el = document.getElementById('stats-uptime');
         if (el) el.textContent = formatUptime(stats.uptime_seconds || 0);
     }
@@ -2046,9 +2040,6 @@
             case 'error':
                 console.warn('Server error:', msg.data.message);
                 break;
-            case 'preload_progress':
-                onPreloadProgress(msg.data);
-                break;
             case 'config_updated':
                 onConfigUpdated(msg.data);
                 break;
@@ -2488,31 +2479,6 @@
         const btnResetColors = document.getElementById('btn-reset-log-colors');
         if (btnResetColors) btnResetColors.addEventListener('click', _resetLogColors);
 
-        // Tile mode toggle
-        document.getElementById('cfg-tile-mode').addEventListener('change', (e) => {
-            const preloadSection = document.getElementById('preload-section');
-            if (e.target.value === 'preload') {
-                preloadSection.classList.remove('hidden');
-            } else {
-                preloadSection.classList.add('hidden');
-            }
-        });
-
-        // Preload controls
-        document.getElementById('btn-use-map-view').addEventListener('click', () => {
-            if (map) {
-                const bounds = map.getBounds();
-                document.getElementById('preload-south').value = bounds.getSouth().toFixed(4);
-                document.getElementById('preload-west').value = bounds.getWest().toFixed(4);
-                document.getElementById('preload-north').value = bounds.getNorth().toFixed(4);
-                document.getElementById('preload-east').value = bounds.getEast().toFixed(4);
-            }
-        });
-
-        document.getElementById('btn-estimate').addEventListener('click', estimatePreload);
-        document.getElementById('btn-download').addEventListener('click', startPreload);
-        document.getElementById('btn-cancel-download').addEventListener('click', cancelPreload);
-
         // Wipe database
         document.getElementById('btn-wipe-db').addEventListener('click', wipeDatabase);
     }
@@ -2529,17 +2495,6 @@
 
         document.getElementById('cfg-units').value = getUnits();
         document.getElementById('cfg-retention').value = config.storage?.retention_days || 7;
-        document.getElementById('cfg-tile-mode').value = config.tiles?.cache_mode || 'lazy';
-        document.getElementById('cfg-max-cache').value = config.tiles?.max_cache_mb || 500;
-
-        // Fetch and display tile cache stats
-        fetch(API_BASE + '/stats').then(function (r) { return r.json(); }).then(function (stats) {
-            var tc = stats.tile_cache || {};
-            var el = document.getElementById('tile-cache-stats');
-            if (el) {
-                el.textContent = 'Current usage: ' + (tc.cache_size_mb || 0) + ' MB (' + (tc.tile_count || 0) + ' tiles)';
-            }
-        }).catch(function () {});
 
         // Map display settings
         document.getElementById('cfg-show-route-distances').checked = showRouteDistances;
@@ -2553,10 +2508,6 @@
         // Log color inputs
         _populateLogColorInputs();
 
-        // Show/hide preload section
-        if (config.tiles?.cache_mode === 'preload') {
-            document.getElementById('preload-section').classList.remove('hidden');
-        }
     }
 
     async function saveSettings() {
@@ -2576,10 +2527,6 @@
             },
             storage: {
                 retention_days: parseInt(document.getElementById('cfg-retention').value),
-            },
-            tiles: {
-                cache_mode: document.getElementById('cfg-tile-mode').value,
-                max_cache_mb: parseInt(document.getElementById('cfg-max-cache').value),
             },
             display: {
                 show_route_distances: document.getElementById('cfg-show-route-distances').checked,
@@ -2770,85 +2717,6 @@
         });
         // Re-apply my position marker (uses saved coords from config as fallback)
         updateMyPositionMarker();
-    }
-
-    // --- Tile Preload ---
-    async function estimatePreload() {
-        const bbox = getPreloadBbox();
-        if (!bbox) return;
-
-        try {
-            const resp = await fetch(API_BASE + '/tiles/preload', {
-                method: 'POST',
-                headers: _apiHeaders({ 'Content-Type': 'application/json' }),
-                body: JSON.stringify(bbox),
-            });
-            const est = await resp.json();
-
-            const el = document.getElementById('preload-estimate');
-            el.textContent = `${est.estimated_tiles} tiles (~${est.estimated_size_mb} MB)`;
-            el.classList.remove('hidden');
-            document.getElementById('btn-download').classList.remove('hidden');
-        } catch (e) {
-            console.error('Estimate failed:', e);
-        }
-    }
-
-    async function startPreload() {
-        const bbox = getPreloadBbox();
-        if (!bbox) return;
-        bbox.confirm = true;
-
-        try {
-            await fetch(API_BASE + '/tiles/preload', {
-                method: 'POST',
-                headers: _apiHeaders({ 'Content-Type': 'application/json' }),
-                body: JSON.stringify(bbox),
-            });
-
-            document.getElementById('btn-cancel-download').classList.remove('hidden');
-            document.getElementById('preload-progress').classList.remove('hidden');
-        } catch (e) {
-            console.error('Preload start failed:', e);
-        }
-    }
-
-    async function cancelPreload() {
-        try {
-            await fetch(API_BASE + '/tiles/preload', { method: 'DELETE', headers: _apiHeaders() });
-            document.getElementById('btn-cancel-download').classList.add('hidden');
-            document.getElementById('preload-progress').classList.add('hidden');
-        } catch (e) {
-            console.error('Cancel failed:', e);
-        }
-    }
-
-    function onPreloadProgress(data) {
-        const pct = Math.round((data.done / data.total) * 100);
-        document.querySelector('.progress-fill').style.width = pct + '%';
-        document.getElementById('preload-progress-text').textContent =
-            `${data.done} / ${data.total} tiles (${pct}%)`;
-
-        if (data.done >= data.total) {
-            document.getElementById('btn-cancel-download').classList.add('hidden');
-            document.getElementById('preload-progress-text').textContent = 'Complete!';
-        }
-    }
-
-    function getPreloadBbox() {
-        const south = parseFloat(document.getElementById('preload-south').value);
-        const west = parseFloat(document.getElementById('preload-west').value);
-        const north = parseFloat(document.getElementById('preload-north').value);
-        const east = parseFloat(document.getElementById('preload-east').value);
-        const minZoom = parseInt(document.getElementById('preload-min-zoom').value);
-        const maxZoom = parseInt(document.getElementById('preload-max-zoom').value);
-
-        if (isNaN(south) || isNaN(west) || isNaN(north) || isNaN(east)) {
-            alert('Please fill in all bounding box coordinates.');
-            return null;
-        }
-
-        return { bbox: [south, west, north, east], min_zoom: minZoom, max_zoom: maxZoom };
     }
 
     // --- Log View Toggle ---

@@ -82,6 +82,25 @@ def test_app_js_has_webgl2_check():
     assert "no legacy fallback" in js
 
 
+def test_tile_proxy_preload_ui_removed():
+    """The OSM tile-proxy management UI is retired with the proxy (#129).
+
+    The Settings 'Map Tiles' panel, the /tiles/preload fetches and the
+    stats-overlay tile cell all serviced the Leaflet tile-cache proxy, which
+    is gone once the map is on the LAN-offline kit basemap. They must not
+    come back.
+    """
+    js = APP_JS.read_text(encoding="utf-8")
+    html = INDEX.read_text(encoding="utf-8")
+    for needle in ("/tiles/preload", "stats.tile_cache", "cfg-tile-mode",
+                   "preload-section", "tile-cache-stats", "estimatePreload",
+                   "cache_mode", "max_cache_mb"):
+        assert needle not in js, f"app.js must not reference tile-proxy UI: {needle}"
+    for needle in ("cfg-tile-mode", "preload-section", "tile-cache-stats",
+                   "btn-estimate", "btn-download", "btn-cancel-download"):
+        assert needle not in html, f"index.html must not reference tile-proxy UI: {needle}"
+
+
 def test_no_leaflet_tile_layer_left():
     """No map uses L.tileLayer('/api/tiles/...') any more: the main map moved
     in #125 and the decode mini-map in #128."""
@@ -351,7 +370,7 @@ def test_tracks_source_respects_station_filters():
 def test_clear_stations_and_packets_clears_line_sources():
     """Wiping the DB must clear track lines and the overlay/tx-arc sources."""
     js = APP_JS.read_text(encoding="utf-8")
-    body = _function_body(js, "clearStationsAndPackets", "// --- Tile Preload")
+    body = _function_body(js, "clearStationsAndPackets", "// --- Log View Toggle")
     assert "delete stationTracks" in body
     assert "_overlayFC = { type: 'FeatureCollection', features: [] }" in body
     assert "_arcFC = { type: 'FeatureCollection', features: [] }" in body

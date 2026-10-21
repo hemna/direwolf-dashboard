@@ -2,7 +2,7 @@
 
 import asyncio
 import time
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 from starlette.testclient import TestClient
@@ -64,7 +64,6 @@ async def test_app(tmp_path):
     """Create a test app with real storage but mock AGW/log tailer."""
     config = Config()
     config.storage.db_path = str(tmp_path / "test.db")
-    config.tiles.cache_dir = str(tmp_path / "tiles")
     config.station.latitude = 37.75
     config.station.longitude = -77.45
     config_path = str(tmp_path / "config.yaml")
@@ -80,20 +79,11 @@ async def test_app(tmp_path):
     agw_reader.connected = False
     log_tailer = MagicMock()
     log_tailer.active = False
-    tile_proxy = MagicMock()
-    tile_proxy.get_cache_stats = AsyncMock(return_value={
-        "tile_count": 0,
-        "cache_size_mb": 0,
-    })
-    tile_proxy.estimate_preload = MagicMock(return_value={
-        "estimated_tiles": 0, "estimated_size_mb": 0
-    })
 
     container.services = DirewolfServices(
         config=config,
         config_path=config_path,
         storage=storage,
-        tile_proxy=tile_proxy,
         processor=MagicMock(),
         broadcast_queue=asyncio.Queue(),
         agw_reader=agw_reader,
@@ -112,7 +102,6 @@ async def test_app_with_token(tmp_path):
     config = Config()
     config.server.api_token = "sekrit-token"
     config.storage.db_path = str(tmp_path / "test.db")
-    config.tiles.cache_dir = str(tmp_path / "tiles")
     config_path = str(tmp_path / "config.yaml")
 
     app, container = _create_test_app(config, config_path)
@@ -120,15 +109,10 @@ async def test_app_with_token(tmp_path):
     storage = Storage(config.storage.db_path)
     await storage.init()
 
-    tile_proxy = MagicMock()
-    tile_proxy.get_cache_stats = AsyncMock(return_value={"tile_count": 0, "cache_size_mb": 0})
-    tile_proxy.estimate_preload = MagicMock(return_value={"estimated_tiles": 0, "estimated_size_mb": 0})
-
     container.services = DirewolfServices(
         config=config,
         config_path=config_path,
         storage=storage,
-        tile_proxy=tile_proxy,
         processor=MagicMock(),
         broadcast_queue=asyncio.Queue(),
         agw_reader=MagicMock(connected=False),
@@ -423,79 +407,31 @@ class TestMyPositionValidation:
             assert response.status_code == 400
 
 
-class TestStatsTileCache:
-    """Verify /api/stats includes tile_cache from async get_cache_stats."""
+class TestTileProxyRetired:
+    """The OSM tile-cache proxy routes are gone (issue #129).
 
-    async def test_stats_includes_tile_cache(self, test_app):
-        app, storage = test_app
+    /api/tiles/{z}/{x}/{y}.png and /api/tiles/preload existed only for the
+    Leaflet basemap. Once the map moved to the LAN-offline MapLibre kit
+    basemap, the proxy is retired outright: the routes must 404 and /api/stats
+    must no longer carry a tile_cache block.
+    """
+
+    async def test_tiles_route_404(self, test_app):
+        app, _storage = test_app
+        with TestClient(app, raise_server_exceptions=False) as client:
+            assert client.get("/api/tiles/1/2/3.png").status_code == 404
+            assert client.post("/api/tiles/preload", json={
+                "bbox": [37.0, -78.0, 38.0, -77.0],
+            }).status_code == 404
+            assert client.delete("/api/tiles/preload").status_code == 404
+
+    async def test_stats_has_no_tile_cache(self, test_app):
+        app, _storage = test_app
         with TestClient(app, raise_server_exceptions=False) as client:
             response = client.get("/api/stats")
             assert response.status_code == 200
             data = response.json()
-            assert "tile_cache" in data
-            assert "tile_count" in data["tile_cache"]
-            assert "cache_size_mb" in data["tile_cache"]
-
-
-class TestTilePreloadValidation:
-    """Tile preload input validation (issue #75)."""
-
-    async def test_valid_bbox_ok(self, test_app):
-        app, _storage = test_app
-        with TestClient(app, raise_server_exceptions=False) as client:
-            r = client.post("/api/tiles/preload", json={
-                "bbox": [37.0, -78.0, 38.0, -77.0], "min_zoom": 8, "max_zoom": 10,
-            })
-            assert r.status_code == 200
-
-    async def test_string_values_no_500(self, test_app):
-        """String numbers previously caused a TypeError -> 500.
-
-        Numeric strings now coerce successfully; non-numeric strings 400.
-        """
-        app, _storage = test_app
-        with TestClient(app, raise_server_exceptions=False) as client:
-            r = client.post("/api/tiles/preload", json={
-                "bbox": ["37", "-78", "38", "-77"],
-            })
-            assert r.status_code == 200
-            r = client.post("/api/tiles/preload", json={
-                "bbox": [37, -78, 38, -77], "max_zoom": "14",
-            })
-            assert r.status_code == 200
-            r = client.post("/api/tiles/preload", json={
-                "bbox": ["abc", "-78", "38", "-77"],
-            })
-            assert r.status_code == 400
-            r = client.post("/api/tiles/preload", json={
-                "bbox": [37, -78, 38, -77], "max_zoom": "abc",
-            })
-            assert r.status_code == 400
-
-    async def test_out_of_range_bbox_rejected(self, test_app):
-        app, _storage = test_app
-        with TestClient(app, raise_server_exceptions=False) as client:
-            r = client.post("/api/tiles/preload", json={
-                "bbox": [999, -78, 38, -77],
-            })
-            assert r.status_code == 400
-
-    async def test_inverted_bbox_rejected(self, test_app):
-        app, _storage = test_app
-        with TestClient(app, raise_server_exceptions=False) as client:
-            r = client.post("/api/tiles/preload", json={
-                "bbox": [38, -78, 37, -77],  # south > north
-            })
-            assert r.status_code == 400
-
-    async def test_min_zoom_above_max_rejected(self, test_app):
-        app, _storage = test_app
-        with TestClient(app, raise_server_exceptions=False) as client:
-            r = client.post("/api/tiles/preload", json={
-                "bbox": [37, -78, 38, -77], "min_zoom": 15, "max_zoom": 10,
-            })
-            assert r.status_code == 400
-
+            assert "tile_cache" not in data
 
 class TestApiTokenAuth:
     """API token gating on state-changing endpoints (issue #73)."""
@@ -535,20 +471,6 @@ class TestApiTokenAuth:
                 "DELETE",
                 "/api/storage",
                 json={"confirm": True},
-                headers={"X-API-Token": "sekrit-token"},
-            )
-            assert r.status_code == 200
-
-    async def test_tiles_preload_requires_token(self, test_app_with_token):
-        app, _storage = test_app_with_token
-        with TestClient(app, raise_server_exceptions=False) as client:
-            r = client.post("/api/tiles/preload", json={"bbox": [0, 0, 1, 1]})
-            assert r.status_code == 401
-            r = client.delete("/api/tiles/preload")
-            assert r.status_code == 401
-            r = client.post(
-                "/api/tiles/preload",
-                json={"bbox": [0, 0, 1, 1]},
                 headers={"X-API-Token": "sekrit-token"},
             )
             assert r.status_code == 200
