@@ -20,6 +20,7 @@ from direwolf_dashboard.lifecycle import (
 from direwolf_dashboard.routers import (
     create_api_routes,
     create_index_handler,
+    create_region_archive_route,
     create_ws_handler,
 )
 
@@ -49,6 +50,7 @@ def create_app(config: Config, config_path: str) -> Starlette:
     ]
     if os.path.exists(static_dir):
         routes.append(Mount("/static", StaticFiles(directory=static_dir)))
+    routes.append(create_region_archive_route(container, static_dir))
     routes.append(Route("/", create_index_handler(static_dir)))
 
     app = Starlette(

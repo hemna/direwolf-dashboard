@@ -1,10 +1,21 @@
 """CLI entry point for Direwolf Dashboard."""
 
 import logging
+import os
+import shutil
+import subprocess
 
 import click
 
 from direwolf_dashboard import __version__
+from direwolf_dashboard.basemap import (
+    FETCHED_REGION_ARCHIVE,
+    bbox_around,
+    build_extract_command,
+    default_planet_url,
+    parse_bbox,
+    sha256_file,
+)
 from direwolf_dashboard.config import DEFAULT_CONFIG_PATH, load_config
 
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
@@ -122,3 +133,103 @@ def check(ctx):
 def version():
     """Show the version."""
     click.echo(f"Direwolf Dashboard v{__version__}")
+
+
+@main.group()
+def basemap():
+    """Fetch and manage the offline basemap region archive."""
+
+
+@basemap.command()
+@click.option(
+    "--bbox",
+    "bbox_text",
+    metavar="MIN_LON,MIN_LAT,MAX_LON,MAX_LAT",
+    default=None,
+    help="Bounding box to extract; overrides the --radius-km box around the station.",
+)
+@click.option(
+    "--radius-km",
+    "radius_km",
+    type=float,
+    default=75.0,
+    show_default=True,
+    help="Radius (km) of the square bbox around config.station, used when --bbox is absent.",
+)
+@click.option(
+    "--maxzoom",
+    "maxzoom",
+    type=int,
+    default=15,
+    show_default=True,
+    help="Maximum zoom level to extract.",
+)
+@click.option(
+    "--planet",
+    "planet",
+    default=None,
+    help="Protomaps planet .pmtiles URL (default: yesterday's UTC build).",
+)
+@click.option(
+    "--output",
+    "output",
+    default=None,
+    type=click.Path(),
+    help="Output .pmtiles path (default: <data_dir>/basemap/region.pmtiles).",
+)
+@click.pass_context
+def fetch(ctx, bbox_text, radius_km, maxzoom, planet, output):
+    """Extract a basemap region around the station from a Protomaps planet.
+
+    Needs internet (and the pmtiles CLI) once, at fetch time; serving the
+    resulting archive stays LAN-offline. (issue #132)
+    """
+    config = load_config(ctx.obj["config_path"])
+
+    if bbox_text:
+        try:
+            bbox = parse_bbox(bbox_text)
+        except ValueError as e:
+            raise click.ClickException(str(e)) from None
+    else:
+        lat, lon = config.station.latitude, config.station.longitude
+        if not lat and not lon:
+            raise click.ClickException(
+                "No station position configured (station.latitude/longitude are 0,0) "
+                "and no --bbox given. Pass --bbox=MIN_LON,MIN_LAT,MAX_LON,MAX_LAT or set "
+                "station.latitude/longitude in the config."
+            )
+        bbox = bbox_around(lat, lon, radius_km)
+
+    if planet is None:
+        planet = default_planet_url()
+
+    if output is None:
+        output = os.path.join(config.data_dir, FETCHED_REGION_ARCHIVE)
+    output = os.path.abspath(os.path.expanduser(output))
+
+    pmtiles_bin = shutil.which("pmtiles")
+    if not pmtiles_bin:
+        raise click.ClickException(
+            "The 'pmtiles' CLI is required to fetch a region but was not found on PATH.\n"
+            "Install it from https://github.com/protomaps/go-pmtiles "
+            "(e.g. 'go install github.com/protomaps/go-pmtiles/cmd/pmtiles@latest')."
+        )
+
+    os.makedirs(os.path.dirname(output), exist_ok=True)
+    tmp = output + ".tmp.pmtiles"
+    cmd = build_extract_command(planet, tmp, bbox, maxzoom)
+
+    click.echo(f"Downloading bbox={','.join(f'{v:.6f}' for v in bbox)} maxzoom={maxzoom}")
+    click.echo(f"Running: {' '.join(cmd)}")
+    try:
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError as e:
+        raise click.ClickException(f"pmtiles extract failed with exit code {e.returncode}") from e
+
+    os.replace(tmp, output)  # atomic: never leave a partial region.pmtiles
+
+    size = os.path.getsize(output)
+    click.echo(f"Wrote {output}")
+    click.echo(f"  size: {size:,} bytes")
+    click.echo(f"  sha256: {sha256_file(output)}")

@@ -1045,14 +1045,15 @@
         return style;
     }
 
-    /** Fetch the basemap style for a theme, making source / sprite / glyphs
-     *  URLs absolute (pmtiles source rewrite + MapLibre-required sprite urls). */
+    /** Fetch the basemap style for a theme, pointing the protomaps source at
+     *  the served region archive URL (issue #132: region.pmtiles under the
+     *  /basemap mount, with HTTP Range — not the hardcoded sample path). */
     async function fetchStyleForTheme(theme) {
         const name = theme === 'light' ? 'light' : 'dark';
         const resp = await fetch('/static/basemap/style.' + name + '.json');
         const style = await resp.json();
         if (style.sources && style.sources.protomaps) {
-            style.sources.protomaps.url = 'pmtiles://' + new URL(style.sources.protomaps.url, window.location.href).href;
+            style.sources.protomaps.url = 'pmtiles://' + new URL('/basemap/region.pmtiles', window.location.href).href;
         }
         return absolutizeStyleUrls(style, window.location.href);
     }
