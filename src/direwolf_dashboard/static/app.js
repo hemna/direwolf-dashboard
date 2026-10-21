@@ -264,6 +264,27 @@
     }
 
     function createSymbolIcon(symbolTable, symbolChar, callsign) {
+        return L.divIcon({
+            html: createSymbolIconHtml(symbolTable, symbolChar, callsign),
+            className: 'aprs-symbol-icon',
+            iconSize: [24, 24],
+            iconAnchor: [12, 12],
+            popupAnchor: [0, -12],
+        });
+    }
+
+    /** DOM element for a maplibregl.Marker with the same APRS icon + label
+     *  markup as the Leaflet divIcon (decode mini-map, issue #128). */
+    function createSymbolIconElement(symbolTable, symbolChar, callsign) {
+        const el = document.createElement('div');
+        el.className = 'aprs-symbol-icon';
+        el.style.width = '24px';
+        el.style.height = '24px';
+        el.innerHTML = createSymbolIconHtml(symbolTable, symbolChar, callsign);
+        return el;
+    }
+
+    function createSymbolIconHtml(symbolTable, symbolChar, callsign) {
         const pos = getSymbolSpritePosition(symbolChar);
         const { spriteUrl, overlay } = parseSymbolTable(symbolTable);
 
@@ -280,14 +301,7 @@
             html += `<span class="station-label" style="position:absolute;left:26px;top:50%;transform:translateY(-50%);white-space:nowrap;">${escHtml(callsign)}</span>`;
         }
         html += '</div>';
-
-        return L.divIcon({
-            html: html,
-            className: 'aprs-symbol-icon',
-            iconSize: [24, 24],
-            iconAnchor: [12, 12],
-            popupAnchor: [0, -12],
-        });
+        return html;
     }
 
     // --- APRS Symbol Names ---
@@ -1061,6 +1075,33 @@
 
         map.addSource('stations', { type: 'geojson', data: stationFeatureCollection });
 
+        // My-station glow under the icon (Leaflet .my-station drop-shadow,
+        // issue #133): two blurred circles in --my-station-glow.
+        map.addLayer({
+            id: 'stations-my-glow',
+            type: 'circle',
+            source: 'stations',
+            filter: ['==', ['get', 'is_my'], true],
+            paint: {
+                'circle-radius': 18,
+                'circle-color': themeColor('--my-station-glow'),
+                'circle-opacity': 0.55,
+                'circle-blur': 0.8,
+            },
+        });
+        map.addLayer({
+            id: 'stations-my-glow-core',
+            type: 'circle',
+            source: 'stations',
+            filter: ['==', ['get', 'is_my'], true],
+            paint: {
+                'circle-radius': 14,
+                'circle-color': themeColor('--my-station-glow'),
+                'circle-opacity': 0.6,
+                'circle-blur': 0.5,
+            },
+        });
+
         map.addLayer({
             id: 'stations-symbol-base',
             type: 'symbol',
@@ -1097,22 +1138,20 @@
             source: 'stations',
             layout: {
                 'text-field': ['get', 'callsign'],
-                'text-font': ['NotoSansRegular'],
+                // Leaflet .station-label (#133): bold, right of the 24 px
+                // icon (left edge 26 px from the icon's left), centered.
+                'text-font': ['NotoSansMedium'],
                 'text-size': 11,
-                'text-anchor': 'top',
-                'text-offset': [0, 1.2],
+                'text-anchor': 'left',
+                'text-offset': [1.27, 0],
                 'text-allow-overlap': true,
                 'text-ignore-placement': true,
             },
             paint: {
-                'text-color': [
-                    'case',
-                    ['get', 'is_my'],
-                    themeColor('--accent'),
-                    themeColor('--text-primary'),
-                ],
+                'text-color': themeColor('--text-primary'),
                 'text-halo-color': themeColor('--label-shadow'),
-                'text-halo-width': 1,
+                'text-halo-width': 1.5,
+                'text-halo-blur': 0,
             },
         });
 
@@ -1168,6 +1207,28 @@
                     'line-dasharray': [4, 8],
                 },
             }, 'stations-symbol-base');
+        }
+
+        if (!map.getLayer('station-overlay-hops')) {
+            // Hop dots (Leaflet circleMarker r=5, #ff9500) with hover tooltips (#134).
+            map.addLayer({
+                id: 'station-overlay-hops',
+                type: 'circle',
+                source: 'station-overlay',
+                filter: ['==', ['get', 'kind'], 'hop'],
+                paint: {
+                    'circle-radius': 5,
+                    'circle-color': '#ff9500',
+                    'circle-opacity': 0.9,
+                    'circle-stroke-color': '#ff9500',
+                    'circle-stroke-width': 1.5,
+                },
+            }, 'stations-symbol-base');
+        }
+        if (!_hopHoverBound) {
+            _hopHoverBound = true;
+            map.on('mouseenter', 'station-overlay-hops', onHopEnter);
+            map.on('mouseleave', 'station-overlay-hops', onHopLeave);
         }
 
         if (!map.getSource('tx-arcs')) {
@@ -1575,9 +1636,39 @@
     }
 
     var _selectedCallsign = null;
+    var _hopHoverBound = false;
+    var _hopTooltip = null;
+    var _distanceLabelMarker = null;
+
+    function onHopEnter(e) {
+        const f = e.features && e.features[0];
+        if (!f || !f.properties.label) return;
+        map.getCanvas().style.cursor = 'pointer';
+        if (_hopTooltip) _hopTooltip.remove();
+        _hopTooltip = new maplibregl.Popup({
+            closeButton: false, closeOnClick: false, anchor: 'bottom',
+            offset: 8, className: 'path-tooltip-popup',
+        })
+            .setLngLat(f.geometry.coordinates)
+            .setHTML('<div class="path-tooltip">' + escHtml(String(f.properties.label)) + '</div>')
+            .addTo(map);
+    }
+
+    function onHopLeave() {
+        map.getCanvas().style.cursor = '';
+        if (_hopTooltip) { _hopTooltip.remove(); _hopTooltip = null; }
+    }
+
+    /** Leaflet distance-label text: "12.3 km / 7.6 mi" (thin/en spaces). */
+    function distanceLabelHtml(distKm) {
+        const distMi = (distKm * 0.621371).toFixed(1);
+        return `<div class="distance-label">${distKm.toFixed(1)}&thinsp;km&ensp;/&ensp;${distMi}&thinsp;mi</div>`;
+    }
 
     function clearStationOverlay() {
         _overlayFC = { type: 'FeatureCollection', features: [] };
+        if (_distanceLabelMarker) { _distanceLabelMarker.remove(); _distanceLabelMarker = null; }
+        if (_hopTooltip) { _hopTooltip.remove(); _hopTooltip = null; }
         refreshOverlaySource();
         document.querySelectorAll('.log-row.log-row-selected')
             .forEach(el => el.classList.remove('log-row-selected'));
@@ -1625,6 +1716,13 @@
                     coordinates: [[waypoints[i].lng, waypoints[i].lat], [waypoints[i + 1].lng, waypoints[i + 1].lat]],
                 },
             });
+            if (waypoints[i + 1].label) {
+                features.push({
+                    type: 'Feature',
+                    properties: { kind: 'hop', label: waypoints[i + 1].label },
+                    geometry: { type: 'Point', coordinates: [waypoints[i + 1].lng, waypoints[i + 1].lat] },
+                });
+            }
         }
 
         // --- Distance line to My Position ---
@@ -1638,6 +1736,14 @@
                     coordinates: [[stLng, stLat], [myPos.lng, myPos.lat]],
                 },
             });
+            if (map && typeof maplibregl !== 'undefined') {
+                const el = document.createElement('div');
+                el.innerHTML = distanceLabelHtml(haversineKm(stLat, stLng, myPos.lat, myPos.lng));
+                el.style.pointerEvents = 'none';
+                _distanceLabelMarker = new maplibregl.Marker({ element: el, anchor: 'center' })
+                    .setLngLat([(stLng + myPos.lng) / 2, (stLat + myPos.lat) / 2])
+                    .addTo(map);
+            }
         }
 
         _overlayFC = { type: 'FeatureCollection', features };
@@ -2904,7 +3010,7 @@
             }
         } else if (mp.type === 'station' && mp.callsign) {
             if (mainMapIsMaplibre) {
-                // Highlight handled via the is_my label color in the GeoJSON source.
+                // Highlight handled via the is_my glow layers (stations-my-glow*).
                 scheduleStationRefresh();
             } else {
                 const s = stations[mp.callsign];
@@ -3753,62 +3859,79 @@
         const stationCall = sections.station.from || '';
         const pathOrder = sections.station.path || [];
 
-        // Create the mini map using our local tile proxy
-        decodeMiniMap = L.map('decode-mini-map', {
-            zoomControl: true,
-            attributionControl: true,
-            scrollWheelZoom: true,
-            dragging: true,
+        // Small MapLibre instance on the same kit style + region archive as
+        // the main map (issue #128; replaces L.map + the OSM tile proxy).
+        if (typeof maplibregl === 'undefined' || !document.createElement('canvas').getContext('webgl2')) {
+            container.outerHTML = '<div class="decode-map-unavailable">Map unavailable (WebGL2 required)</div>';
+            return;
+        }
+        const thisMap = new maplibregl.Map({
+            container: container,
+            style: { version: 8, sources: {}, layers: [] },
+            center: [stationLon, stationLat],
+            zoom: 12,
+            attributionControl: { compact: true },
         });
+        decodeMiniMap = thisMap;
+        thisMap.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
+        fetchStyleForTheme(_currentTheme).then(function (style) {
+            if (decodeMiniMap === thisMap) thisMap.setStyle(style);
+        }).catch(function (e) { console.warn('Decode mini-map style failed:', e); });
 
-        L.tileLayer('/api/tiles/{z}/{x}/{y}.png', {
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>',
-            maxZoom: 19,
-        }).addTo(decodeMiniMap);
+        function addMarker(lat, lon, table, sym, call) {
+            new maplibregl.Marker({ element: createSymbolIconElement(table, sym, call), anchor: 'center' })
+                .setLngLat([lon, lat])
+                .setPopup(new maplibregl.Popup({ offset: 12 }).setHTML('<strong>' + escHtml(call) + '</strong>'))
+                .addTo(thisMap);
+        }
 
-        // Collect all points for bounds fitting
-        const allPoints = [[stationLat, stationLon]];
+        // Collect all points ([lon, lat]) for bounds fitting
+        const allPoints = [[stationLon, stationLat]];
+        addMarker(stationLat, stationLon, symbolTable, symbolChar, stationCall);
 
-        // Add station marker with APRS symbol icon
-        const stationIcon = createSymbolIcon(symbolTable, symbolChar, stationCall);
-        const stationMarker = L.marker([stationLat, stationLon], { icon: stationIcon }).addTo(decodeMiniMap);
-        stationMarker.bindPopup('<strong>' + escHtml(stationCall) + '</strong>');
-
-        // Add path station markers and build polyline
-        const linePoints = [[stationLat, stationLon]];
-
+        // Path station markers + polyline
+        const linePoints = [[stationLon, stationLat]];
         for (const hop of pathOrder) {
             const clean = hop.replace('*', '').trim().toUpperCase();
             if (pathStations[clean]) {
                 const pos = pathStations[clean];
-                allPoints.push([pos.latitude, pos.longitude]);
-                linePoints.push([pos.latitude, pos.longitude]);
-
-                const pathIcon = createSymbolIcon(
-                    pos.symbol_table || '/',
-                    pos.symbol || '>',
-                    clean
-                );
-                const pathMarker = L.marker([pos.latitude, pos.longitude], { icon: pathIcon }).addTo(decodeMiniMap);
-                pathMarker.bindPopup('<strong>' + escHtml(clean) + '</strong>');
+                allPoints.push([pos.longitude, pos.latitude]);
+                linePoints.push([pos.longitude, pos.latitude]);
+                addMarker(pos.latitude, pos.longitude, pos.symbol_table || '/', pos.symbol || '>', clean);
             }
         }
 
-        // Draw path polyline
         if (linePoints.length > 1) {
-            L.polyline(linePoints, {
-                color: themeColor('--segment-path-fg'),
-                weight: 2,
-                dashArray: '6, 8',
-                opacity: 0.7,
-            }).addTo(decodeMiniMap);
+            const lineColor = themeColor('--segment-path-fg');
+            const addPathLine = function () {
+                if (thisMap.getSource('decode-path')) return;
+                thisMap.addSource('decode-path', {
+                    type: 'geojson',
+                    data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: linePoints } },
+                });
+                thisMap.addLayer({
+                    id: 'decode-path-line',
+                    type: 'line',
+                    source: 'decode-path',
+                    paint: {
+                        'line-color': lineColor,
+                        'line-width': 2,
+                        // Leaflet dashArray '6, 8' at weight 2 -> line-width units
+                        'line-dasharray': [3, 4],
+                        'line-opacity': 0.7,
+                    },
+                });
+            };
+            thisMap.on('style.load', addPathLine);
         }
 
-        // Fit bounds or set view
+        // Fit bounds or set view (Leaflet maxZoom 14 / zoom 13 -> MapLibre z-1)
         if (allPoints.length > 1) {
-            decodeMiniMap.fitBounds(allPoints, { padding: [40, 40], maxZoom: 14 });
+            const bounds = new maplibregl.LngLatBounds(allPoints[0], allPoints[0]);
+            allPoints.forEach(function (p) { bounds.extend(p); });
+            thisMap.fitBounds(bounds, { padding: 40, maxZoom: toMlZoom(14), duration: 0 });
         } else {
-            decodeMiniMap.setView([stationLat, stationLon], 13);
+            thisMap.jumpTo({ center: [stationLon, stationLat], zoom: toMlZoom(13) });
         }
     }
 
