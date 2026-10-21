@@ -14,6 +14,7 @@ from haversine import Unit, haversine
 from starlette.websockets import WebSocket
 
 from direwolf_dashboard.agw import AGWReader
+from direwolf_dashboard.basemap_auto import AutoFetchStatus, auto_fetch_loop
 from direwolf_dashboard.config import Config
 from direwolf_dashboard.log_tailer import LogTailer
 from direwolf_dashboard.processor import (
@@ -49,6 +50,7 @@ class DirewolfServices:
     # coordinates so the broadcast consumer can invalidate the cache on the
     # matching callsign WITHOUT a DB read per packet. (issue #76)
     _my_position_callsign: Optional[str] = field(default=None, repr=False)
+    basemap_status: AutoFetchStatus = field(default_factory=AutoFetchStatus)
 
     def get_stats_dict(self) -> dict:
         """Build the stats response dict (sync portion — caller must merge DB stats).
@@ -110,6 +112,9 @@ async def startup_services(config: Config, config_path: str | None = None) -> Di
     background_tasks.append(asyncio.create_task(_broadcast_consumer(services)))
     background_tasks.append(asyncio.create_task(_housekeeping_loop(services, config.storage.retention_days)))
     background_tasks.append(asyncio.create_task(_stats_broadcaster(services)))
+    background_tasks.append(asyncio.create_task(
+        auto_fetch_loop(config, services.basemap_status, lambda: resolve_my_position(services))
+    ))
 
     LOG.info("All background tasks started.")
     return services

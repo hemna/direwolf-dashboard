@@ -288,6 +288,7 @@ def create_api_routes(container: ServiceContainer) -> list:
                     d["basemap"]["region_archive"], d["data_dir"], _STATIC_DIR
                 )
             )
+            d["basemap"]["auto"] = services.basemap_status.to_dict()
             return JSONResponse(d)
 
         # PUT

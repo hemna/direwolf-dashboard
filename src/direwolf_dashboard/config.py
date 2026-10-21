@@ -94,6 +94,19 @@ class BasemapConfig:
     # styles bake this path in (LAN-offline). An operator swaps the file on
     # disk (Pi copies its real region archive here).
     region_archive: str = DEFAULT_REGION_ARCHIVE
+    # Worldwide offline maps: on startup, download a square region around the
+    # station from the Protomaps planet when region.pmtiles is missing or no
+    # longer covers the station. Defaults keep a dense city around 30-45 MB.
+    auto_fetch: bool = True
+    radius_km: float = 40.0
+    maxzoom: int = 13
+    # Ordered planet sources to extract from; the first that answers with a
+    # valid vector PMTiles wins. "protomaps" = yesterday's build.protomaps.com
+    # build. Entries may also be other URLs or local .pmtiles paths.
+    sources: list = field(default_factory=lambda: [
+        "https://cloud.hemna.com/basemap-kit/archives/planet.pmtiles",
+        "protomaps",
+    ])
 
 
 @dataclass
@@ -143,6 +156,10 @@ RESTART_REQUIRED_FIELDS = {
     "direwolf.log_file",
     "storage.db_path",
     "basemap.region_archive",
+    "basemap.auto_fetch",
+    "basemap.radius_km",
+    "basemap.maxzoom",
+    "basemap.sources",
 }
 
 
