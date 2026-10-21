@@ -38,8 +38,8 @@ def test_index_loads_maplibre_vendor_assets():
         assert needle in html, f"index.html missing {needle}"
 
 
-def test_index_keeps_leaflet_loaded_for_decode_minimap():
-    """The decode mini-map keeps Leaflet until #128, so leaflet.js stays."""
+def test_index_keeps_leaflet_loaded_until_129():
+    """leaflet.js stays loaded until #129 retires it (GPX on master still uses it)."""
     html = INDEX.read_text(encoding="utf-8")
     assert '<script src="/static/leaflet/leaflet.js"></script>' in html
 
@@ -82,22 +82,11 @@ def test_app_js_has_webgl2_check():
     assert "no legacy fallback" in js
 
 
-def test_main_map_no_longer_uses_leaflet_tile_layer():
-    """The main map must not use L.tileLayer('/api/tiles/...').
-
-    The only remaining L.tileLayer is inside the decode mini-map path (Leaflet
-    until #128), so every occurrence must reference decodeMiniMap, never the
-    main `map` object.
-    """
+def test_no_leaflet_tile_layer_left():
+    """No map uses L.tileLayer('/api/tiles/...') any more: the main map moved
+    in #125 and the decode mini-map in #128."""
     js = APP_JS.read_text(encoding="utf-8")
-    occurrences = [m.start() for m in re.finditer(r"L\.tileLayer\(", js)]
-    assert occurrences, "expected the decode mini-map to keep its Leaflet tile layer"
-    for pos in occurrences:
-        tail = js[pos : pos + 400]
-        assert "decodeMiniMap" in tail, (
-            "L.tileLayer on the main map must be removed (only the decode "
-            "mini-map may use it) at byte offset " + str(pos)
-        )
+    assert not re.search(r"L\.tileLayer\(", js)
 
 
 def test_app_js_exposes_aprs_icon_sprite_usage():

@@ -5,6 +5,12 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Fixed
+- **MapLibre station labels match Leaflet (issue #133)** — callsign label sits
+  right of the icon in bold (NotoSansMedium) with a label-shadow outline, and
+  my station gets the `--my-station-glow` halo under its icon.
+- **MapLibre station selection overlay matches Leaflet (issue #134)** — hop
+  dots on each known digipeater/igate with a hover tooltip, plus the
+  `km / mi` distance label at the midpoint of the line to My Position.
 - **MapLibre main map: station icons missing + zoom off by one (issue #135)** —
   MapLibre rejects relative sprite URLs, so no APRS icons (or basemap POI
   icons) rendered; the style's sprite/glyph URLs are now made absolute at load.
@@ -239,6 +245,10 @@ All notable changes to this project are documented here.
   waypoint circles) styled like the Leaflet version; the vendored
   `leaflet/gpx.js` plugin is removed. Load, Fit Map, Clear, legend and
   localStorage restore work as before.
+- **Decode mini-map on MapLibre (issue #128)** — the packet-decode Location
+  map is a small MapLibre instance on the same kit style and region archive as
+  the main map (APRS icon markers, popups, dashed path line, same framing);
+  it no longer uses Leaflet or the OSM tile proxy.
 - **RAM optimizations** for Raspberry Pi Zero 2W (RSS reduced from ~49 MB to
   ~35 MB, packages from 63 → 12):
   - Replaced FastAPI with Starlette directly — removes Pydantic, pydantic-core,
