@@ -546,7 +546,7 @@
             var pos = getMyPosition();
             if (pos) {
                 var zoom = config.station?.zoom || 12;
-                mapFlyTo(pos.lat, pos.lng, zoom);
+                mapFlyTo(pos.lat, pos.lng, toMlZoom(zoom));
             }
         });
         // Wire up clear button
@@ -1000,7 +1000,7 @@
             container: 'map',
             style: await fetchStyleForTheme(_currentTheme),
             center: [lon, lat],
-            zoom: zoom,
+            zoom: toMlZoom(zoom),
         });
         map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
 
@@ -1026,8 +1026,27 @@
         setInterval(cleanupAnimations, 10000);
     }
 
-    /** Fetch the basemap style for a theme, rewriting the protomaps source to
-     *  the pmtiles:// protocol + absolute archive URL. */
+    /** Rewrite the style's sprite (string or array of {id,url}) and glyphs
+     *  URLs to be absolute against `base` (MapLibre rejects relative sprite
+     *  URLs, issue #135). new URL percent-encodes { } so the glyphs template
+     *  placeholders ({fontstack}/{range}) are restored to keep them usable. */
+    function absolutizeStyleUrls(style, base) {
+        function abs(u) {
+            return new URL(u, base).href
+                .replace(/%7Bfontstack%7D/g, '{fontstack}')
+                .replace(/%7Brange%7D/g, '{range}');
+        }
+        if (Array.isArray(style.sprite)) {
+            style.sprite.forEach(function (s) { if (s && s.url) s.url = abs(s.url); });
+        } else if (typeof style.sprite === 'string') {
+            style.sprite = abs(style.sprite);
+        }
+        if (style.glyphs) style.glyphs = abs(style.glyphs);
+        return style;
+    }
+
+    /** Fetch the basemap style for a theme, making source / sprite / glyphs
+     *  URLs absolute (pmtiles source rewrite + MapLibre-required sprite urls). */
     async function fetchStyleForTheme(theme) {
         const name = theme === 'light' ? 'light' : 'dark';
         const resp = await fetch('/static/basemap/style.' + name + '.json');
@@ -1035,7 +1054,7 @@
         if (style.sources && style.sources.protomaps) {
             style.sources.protomaps.url = 'pmtiles://' + new URL(style.sources.protomaps.url, window.location.href).href;
         }
-        return style;
+        return absolutizeStyleUrls(style, window.location.href);
     }
 
     /** One GeoJSON source + symbol layers for all stations:
@@ -1067,7 +1086,9 @@
             id: 'stations-symbol-overlay',
             type: 'symbol',
             source: 'stations',
-            filter: ['has', 'overlay_hex'],
+            // ['has','overlay_hex'] matches explicit null values too (#135);
+            // require a non-null overlay (property is omitted when absent).
+            filter: ['!=', ['get', 'overlay_hex'], null],
             layout: {
                 'icon-image': ['concat', 'aprs:aprs-o-', ['get', 'overlay_hex']],
                 'icon-size': 1,
@@ -1271,6 +1292,11 @@
     }
 
     // --- Map view helpers (maplibre) ---
+    /** MapLibre uses 512px tiles, Leaflet 256px: Leaflet zoom z == MapLibre
+     *  z-1. Convert a configured/Leaflet-semantic zoom (issue #135). */
+    function toMlZoom(leafletZoom) {
+        return Math.max(0, leafletZoom - 1);
+    }
     function mapSetView(lat, lng, zoom) {
         if (!map) return;
         map.jumpTo({ center: [lng, lat], zoom: zoom });
@@ -1313,7 +1339,7 @@
             const pos = getMyPosition();
             if (pos) {
                 const zoom = config.station?.zoom || 12;
-                mapFlyTo(pos.lat, pos.lng, zoom);
+                mapFlyTo(pos.lat, pos.lng, toMlZoom(zoom));
             }
         });
     }
@@ -1373,17 +1399,22 @@
         stations[cs].data = data;
 
         // Update the GeoJSON feature backing the maplibre station layers.
+        const props = {
+            callsign: cs,
+            symbol_hex: hex2(symbolChar),
+            symbol_table: symbolTable,
+            type: data.type || '',
+            tx: data.tx || false,
+        };
+        // Omit the overlay property entirely when there is none (#135); a
+        // GeoJSON null value would otherwise slip past the layer's != null filter.
+        if (symbolTable !== '/' && symbolTable !== '\\') {
+            props.overlay_hex = hex2(symbolTable);
+        }
         stationFeatures[cs] = {
             type: 'Feature',
             geometry: { type: 'Point', coordinates: [data.longitude, data.latitude] },
-            properties: {
-                callsign: cs,
-                symbol_hex: hex2(symbolChar),
-                symbol_table: symbolTable,
-                overlay_hex: (symbolTable !== '/' && symbolTable !== '\\') ? hex2(symbolTable) : null,
-                type: data.type || '',
-                tx: data.tx || false,
-            },
+            properties: props,
         };
 
         scheduleStationRefresh();
@@ -1504,7 +1535,7 @@
     function focusStation(callsign) {
         const s = stations[callsign];
         if (!map || !s || s.data.latitude == null) return;
-        mapFlyTo(s.data.latitude, s.data.longitude, Math.max(map.getZoom(), 12));
+        mapFlyTo(s.data.latitude, s.data.longitude, Math.max(map.getZoom(), toMlZoom(12)));
         openStationPopup(callsign);
     }
 
@@ -1908,7 +1939,7 @@
             if (waitingForPosition) {
                 dismissWaiting();
                 const zoom = config.station?.zoom || 12;
-                mapFlyTo(packet.latitude, packet.longitude, zoom);
+                mapFlyTo(packet.latitude, packet.longitude, toMlZoom(zoom));
             }
             addOrUpdateStation({
                 callsign: packet.from_call,
@@ -2873,7 +2904,7 @@
         var savedLng = localStorage.getItem('dw-map-lng');
         if (savedLat !== null && savedLng !== null) {
             const zoom = config.station?.zoom || 12;
-            mapSetView(parseFloat(savedLat), parseFloat(savedLng), zoom);
+            mapSetView(parseFloat(savedLat), parseFloat(savedLng), toMlZoom(zoom));
             return;
         }
 
@@ -2881,7 +2912,7 @@
         const myPos = getMyPosition();
         if (myPos) {
             const zoom = config.station?.zoom || 12;
-            mapSetView(myPos.lat, myPos.lng, zoom);
+            mapSetView(myPos.lat, myPos.lng, toMlZoom(zoom));
             return;
         }
 
@@ -2890,7 +2921,7 @@
         const lon = config.station?.longitude || 0;
         if (lat !== 0 || lon !== 0) {
             const zoom = config.station?.zoom || 12;
-            mapSetView(lat, lon, zoom);
+            mapSetView(lat, lon, toMlZoom(zoom));
             return;
         }
 
@@ -2912,13 +2943,13 @@
             }
             if (best) {
                 const zoom = config.station?.zoom || 12;
-                mapSetView(best.data.latitude, best.data.longitude, zoom);
+                mapSetView(best.data.latitude, best.data.longitude, toMlZoom(zoom));
                 return;
             }
         }
 
         // Priority 4: Cold start - center (0,0) zoom 3, show waiting modal
-        mapSetView(0, 0, 3);
+        mapSetView(0, 0, toMlZoom(3));
         showWaitingModal();
     }
 
@@ -3036,7 +3067,7 @@
                 const pos = getMyPosition();
                 if (pos) {
                     const zoom = config.station?.zoom || 12;
-                    mapFlyTo(pos.lat, pos.lng, zoom);
+                    mapFlyTo(pos.lat, pos.lng, toMlZoom(zoom));
                 }
                 // Dismiss waiting if active
                 if (waitingForPosition) dismissWaiting();

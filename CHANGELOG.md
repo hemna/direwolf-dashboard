@@ -4,6 +4,14 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Fixed
+- **MapLibre main map: station icons missing + zoom off by one (issue #135)** —
+  MapLibre rejects relative sprite URLs, so no APRS icons (or basemap POI
+  icons) rendered; the style's sprite/glyph URLs are now made absolute at load.
+  The overlay layer no longer requests an empty `aprs-o-` image, and the
+  configured zoom now frames the same area as the Leaflet map did (MapLibre
+  z = Leaflet z - 1).
+
 ### Added
 - **MapLibre station tracks, path lines and transmit arcs (issue #126)** — the
   main map's movement trails, station path/distance lines and TX/RX routing
