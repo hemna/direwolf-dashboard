@@ -2652,3 +2652,9 @@ kbd {
         grid-template-columns: 1fr;
     }
 }
+
+/* GPX control (top-left, #127) stays above the legend (bottom-left) when a
+ * short map viewport makes the two control stacks overlap. */
+.maplibregl-ctrl-top-left {
+    z-index: 3;
+}

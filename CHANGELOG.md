@@ -234,6 +234,11 @@ All notable changes to this project are documented here.
   Closing the popup clears the highlight.
 
 ### Changed
+- **GPX overlay on the MapLibre map (issue #127)** — GPX files are parsed with
+  DOMParser into a GeoJSON source (track / dashed route lines, start / end /
+  waypoint circles) styled like the Leaflet version; the vendored
+  `leaflet/gpx.js` plugin is removed. Load, Fit Map, Clear, legend and
+  localStorage restore work as before.
 - **RAM optimizations** for Raspberry Pi Zero 2W (RSS reduced from ~49 MB to
   ~35 MB, packages from 63 → 12):
   - Replaced FastAPI with Starlette directly — removes Pydantic, pydantic-core,
