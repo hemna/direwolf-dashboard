@@ -209,6 +209,45 @@ The `data_dir` setting controls where all writable data is stored. When `storage
 
 ---
 
+## Map region (offline basemap)
+
+By default the dashboard ships with a small **Florence, IT** sample region
+(`static/basemap/regions/sample.pmtiles`), so testing outside Florence shows an
+empty basemap. To get the real region around your station onto the Pi:
+
+**Option A — fetch on a networked machine (+ the `pmtiles` CLI):**
+
+```bash
+# e.g. on a laptop with internet; the pmtiles CLI is required once:
+#   go install github.com/protomaps/go-pmtiles/cmd/pmtiles@latest
+direwolf-dashboard basemap fetch
+```
+
+This extracts a square region around your configured `station.latitude` /
+`station.longitude` (default radius 75 km) from yesterday's Protomaps planet
+build and writes `<data_dir>/basemap/region.pmtiles`. Customize with:
+
+```bash
+direwolf-dashboard basemap fetch \
+  --bbox=-90,40,-88,42 \        # explicit box: MIN_LON,MIN_LAT,MAX_LON,MAX_LAT
+  --maxzoom=15 \                # default 15
+  --planet=https://build.protomaps.com/20261019.pmtiles \
+  --output=/tmp/basemap/region.pmtiles
+```
+
+To copy it to the Pi instead of fetching there, deliver the `.pmtiles` to
+`<data_dir>/basemap/region.pmtiles` (e.g. `scp region.pmtiles pi@digipi.local:` →
+`sudo mv region.pmtiles /tmp/direwolf-dashboard/basemap/`).
+
+**Serving stays LAN-offline.** The dashboard serves the archive at
+`/basemap/region.pmtiles` (with HTTP Range support) from the data dir when
+present, falling back to the vendored sample. You can also point
+`basemap.region_archive` at an absolute path or a data-dir-relative file in the
+config. `/api/config` reports the active archive under `basemap.region`
+(`name` + `size`).
+
+---
+
 ## Running as a systemd Service
 
 The included service file at [`contrib/direwolf-dashboard.service`](contrib/direwolf-dashboard.service)

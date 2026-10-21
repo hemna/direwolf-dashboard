@@ -13,11 +13,12 @@ from typing import Optional
 
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, JSONResponse, Response
+from starlette.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from starlette.routing import Route
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from direwolf_dashboard import __version__
+from direwolf_dashboard.basemap import region_archive_info, resolve_region_archive
 from direwolf_dashboard.config import update_config
 from direwolf_dashboard.decoder import decode_packet as _decode
 from direwolf_dashboard.lifecycle import (
@@ -27,6 +28,10 @@ from direwolf_dashboard.lifecycle import (
 )
 
 LOG = logging.getLogger(__name__)
+
+#: Package static tree (same parent dir as server.py). Used to resolve the
+#: vendored region-archive fallback for /basemap/region.pmtiles.
+_STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
 
 def _get_services(container: ServiceContainer):
@@ -281,6 +286,11 @@ def create_api_routes(container: ServiceContainer) -> list:
             d["station"]["my_position"] = mp or {
                 "type": None, "callsign": None, "latitude": None, "longitude": None
             }
+            d["basemap"]["region"] = region_archive_info(
+                resolve_region_archive(
+                    d["basemap"]["region_archive"], d["data_dir"], _STATIC_DIR
+                )
+            )
             return JSONResponse(d)
 
         # PUT
@@ -650,6 +660,28 @@ def create_ws_handler(container: ServiceContainer):
             LOG.info(f"WebSocket client disconnected ({len(services.ws_clients)} total)")
 
     return websocket_endpoint
+
+
+def create_region_archive_route(container: ServiceContainer, static_dir: str | None = None):
+    """Return the Route that serves the active region archive (issue #132).
+
+    Serves ``/basemap/region.pmtiles`` with HTTP Range support (starlette
+    FileResponse). The archive resolves from ``basemap.region_archive``: an
+    absolute path, a data-dir-relative file that exists, or the vendored
+    static fallback (the Florence sample by default).
+    """
+    static_dir = static_dir or _STATIC_DIR
+
+    async def get_region_archive(request: Request):
+        services = _get_services(container)
+        path = resolve_region_archive(
+            services.config.basemap.region_archive, services.config.data_dir, static_dir
+        )
+        if not os.path.isfile(path):
+            raise HTTPException(status_code=404, detail="Region archive not found")
+        return FileResponse(path, media_type="application/octet-stream")
+
+    return Route("/basemap/region.pmtiles", get_region_archive, name="region_archive")
 
 
 def create_index_handler(static_dir: str):
