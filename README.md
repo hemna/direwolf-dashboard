@@ -7,6 +7,7 @@ A lightweight, web-based live display of [Direwolf](https://github.com/wb2osz/di
 ## Features
 
 ### Map & Stations
+- **🔗 Shareable map links** — the URL follows the map as `#zoom/lat/lon` (e.g. `/#12/37.3400/-78.8500`, same format as haminfo's map); open or send it to restore that view. The current zoom is shown under the +/- buttons.
 - **Live MapLibre map** with APRS symbol icons, callsign labels, and movement trails
 - **Live stats overlay** — station count, packet count, packets/hour, and server uptime (togglable in Settings)
 - **Animated RF activity** — transmit/receive arc animations with packet route visualization via digipeaters and IGates

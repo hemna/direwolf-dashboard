@@ -4,6 +4,10 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Shareable map URL (#150): the address bar tracks the view as `#zoom/lat/lon` (same format as haminfo `/map`; `/bearing/pitch` appended only when non-zero). Opening such a link restores the view and takes priority over the saved center and the waiting/auto-follow centering. A `z 12.0` readout under the zoom buttons shows the current zoom.
+
 ### Removed
 
 - Leaflet is gone: the vendored `static/leaflet/` (leaflet.js/css + marker PNGs), its index.html tags, `.leaflet-*` CSS and the dead `L.divIcon`/`L.marker` fallbacks in app.js. The my-position pin is a bottom-anchored 24px MapLibre Marker, like the old divIcon (#146).
