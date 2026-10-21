@@ -69,7 +69,7 @@ class ServerConfig:
     host: str = "0.0.0.0"
     port: int = 8080
     # Optional bearer token required for state-changing API endpoints
-    # (PUT /config, DELETE /storage, POST/DELETE /tiles/preload).
+    # (PUT /config, DELETE /storage).
     # Empty = token auth disabled (backward compatible with LAN-only setups).
     api_token: str = ""
 
@@ -84,18 +84,6 @@ class StorageConfig:
         if not self.db_path:
             self.db_path = os.path.join(data_dir, "packets.db")
 
-
-@dataclass
-class TilesConfig:
-    cache_dir: str = ""
-    cache_mode: str = "lazy"  # "lazy" or "preload"
-    tile_url: str = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-    max_cache_mb: int = 500
-
-    def resolve_defaults(self, data_dir: str) -> None:
-        """Fill in empty paths using the resolved data_dir."""
-        if not self.cache_dir:
-            self.cache_dir = os.path.join(data_dir, "tiles")
 
 
 @dataclass
@@ -128,7 +116,6 @@ class Config:
     direwolf: DirewolfConfig = field(default_factory=DirewolfConfig)
     server: ServerConfig = field(default_factory=ServerConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
-    tiles: TilesConfig = field(default_factory=TilesConfig)
     basemap: BasemapConfig = field(default_factory=BasemapConfig)
     display: DisplayConfig = field(default_factory=DisplayConfig)
     packet_log: PacketLogConfig = field(default_factory=PacketLogConfig)
@@ -140,7 +127,6 @@ class Config:
             # When data_dir is empty, callers are responsible for setting it
             # (e.g. load_config calls _resolve_data_dir() once and passes it in).
             self.storage.resolve_defaults(self.data_dir)
-            self.tiles.resolve_defaults(self.data_dir)
 
     def to_dict(self) -> dict:
         """Convert config to a JSON-serializable dict."""
@@ -156,7 +142,6 @@ RESTART_REQUIRED_FIELDS = {
     "direwolf.agw_port",
     "direwolf.log_file",
     "storage.db_path",
-    "tiles.cache_dir",
     "basemap.region_archive",
 }
 
@@ -194,7 +179,6 @@ _SCALAR_SPEC = {
     "direwolf": {"agw_port": int},
     "server": {"port": int},
     "storage": {"retention_days": int},
-    "tiles": {"max_cache_mb": int},
 }
 
 
@@ -236,8 +220,6 @@ def _dict_to_config(d: dict) -> Config:
     storage_dict = d.get("storage", {}).copy()
     _coerce_scalars(storage_dict, _SCALAR_SPEC["storage"])
 
-    tiles_dict = d.get("tiles", {}).copy()
-    _coerce_scalars(tiles_dict, _SCALAR_SPEC["tiles"])
     basemap_dict = d.get("basemap", {}).copy()
 
     return Config(
@@ -246,7 +228,6 @@ def _dict_to_config(d: dict) -> Config:
         direwolf=DirewolfConfig(**direwolf_dict),
         server=ServerConfig(**server_dict),
         storage=StorageConfig(**storage_dict),
-        tiles=TilesConfig(**tiles_dict),
         basemap=BasemapConfig(**basemap_dict),
         display=DisplayConfig(**d.get("display", {})),
         packet_log=PacketLogConfig(**d.get("packet_log", {})),

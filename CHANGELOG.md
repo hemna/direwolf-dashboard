@@ -4,6 +4,15 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Removed
+- **OSM tile-cache proxy retired (issue #129)** — `tile_proxy.py`, the
+  `/api/tiles/{z}/{x}/{y}.png` and `/api/tiles/preload` endpoints, the
+  `tiles` config section, and the Settings "Map Tiles" pre-download panel are
+  gone. The proxy existed only for the Leaflet basemap; the map now renders
+  from the LAN-offline MapLibre kit basemap (region archive + vendored kit
+  assets), so the dashboard needs zero internet. `/api/stats` no longer
+  includes a `tile_cache` block.
+
 ### Fixed
 - **MapLibre main map: station icons missing + zoom off by one (issue #135)** —
   MapLibre rejects relative sprite URLs, so no APRS icons (or basemap POI

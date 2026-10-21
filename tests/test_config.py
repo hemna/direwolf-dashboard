@@ -11,7 +11,6 @@ from direwolf_dashboard.config import (
     ServerConfig,
     StationConfig,
     StorageConfig,
-    TilesConfig,
     load_config,
     save_config,
     update_config,
@@ -49,7 +48,6 @@ class TestDefaultConfig:
         assert isinstance(config.direwolf, DirewolfConfig)
         assert isinstance(config.server, ServerConfig)
         assert isinstance(config.storage, StorageConfig)
-        assert isinstance(config.tiles, TilesConfig)
 
     def test_default_station_latitude(self):
         config = Config()
@@ -63,10 +61,6 @@ class TestDefaultConfig:
         config = Config()
         assert config.storage.retention_days == 7
 
-    def test_default_tile_cache_mode(self):
-        config = Config()
-        assert config.tiles.cache_mode == "lazy"
-
     def test_default_agw_port(self):
         config = Config()
         assert config.direwolf.agw_port == 8000
@@ -79,7 +73,6 @@ class TestDefaultConfig:
         assert "direwolf" in d
         assert "server" in d
         assert "storage" in d
-        assert "tiles" in d
         assert d["station"]["latitude"] == 0.0
 
 
@@ -293,11 +286,6 @@ class TestConfigPostInitIsolated:
         config = Config()
         assert config.storage.db_path == ""
 
-    def test_config_no_args_has_empty_cache_dir(self):
-        """Config() with no args — cache_dir stays empty."""
-        config = Config()
-        assert config.tiles.cache_dir == ""
-
     def test_config_no_args_does_not_create_directories(self, tmp_path, monkeypatch):
         """Constructing Config() must not create any directories."""
         # Redirect home so that if _resolve_data_dir were called it would write here
@@ -312,7 +300,6 @@ class TestConfigPostInitIsolated:
         config_path = str(tmp_path / "config.yaml")
         config = load_config(config_path)
         assert config.storage.db_path != ""
-        assert config.tiles.cache_dir != ""
 
     def test_update_coerces_numeric_strings(self, tmp_path):
         """Numeric string values are coerced to the expected type (issue #91)."""
@@ -339,19 +326,6 @@ class TestConfigPostInitIsolated:
             update_config(
                 config,
                 {"storage": {"retention_days": "abc"}},
-                config_path,
-            )
-
-    def test_update_rejects_non_numeric_max_cache(self, tmp_path):
-        """tiles.max_cache_mb must be numeric (issue #91)."""
-        config_path = str(tmp_path / "config.yaml")
-        config = Config()
-        save_config(config, config_path)
-
-        with pytest.raises(ValueError):
-            update_config(
-                config,
-                {"tiles": {"max_cache_mb": "abc"}},
                 config_path,
             )
 
