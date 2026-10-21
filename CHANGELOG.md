@@ -5,6 +5,11 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Added
+- **MapLibre station tracks, path lines and transmit arcs (issue #126)** — the
+  main map's movement trails, station path/distance lines and TX/RX routing
+  arcs are MapLibre line layers again (same colors, widths, dashes and
+  timings as the Leaflet map), with packet-route distance labels, filter-aware
+  trails, and pulsing ring markers. All of them survive a theme switch.
 - **MapLibre main map (issue #125)**: The main map is now MapLibre GL JS with
   the pmtiles protocol. It draws the vendored kit light/dark style (following
   the dashboard theme) from the local region archive, so it needs no internet.

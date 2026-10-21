@@ -1466,6 +1466,31 @@ a.secondary.btn-as-link:hover {
     display: none;
 }
 
+/* Pulsing ring markers for packet TX/RX arc animations (issue #126) */
+/* MapLibre positions the marker element through an inline transform, so the
+   pulse animates ::before and never overrides that placement. */
+.arc-burst {
+    box-sizing: border-box;
+    pointer-events: none;
+}
+.arc-burst::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    border: 3px solid var(--arc-color, var(--route-tx-rf));
+    opacity: 0.7;
+    box-sizing: border-box;
+    animation: arc-pulse 0.6s ease-in-out infinite alternate;
+}
+@keyframes arc-pulse {
+    from { transform: scale(0.75); }
+    to { transform: scale(1.1); }
+}
+
 /* Toast notification */
 .toast {
     position: fixed;
