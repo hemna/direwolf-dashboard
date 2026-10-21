@@ -1067,6 +1067,33 @@
 
         map.addSource('stations', { type: 'geojson', data: stationFeatureCollection });
 
+        // My-station glow under the icon (Leaflet .my-station drop-shadow,
+        // issue #133): two blurred circles in --my-station-glow.
+        map.addLayer({
+            id: 'stations-my-glow',
+            type: 'circle',
+            source: 'stations',
+            filter: ['==', ['get', 'is_my'], true],
+            paint: {
+                'circle-radius': 18,
+                'circle-color': themeColor('--my-station-glow'),
+                'circle-opacity': 0.55,
+                'circle-blur': 0.8,
+            },
+        });
+        map.addLayer({
+            id: 'stations-my-glow-core',
+            type: 'circle',
+            source: 'stations',
+            filter: ['==', ['get', 'is_my'], true],
+            paint: {
+                'circle-radius': 14,
+                'circle-color': themeColor('--my-station-glow'),
+                'circle-opacity': 0.6,
+                'circle-blur': 0.5,
+            },
+        });
+
         map.addLayer({
             id: 'stations-symbol-base',
             type: 'symbol',
@@ -1103,22 +1130,20 @@
             source: 'stations',
             layout: {
                 'text-field': ['get', 'callsign'],
-                'text-font': ['NotoSansRegular'],
+                // Leaflet .station-label (#133): bold, right of the 24 px
+                // icon (left edge 26 px from the icon's left), centered.
+                'text-font': ['NotoSansMedium'],
                 'text-size': 11,
-                'text-anchor': 'top',
-                'text-offset': [0, 1.2],
+                'text-anchor': 'left',
+                'text-offset': [1.27, 0],
                 'text-allow-overlap': true,
                 'text-ignore-placement': true,
             },
             paint: {
-                'text-color': [
-                    'case',
-                    ['get', 'is_my'],
-                    themeColor('--accent'),
-                    themeColor('--text-primary'),
-                ],
+                'text-color': themeColor('--text-primary'),
                 'text-halo-color': themeColor('--label-shadow'),
-                'text-halo-width': 1,
+                'text-halo-width': 1.5,
+                'text-halo-blur': 0,
             },
         });
 
@@ -3036,7 +3061,7 @@
             }
         } else if (mp.type === 'station' && mp.callsign) {
             if (mainMapIsMaplibre) {
-                // Highlight handled via the is_my label color in the GeoJSON source.
+                // Highlight handled via the is_my glow layers (stations-my-glow*).
                 scheduleStationRefresh();
             } else {
                 const s = stations[mp.callsign];
