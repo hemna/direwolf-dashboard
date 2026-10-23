@@ -192,6 +192,25 @@ class TestStationsEndpointWeather:
         by_cs = {s["callsign"]: s for s in data}
         assert "last_weather" in by_cs["W1WX"]
         assert "last_weather" not in by_cs["W1ABC"]
+        assert "wx_model" not in by_cs["W1ABC"]
+
+    def test_stations_weather_station_gets_wx_model(self):
+        """A weather station with wind gets wx_model geometry alongside last_weather."""
+        wx = {"callsign": "W1WX", "temperature": 72.5, "dewpoint": 60.0,
+              "wind_direction": 230, "wind_speed": 10.3, "timestamp": 1234567890.0}
+        container = ServiceContainer()
+        container.services = self._make_services(
+            stations=[{"callsign": "W1WX", "symbol": "_"}],
+            weather_by_cs={"W1WX": wx},
+        )
+        client = TestClient(_build_test_app(container), raise_server_exceptions=False)
+        resp = client.get("/api/stations")
+        assert resp.status_code == 200
+        entry = next(s for s in resp.json() if s["callsign"] == "W1WX")
+        assert "wx_model" in entry
+        assert entry["wx_model"]["rotation_deg"] == 230
+        assert entry["wx_model"]["calm"] is False
+        assert entry["wx_model"]["has_temp"] is True
 
 
 class TestMessagesEndpoint:
@@ -397,7 +416,23 @@ class TestWeatherStationsEndpoint:
         assert calls == {"W1WX", "W2WX"}
         assert "W1ABC" not in calls
         # Slim payload: no full station fields
-        assert all(set(s.keys()) <= {"callsign", "last_weather"} for s in data)
+        assert all(set(s.keys()) <= {"callsign", "last_weather", "wx_model"} for s in data)
+
+    def test_weather_station_gets_wx_model(self):
+        """A weather station with wind gets wx_model in the slim payload."""
+        wx = {"callsign": "W1WX", "temperature": 72.5,
+              "wind_direction": 90, "wind_speed": 10.0, "timestamp": 1234567890.0}
+        container = ServiceContainer()
+        container.services = self._make_services(
+            stations=[{"callsign": "W1WX", "symbol": "_"}],
+            weather_by_cs={"W1WX": wx},
+        )
+        client = TestClient(_build_test_app(container), raise_server_exceptions=False)
+        resp = client.get("/api/weather/stations")
+        assert resp.status_code == 200
+        entry = next(s for s in resp.json() if s["callsign"] == "W1WX")
+        assert "wx_model" in entry
+        assert entry["wx_model"]["rotation_deg"] == 90
 
     def test_empty_when_no_weather(self):
         """No weather stations -> empty list."""
