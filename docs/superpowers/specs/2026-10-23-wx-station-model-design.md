@@ -210,9 +210,13 @@ placement (offset + formatting) is stated in the PR.
 ## Tests
 
 - `tests/test_station_model.py`
-  - barb matrix: 0 → calm; 3 → 1 half barb; 5 → 1 full; 7 → 1 full + 1 half (12.5 rounding: nearest 5 → 10 is a full barb; verify actual rule "rounded to nearest 5 kt, nonzero <5 = one half barb"); 25 → 2 full + 1 half; 50 → 1 pennant; 75 → 1 pennant + 2 full + 1 half. Pennants innermost ordering.
+  - barb matrix (round to nearest 5 kt, then decompose; pennant-innermost):
+    0 → calm (no feathers); 3 → `["half"]` (nonzero <5); 5 → `["half"]`;
+    7 → `["half"]` (7 rounds to 5); 25 → `["full","full","half"]`;
+    50 → `["pennant"]`; 75 → `["pennant","full","full","half"]`.
+    List order is inside→outside (pennant closest to the circle).
   - rotation: N/E/S/W and 0-vs-360 equivalence; missing direction → no barb.
-  - dewpoint: known temp/humidity pairs (e.g. (20,50) → ≈9.3 °C; cross-check against the existing Magnus code path used in lifecycle).
+  - dewpoint: known temp/humidity pairs (e.g. (20 °C, 50 %) → ≈9.3 °C; cross-check against the existing Magnus code path used in lifecycle).
   - m/s → kt conversion (e.g. 20.58 m/s → 40 kt) and gust conversion.
   - missing-field behavior: APRS-only fixture (temp+wind+humidity only) vs synthetic METAR fixture (all fields) — assert the presence mask and geometry.
 - `tests/test_decoder.py` / `tests/test_lifecycle.py` (extend): **regression test
