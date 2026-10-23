@@ -591,6 +591,23 @@ class TestStoreWeatherReport:
         assert report["humidity"] == 50.0
 
 
+    async def test_underscore_packet_stores_wind(self):
+        """_ WX packets carry wind as top-level course/speed(km/h); they must
+        reach storage as wind_direction/wind_speed (regression for the station model)."""
+        services = self._make_services()
+        await _store_weather_report(
+            {"from_call": "TEST1", "timestamp": 123.0,
+             "raw_packet": "TEST1>APRS,TCPXX*:!4713.58N/08724.97W_230/040g055t068"
+                           "r000p000P000h50b10051.DsVP"},
+            services,
+        )  # does NOT patch aprslib.parse — drives the real parser
+        report = services.storage.insert_weather_report.await_args.args[0]
+        assert report["wind_direction"] == 230
+        assert report["wind_speed"] == pytest.approx(74.08 * 1000 / 3600, abs=0.01)
+        # temp 20C / rh 50%  ->  dewpoint ~9.25C (also pins AC3)
+        assert report["dewpoint"] == pytest.approx(9.25, abs=0.05)
+
+
 class TestBroadcastConcurrent:
     """Concurrent WebSocket broadcast (issue #84)."""
 

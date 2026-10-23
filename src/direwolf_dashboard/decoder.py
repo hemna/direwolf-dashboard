@@ -149,6 +149,32 @@ def _generate_annotations(raw: str, parsed: dict) -> list[dict]:
     return annotations
 
 
+def extract_wind(parsed: dict) -> tuple[float | None, float | None]:
+    """Return ``(wind_direction_deg, wind_speed_mps)`` from aprslib output.
+
+    aprslib puts `_` (APRS weather) packets' wind at the top level as
+    ``course`` (deg) and ``speed`` (km/h) rather than
+    ``wind_direction``/``wind_speed``; the standard fields only appear for
+    some non-`_` formats (e.g. Peet Bros).  Prefer the standard fields when
+    present, otherwise map course/speed.  Returns ``(None, None)`` when there
+    is no wind.
+    """
+    weather = parsed.get("weather")
+    weather = weather if isinstance(weather, dict) else {}
+
+    direction = weather.get("wind_direction")
+    speed = weather.get("wind_speed")
+
+    if direction is None and parsed.get("course") is not None:
+        direction = parsed["course"]
+    if speed is None and parsed.get("speed") is not None:
+        # aprslib top-level speed is km/h; normalise to m/s like the rest of
+        # the wind data (gust, Peet Bros wind_speed).
+        speed = float(parsed["speed"]) * 1000 / 3600
+
+    return (direction, speed)
+
+
 def _categorize_sections(parsed: dict) -> dict[str, dict]:
     """
     Categorize parsed fields into display sections.
@@ -210,6 +236,13 @@ def _categorize_sections(parsed: dict) -> dict[str, dict]:
             weather_data[k] = weather_source[k]
         elif k in parsed:
             weather_data[k] = parsed[k]
+    # `_` packets carry wind as top-level course/speed — map to the standard
+    # wind fields so the decode view shows them (issue #152).
+    wind_dir, wind_speed = extract_wind(parsed)
+    if wind_dir is not None:
+        weather_data.setdefault("wind_direction", wind_dir)
+    if wind_speed is not None:
+        weather_data.setdefault("wind_speed", wind_speed)
     if weather_data:
         sections['weather'] = weather_data
 
