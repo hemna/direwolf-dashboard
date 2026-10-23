@@ -393,13 +393,14 @@
                             <div class="legend-section-title">Weather stations</div>
                             <div class="legend-item">
                                 <svg class="legend-wx-example" width="56" height="58" viewBox="0 0 56 58">
-                                    <path d="M 28 12 L 36 15.5 L 28 19 Z" fill="currentColor" stroke="currentColor" stroke-width="1"/>
-                                    <line x1="28" y1="19" x2="31" y2="24" stroke-width="1.6"/>
-                                    <line x1="28" y1="24" x2="30.5" y2="28" stroke-width="1.6"/>
-                                    <circle cx="28" cy="34" r="6" fill="none" stroke-width="1.6"></circle>
-                                    <text x="12" y="18" font-size="9">74&#176;F</text>
-                                    <text x="12" y="50" font-size="9" text-anchor="start">9&#176;C</text>
-                                    <text x="44" y="18" font-size="9" text-anchor="end">29.9</text>
+                                    <path d="M 28 8 L 36 11.5 L 28 15 Z" fill="currentColor" stroke="currentColor" stroke-width="1"/>
+                                    <line x1="28" y1="15" x2="31" y2="20" stroke-width="1.6"/>
+                                    <line x1="28" y1="20" x2="30.5" y2="25" stroke-width="1.6"/>
+                                    <line x1="28" y1="25" x2="29.5" y2="28.5" stroke-width="1.6"/>
+                                    <circle cx="28" cy="37" r="6" fill="none" stroke-width="1.6"></circle>
+                                    <text x="13" y="9" font-size="9" text-anchor="middle">74&#176;</text>
+                                    <text x="13" y="50" font-size="9" text-anchor="middle">48&#176;</text>
+                                    <text x="44" y="9" font-size="9" text-anchor="middle">29.9</text>
                                 </svg>
                                 <span>65&#160;kt — temp top-left, dewpoint bottom-left, pressure top-right</span>
                             </div>
@@ -1744,6 +1745,9 @@
 
         const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         wxImageCache[cs] = imgData;
+        // Re-adding an existing runtime image throws in MapLibre; remove first
+        // so a changed report updates the plot on the next refresh (spec D2).
+        if (map.hasImage('wx-' + cs)) map.removeImage('wx-' + cs);
         map.addImage('wx-' + cs, imgData, { pixelRatio: px });
         return 'wx-' + cs;
     }

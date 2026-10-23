@@ -33,6 +33,13 @@ def test_model_image_registered_on_style_load():
     assert "upsertWxStationImage" in JS
 
 
+def test_image_registration_replaces_existing():
+    """Re-adding an existing runtime image throws in MapLibre; upsert must
+    remove the old one first so a changed report updates the plot (spec D2)."""
+    assert "map.hasImage(" in JS
+    assert "map.removeImage(" in JS
+
+
 def test_model_uses_last_weather_and_toggle():
     """The canvas draw reads the weather payload and is gated by the toggle."""
     assert "last_weather" in JS
