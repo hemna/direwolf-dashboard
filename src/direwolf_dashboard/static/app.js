@@ -1645,14 +1645,14 @@
         const model = entry.wx_model;
         const wx = entry.last_weather || {};
         const px = window.devicePixelRatio || 1;
-        const size = 48;
+        const size = 56;
         const canvas = document.createElement('canvas');
         canvas.width = size * px;
         canvas.height = size * px;
         const ctx = canvas.getContext('2d');
         ctx.scale(px, px);
         const cx = size / 2, cy = size / 2;
-        const r = 6;
+        const r = 7;
 
         // Station circle: open unless a sky-cover value fills it by oktas.
         const stroke = function (lw) {
@@ -1691,7 +1691,7 @@
         if (model.rotation_deg != null) {
             const a = model.rotation_deg * Math.PI / 180;
             const ux = Math.sin(a), uy = -Math.cos(a);
-            const tipX = cx + ux * 17, tipY = cy + uy * 17;
+            const tipX = cx + ux * 18, tipY = cy + uy * 18;
             ctx.beginPath();
             ctx.moveTo(cx, cy);
             ctx.lineTo(tipX, tipY);
@@ -1724,18 +1724,23 @@
                     stroke(2);
                 }
             }
-            // Gust annotation just past the barb tip, beside the shaft.
+            // Gust annotation beside the barb tip ("G<n>"; the model is always
+            // in knots — units are in the legend).
             if (model.gust_kt != null) {
-                drawModelText(ctx, 'G' + String(Math.round(model.gust_kt)) + ' kt',
-                    tipX + dx * 4 + ux * 14, tipY + dy * 4 + uy * 14);
+                const gx = tipX - ux * 3 - uy * 8;
+                const gy = tipY - uy * 3 + ux * 8;
+                drawModelText(ctx, 'G' + String(Math.round(model.gust_kt)), gx, gy);
             }
         }
 
         // Temp top-left, dewpoint bottom-left, pressure top-right; omitted when
-        // the station didn't report them (has_* presence mask).
-        if (wx.temperature != null) drawModelText(ctx, fmtTemp(wx.temperature), 15, 9);
-        if (wx.dewpoint != null) drawModelText(ctx, fmtTemp(wx.dewpoint), 15, 40);
-        if (wx.pressure != null) drawModelText(ctx, fmtPressure(wx.pressure), 35, 9);
+        // the station didn't report them (has_* presence mask). The icon uses
+        // compact NWS numerals (bare values in the app's unit) so the compact
+        // icon stays legible; units live in the legend.
+        const shortDeg = (v) => String(Math.round(isImperial() ? cToF(v) : v));
+        if (wx.temperature != null) drawModelText(ctx, shortDeg(wx.temperature) + '\u00B0', 13, 9);
+        if (wx.dewpoint != null) drawModelText(ctx, shortDeg(wx.dewpoint) + '\u00B0', 13, 47);
+        if (wx.pressure != null) drawModelText(ctx, isImperial() ? hpaToInHg(wx.pressure).toFixed(1) : String(Math.round(wx.pressure)), 43, 9);
 
         const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         wxImageCache[cs] = imgData;
