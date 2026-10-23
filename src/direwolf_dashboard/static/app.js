@@ -1189,6 +1189,7 @@
             layout: {
                 'icon-image': [
                     'case',
+                    ['has', 'wx_model'], ['get', 'wx_model'],
                     ['==', ['get', 'symbol_table'], '/'],
                     ['concat', 'aprs:aprs-p-', ['get', 'symbol_hex']],
                     ['concat', 'aprs:aprs-a-', ['get', 'symbol_hex']],
@@ -1234,6 +1235,10 @@
                 'text-halo-blur': 0,
             },
         });
+
+        // Runtime images are dropped when the style reloads; re-register the
+        // cached WX plots so station icons survive a theme switch (#152).
+        reRegisterWxStationImages();
 
         scheduleStationRefresh();
     }
@@ -1558,6 +1563,148 @@
         }
     }
 
+    // --- WX station model images (issue #152) ---
+    // Each weather station's plot is drawn to a canvas and registered as a
+    // MapLibre runtime image. Runtime images drop whenever the style reloads
+    // (theme switch), so they are re-registered from wxImageCache on style.load.
+    const wxImageCache = {};
+
+    function wxStationEnabled() {
+        return localStorage.getItem('dw-station-model') !== '0';
+    }
+
+    function drawModelText(ctx, text, x, y) {
+        ctx.font = 'bold 9px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = themeColor('--label-shadow');
+        ctx.strokeText(text, x, y);
+        ctx.fillStyle = themeColor('--text-primary');
+        ctx.fillText(text, x, y);
+    }
+
+    /** Draw one station's NWS plot and register it as a runtime image. Returns
+     *  the image id ('wx-<call>') or null when it cannot draw. entry is the
+     *  full station payload: geometry from entry.wx_model, raw values from
+     *  entry.last_weather. */
+    function upsertWxStationImage(cs, entry) {
+        if (!map || !entry || !entry.wx_model) return null;
+        const model = entry.wx_model;
+        const wx = entry.last_weather || {};
+        const px = window.devicePixelRatio || 1;
+        const size = 48;
+        const canvas = document.createElement('canvas');
+        canvas.width = size * px;
+        canvas.height = size * px;
+        const ctx = canvas.getContext('2d');
+        ctx.scale(px, px);
+        const cx = size / 2, cy = size / 2;
+        const r = 6;
+
+        // Station circle: open unless a sky-cover value fills it by oktas.
+        const stroke = function (lw) {
+            ctx.lineWidth = lw;
+            ctx.strokeStyle = themeColor('--text-primary');
+            ctx.stroke();
+        };
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        if (typeof wx.sky_cover === 'number' && wx.sky_cover > 0) {
+            ctx.fillStyle = 'rgba(127, 160, 200, 0.55)';
+            for (let i = 0; i < Math.min(8, Math.max(0, Math.round(wx.sky_cover))); i++) {
+                const a0 = i * Math.PI / 4 - Math.PI / 2;
+                ctx.beginPath();
+                ctx.moveTo(cx, cy);
+                ctx.arc(cx, cy, r, a0, a0 + Math.PI / 4);
+                ctx.closePath();
+                ctx.fill();
+            }
+            ctx.beginPath();
+            ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        }
+        stroke(2);
+
+        // Calm (0 kt): outer ring, no shaft (NWS).
+        if (model.calm) {
+            ctx.beginPath();
+            ctx.arc(cx, cy, r + 3, 0, Math.PI * 2);
+            stroke(1.5);
+        }
+
+        // Wind barb. The shaft's outer tip (and its pennant) points toward the
+        // direction the wind is FROM (0 = north = up); feathers stream downwind.
+        // feathers list is tip-first: index 0 (pennant) is outermost, the last
+        // element sits nearest the station circle — the NWS order.
+        if (model.rotation_deg != null) {
+            const a = model.rotation_deg * Math.PI / 180;
+            const ux = Math.sin(a), uy = -Math.cos(a);
+            const tipX = cx + ux * 17, tipY = cy + uy * 17;
+            ctx.beginPath();
+            ctx.moveTo(cx, cy);
+            ctx.lineTo(tipX, tipY);
+            stroke(2);
+            const dx = -ux, dy = -uy;  // downwind
+            const feats = model.feathers || [];
+            for (let i = 0; i < feats.length; i++) {
+                const bx = tipX - ux * (i * 3.5 + 2);
+                const by = tipY - uy * (i * 3.5 + 2);
+                if (feats[i] === 'pennant') {
+                    // Filled flag streaming downwind from the attachment.
+                    const w = 3.5;
+                    ctx.beginPath();
+                    ctx.moveTo(bx, by);
+                    ctx.lineTo(bx + dy * w - dx * 3, by - dx * w - dy * 3);
+                    ctx.lineTo(bx + dx * 9, by + dy * 9);
+                    ctx.lineTo(bx - dy * w - dx * 3, by + dx * w - dy * 3);
+                    ctx.closePath();
+                    ctx.fillStyle = themeColor('--text-primary');
+                    ctx.fill();
+                } else if (feats[i] === 'full') {
+                    ctx.beginPath();
+                    ctx.moveTo(bx, by);
+                    ctx.lineTo(bx + dx * 6.8 + dy * 2.6, by + dy * 6.8 - dx * 2.6);
+                    stroke(2);
+                } else {  // half
+                    ctx.beginPath();
+                    ctx.moveTo(bx, by);
+                    ctx.lineTo(bx + dx * 3.9 + dy * 1.5, by + dy * 3.9 - dx * 1.5);
+                    stroke(2);
+                }
+            }
+            // Gust annotation just past the barb tip, beside the shaft.
+            if (model.gust_kt != null) {
+                drawModelText(ctx, 'G' + String(Math.round(model.gust_kt)) + ' kt',
+                    tipX + dx * 4 + ux * 14, tipY + dy * 4 + uy * 14);
+            }
+        }
+
+        // Temp top-left, dewpoint bottom-left, pressure top-right; omitted when
+        // the station didn't report them (has_* presence mask).
+        if (wx.temperature != null) drawModelText(ctx, fmtTemp(wx.temperature), 15, 9);
+        if (wx.dewpoint != null) drawModelText(ctx, fmtTemp(wx.dewpoint), 15, 40);
+        if (wx.pressure != null) drawModelText(ctx, fmtPressure(wx.pressure), 35, 9);
+
+        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        wxImageCache[cs] = imgData;
+        map.addImage('wx-' + cs, imgData, { pixelRatio: px });
+        return 'wx-' + cs;
+    }
+
+    /** Re-register cached plot images after a style reload (theme switch); drop
+     *  entries whose station no longer reports weather. */
+    function reRegisterWxStationImages() {
+        if (!map) return;
+        for (const cs of Object.keys(wxImageCache)) {
+            const entry = stations[cs] && stations[cs].data;
+            if (entry && entry.wx_model) {
+                map.addImage('wx-' + cs, wxImageCache[cs], { pixelRatio: window.devicePixelRatio || 1 });
+            } else {
+                delete wxImageCache[cs];
+            }
+        }
+    }
+
     function addOrUpdateStation(data) {
         if (data.latitude == null || data.longitude == null) return;
 
@@ -1567,6 +1714,14 @@
 
         if (!stations[cs]) {
             stations[cs] = { data: data, popupDiv: null };
+        } else {
+            // Live position packets carry no weather; keep the last known
+            // weather so a WX station's plot doesn't vanish on each packet.
+            const prev = stations[cs].data;
+            if (data.last_weather === undefined && prev && prev.last_weather !== undefined) {
+                data.last_weather = prev.last_weather;
+                data.wx_model = prev.wx_model;
+            }
         }
         stations[cs].data = data;
 
@@ -1582,6 +1737,12 @@
         // GeoJSON null value would otherwise slip past the layer's != null filter.
         if (symbolTable !== '/' && symbolTable !== '\\') {
             props.overlay_hex = hex2(symbolTable);
+        }
+        // WX stations render as NWS station plots (runtime image) when the
+        // "Station plots" toggle is on; others keep the plain APRS sprite.
+        if (wxStationEnabled() && data.last_weather) {
+            const imgId = upsertWxStationImage(cs, data);
+            if (imgId) props.wx_model = imgId;
         }
         stationFeatures[cs] = {
             type: 'Feature',

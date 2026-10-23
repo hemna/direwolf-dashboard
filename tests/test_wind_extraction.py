@@ -4,10 +4,10 @@ aprslib leaves `_` WX packets' wind as top-level course (deg) / speed (km/h)
 instead of wind_direction/wind_speed; these tests pin the decode-side mapping.
 """
 
+import aprslib
 import pytest
 
-import aprslib
-from direwolf_dashboard.decoder import extract_wind, _categorize_sections
+from direwolf_dashboard.decoder import _categorize_sections, extract_wind
 
 RAW = "TEST1>APRS,TCPXX*:!4713.58N/08724.97W_230/040g055t068r000p000P000h50b10051.DsVP"
 
