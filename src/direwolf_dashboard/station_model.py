@@ -14,11 +14,13 @@ HALF_KT = 5
 
 
 def wind_barb(speed_kt: float) -> list[str]:
-    """Feather kinds for a speed in knots, innermost (nearest the circle) first.
+    """Feather kinds for a speed in knots, ordered tip-first.
 
-    Rounds to the nearest 5 kt (half-up), then splits into pennants (50),
-    full barbs (10) and half barbs (5). Returns ``[]`` for a speed that
-    rounds to 0 kt (the calm case is the caller's flag).
+    Index 0 (pennant) is outermost at the shaft tip; the last element sits
+    nearest the station circle — the NWS order. Rounds to the nearest 5 kt
+    (half-up), then splits into pennants (50), full barbs (10) and half
+    barbs (5). Returns ``[]`` for a speed that rounds to 0 kt (the calm
+    case is the caller's flag).
     """
     kt = int(speed_kt / HALF_KT + 0.5) * HALF_KT
     if kt == 0:
@@ -65,6 +67,9 @@ def build_station_model(last_weather: dict | None) -> dict | None:
         model["feathers"] = feathers
         # calm = there IS a wind speed but it rounds to 0 kt (0 kt).
         model["calm"] = feathers == []
+        if model["calm"]:
+            # NWS calm = outer ring only; the shaft is not drawn.
+            model["rotation_deg"] = None
 
     gust_mps = last_weather.get("wind_gust")
     if gust_mps is not None:

@@ -283,8 +283,8 @@ async def _store_weather_report(packet: dict, services: DirewolfServices) -> Non
             except (ValueError, ZeroDivisionError):
                 pass
 
-        # `_` WX packets carry wind as top-level course/speed (km/h) — map to
-        # the standard wind fields so barbs have data (issue #152).
+        # `_` WX packets carry wind as top-level course/speed; extract_wind
+        # recovers the mph digits and normalises to m/s (issue #152).
         wind_direction, wind_speed = extract_wind(parsed)
 
         report = {

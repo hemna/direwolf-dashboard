@@ -592,8 +592,8 @@ class TestStoreWeatherReport:
 
 
     async def test_underscore_packet_stores_wind(self):
-        """_ WX packets carry wind as top-level course/speed(km/h); they must
-        reach storage as wind_direction/wind_speed (regression for the station model)."""
+        """_ WX packets carry wind as top-level course/speed (raw digits mph);
+        they must reach storage as wind_direction/wind_speed (m/s)."""
         services = self._make_services()
         await _store_weather_report(
             {"from_call": "TEST1", "timestamp": 123.0,
@@ -603,7 +603,7 @@ class TestStoreWeatherReport:
         )  # does NOT patch aprslib.parse — drives the real parser
         report = services.storage.insert_weather_report.await_args.args[0]
         assert report["wind_direction"] == 230
-        assert report["wind_speed"] == pytest.approx(74.08 * 1000 / 3600, abs=0.01)
+        assert report["wind_speed"] == pytest.approx(40 * 0.44704, abs=0.01)  # 40 mph
         # temp 20C / rh 50%  ->  dewpoint ~9.25C (also pins AC3)
         assert report["dewpoint"] == pytest.approx(9.25, abs=0.05)
 

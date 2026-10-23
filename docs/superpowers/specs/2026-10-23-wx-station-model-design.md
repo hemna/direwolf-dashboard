@@ -103,12 +103,16 @@ New module `src/direwolf_dashboard/station_model.py` (pure, no I/O):
 
 ### D1a. Fix `_` packet wind extraction (root issue before any barb)
 
-aprslib outputs `_` WX wind as top-level `course` (deg) / `speed` (km/h). Add one
-shared helper in `decoder.py`:
+aprslib surfaces `_` WX wind as top-level `course` (deg) / `speed` (km/h) —
+it scales the raw position-suffix digits by x1.852 as if they were knots, but
+the `_` comment's speed digits are **mph** per the APRS weather-field spec.
+Add one shared helper in `decoder.py`:
 
 - `extract_wind(parsed) -> (direction_deg | None, speed_mps | None)` —
-  prefer `weather.wind_direction`/`weather.wind_speed` when present (Peet-Bros
-  style), else map `course` → direction and `speed` km/h → m/s (×1000/3600).
+  prefer `weather.wind_direction`/`weather.wind_speed` when present (already
+  m/s); for symbol-`_` packets map `course` → direction and recover the raw
+  digits (`speed / 1.852`), converting mph → m/s (x0.44704). Course/speed on
+  any other packet is course-over-ground and is not wind.
 - Used by `_categorize_sections` (the `/api/decode` display) **and**
   `lifecycle._store_weather_report` (storage + `last_weather`), so both paths
   agree. Stored unit stays **m/s** (consistent with existing gust/Peet data).

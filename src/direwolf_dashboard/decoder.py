@@ -152,12 +152,13 @@ def _generate_annotations(raw: str, parsed: dict) -> list[dict]:
 def extract_wind(parsed: dict) -> tuple[float | None, float | None]:
     """Return ``(wind_direction_deg, wind_speed_mps)`` from aprslib output.
 
-    aprslib puts `_` (APRS weather) packets' wind at the top level as
-    ``course`` (deg) and ``speed`` (km/h) rather than
-    ``wind_direction``/``wind_speed``; the standard fields only appear for
-    some non-`_` formats (e.g. Peet Bros).  Prefer the standard fields when
-    present, otherwise map course/speed.  Returns ``(None, None)`` when there
-    is no wind.
+    Standard ``weather``-dict fields (already m/s) win when present.  APRS
+    weather stations (symbol ``_``) report wind in the position suffix, which
+    aprslib surfaces as top-level ``course`` (deg) / ``speed`` (km/h — the raw
+    digits scaled x1.852 as if knots); the digits are mph per the APRS
+    weather-field spec, so they are recovered and converted mph -> m/s.
+    Course/speed on any other packet is course-over-ground, not wind.
+    Returns ``(None, None)`` when there is no wind.
     """
     weather = parsed.get("weather")
     weather = weather if isinstance(weather, dict) else {}
@@ -165,12 +166,14 @@ def extract_wind(parsed: dict) -> tuple[float | None, float | None]:
     direction = weather.get("wind_direction")
     speed = weather.get("wind_speed")
 
-    if direction is None and parsed.get("course") is not None:
-        direction = parsed["course"]
-    if speed is None and parsed.get("speed") is not None:
-        # aprslib top-level speed is km/h; normalise to m/s like the rest of
-        # the wind data (gust, Peet Bros wind_speed).
-        speed = float(parsed["speed"]) * 1000 / 3600
+    if parsed.get("symbol") == "_":
+        if direction is None and parsed.get("course") is not None:
+            direction = parsed["course"]
+        if speed is None and parsed.get("speed") is not None:
+            # Undo aprslib's x1.852 (knots) scaling of the raw digits; the
+            # `_` comment's speed digits are mph — convert mph -> m/s like
+            # the rest of the wind data (gust, Peet Bros wind_speed).
+            speed = float(parsed["speed"]) / 1.852 * 0.44704
 
     return (direction, speed)
 
@@ -236,8 +239,8 @@ def _categorize_sections(parsed: dict) -> dict[str, dict]:
             weather_data[k] = weather_source[k]
         elif k in parsed:
             weather_data[k] = parsed[k]
-    # `_` packets carry wind as top-level course/speed — map to the standard
-    # wind fields so the decode view shows them (issue #152).
+    # `_` weather stations carry wind as top-level course/speed — map to the
+    # standard wind fields so the decode view shows them (issue #152).
     wind_dir, wind_speed = extract_wind(parsed)
     if wind_dir is not None:
         weather_data.setdefault("wind_direction", wind_dir)

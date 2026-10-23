@@ -27,6 +27,8 @@ def test_rotation_directions():
     assert barb_rotation(0) == 0
     assert barb_rotation(360) == 0       # 0-vs-360 equivalence
     assert barb_rotation(90) == 90
+    assert barb_rotation(180) == 180     # N/E/S/W matrix
+    assert barb_rotation(270) == 270
     assert barb_rotation(230) == 230
 
 
@@ -51,8 +53,22 @@ def test_build_station_model_metar_style_full():
 def test_build_station_model_calm_vs_missing_wind():
     calm = build_station_model({"wind_direction": 0, "wind_speed": 0.0})
     assert calm["calm"] is True and calm["feathers"] == []
+    assert calm["rotation_deg"] is None   # calm = outer ring only, no shaft (NWS)
     none = build_station_model({})
     assert none is None
     nw = build_station_model({"temperature": 10.0})   # no wind at all
     assert nw["calm"] is False and nw["feathers"] == [] and nw["rotation_deg"] is None
     assert nw["has_temp"] is True and nw["has_dewpoint"] is False
+
+
+def test_build_station_model_direction_without_speed():
+    """Direction without a speed is a bare shaft — not calm, no feathers."""
+    m = build_station_model({"wind_direction": 90})
+    assert m["rotation_deg"] == 90 and m["calm"] is False and m["feathers"] == []
+
+
+def test_build_station_model_gust_without_wind():
+    """A gust without wind is preserved in the model but plots no barb."""
+    m = build_station_model({"wind_gust": 10.0, "temperature": 10.0})
+    assert m["rotation_deg"] is None and m["calm"] is False
+    assert m["gust_kt"] == pytest.approx(10.0 * KT, abs=0.01)
