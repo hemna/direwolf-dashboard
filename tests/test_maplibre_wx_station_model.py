@@ -40,5 +40,32 @@ def test_model_uses_last_weather_and_toggle():
 
 
 def test_feature_property_set_when_weather_present():
-    """Station features carry a wmodel prop (the runtime image id) for WX stations."""
-    assert "props.wx_model" in JS
+    """Station features carry the runtime-image id in properties.wx_model for WX stations."""
+    assert "properties.wx_model" in JS
+
+
+def test_toggle_checkbox_exists_default_on_persisted():
+    """The 'Station plots' filter checkbox defaults on and persists in localStorage."""
+    assert "filter-station-model" in JS
+    assert "checked" in JS
+    assert "dw-station-model" in JS
+
+
+def test_legend_section_present_and_toggle_drives_visibility():
+    """A #legend-wx section in the map legend is shown/hidden with the toggle."""
+    assert "legend-wx" in JS
+    assert "setWxLegendVisible" in JS
+
+
+def test_legend_strings_match_barb_rules():
+    """The legend states the barb values, calm rule, gust, sky cover and units."""
+    for s in ("5", "10", "50", "kt", "calm"):
+        assert s in JS
+    assert "°" in JS
+    assert "inHg" in JS or "hPa" in JS
+
+
+def test_off_state_falls_back_to_sprite():
+    """The model path is gated by the toggle, so off falls back to the sprite."""
+    assert "wxStationEnabled" in JS
+    assert "filter-station-model" in JS

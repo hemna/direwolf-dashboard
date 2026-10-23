@@ -389,6 +389,26 @@
                             <div style="width:20px;height:0;border-top:3px dashed ${routeColor};opacity:0.6;"></div>
                             <span>Packet route</span>
                         </div>
+                        <div id="legend-wx">
+                            <div class="legend-section-title">Weather stations</div>
+                            <div class="legend-item">
+                                <svg class="legend-wx-example" width="56" height="58" viewBox="0 0 56 58">
+                                    <path d="M 28 12 L 36 15.5 L 28 19 Z" fill="currentColor" stroke="currentColor" stroke-width="1"/>
+                                    <line x1="28" y1="19" x2="31" y2="24" stroke-width="1.6"/>
+                                    <line x1="28" y1="24" x2="30.5" y2="28" stroke-width="1.6"/>
+                                    <circle cx="28" cy="34" r="6" fill="none" stroke-width="1.6"></circle>
+                                    <text x="12" y="18" font-size="9">74&#176;F</text>
+                                    <text x="12" y="50" font-size="9" text-anchor="start">9&#176;C</text>
+                                    <text x="44" y="18" font-size="9" text-anchor="end">29.9</text>
+                                </svg>
+                                <span>65&#160;kt — temp top-left, dewpoint bottom-left, pressure top-right</span>
+                            </div>
+                            <div class="legend-item"><span>Half barb = 5 kt &middot; full barb = 10 kt &middot; pennant = 50 kt</span></div>
+                            <div class="legend-item"><span>Calm = circle around the station (no barb)</span></div>
+                            <div class="legend-item"><span>Gust as G&#60;n&#62; kt beside the barb tip</span></div>
+                            <div class="legend-item"><span>Filled circle = sky cover (oktas)</span></div>
+                            <div class="legend-item"><span>Wind in kt &middot; temp &#176;F/&#176;C &middot; pressure in hPa or inHg as displayed</span></div>
+                        </div>
                     </div>
                 `;
         const header = container.querySelector('.map-legend-header');
@@ -404,6 +424,13 @@
             legendIcon.textContent = '\u25BC';
         }
         map.addControl(mlControl(function () { return container; }, 'bottom-left'));
+        setWxLegendVisible(wxStationEnabled());
+    }
+
+    /** Show/hide the "Weather stations" legend section with the Station plots toggle. */
+    function setWxLegendVisible(show) {
+        const el = document.getElementById('legend-wx');
+        if (el) el.style.display = show ? '' : 'none';
     }
 
     // --- Stats Overlay ---
@@ -507,6 +534,12 @@
                     '<option value="tx">TX</option>' +
                 '</select>' +
             '</div>' +
+            '<div class="filter-overlay-row">' +
+                '<label class="filter-overlay-label" for="filter-station-model">Station plots</label>' +
+                '<input type="checkbox" id="filter-station-model" ' +
+                    (localStorage.getItem('dw-station-model') !== '0' ? 'checked ' : '') +
+                    '/>' +
+            '</div>' +
             '</div>';
         var filterHeader = container.querySelector('.filter-overlay-header');
         var filterIcon = container.querySelector('.filter-collapse-icon');
@@ -519,6 +552,16 @@
         if (localStorage.getItem('dw-filter-collapsed') === '1') {
             container.classList.add('collapsed');
             filterIcon.textContent = '\u25BC';
+        }
+        // Station plots toggle: repaint models or fall back to sprites, and
+        // show/hide the weather legend section (issue #152).
+        const stationModelToggle = container.querySelector('#filter-station-model');
+        if (stationModelToggle) {
+            stationModelToggle.addEventListener('change', function () {
+                localStorage.setItem('dw-station-model', this.checked ? '1' : '0');
+                refreshStations();
+                setWxLegendVisible(wxStationEnabled());
+            });
         }
         map.addControl(mlControl(function () { return container; }, 'top-right'));
     }
@@ -1427,6 +1470,15 @@
         for (const cs of Object.keys(stationFeatures)) {
             if (!stationVisibleByFilters(cs, stations[cs])) continue;
             stationFeatures[cs].properties.is_my = cs === isMyCall;
+            // WX stations render as NWS station plots (runtime image) while the
+            // "Station plots" toggle is on; otherwise fall back to the plain
+            // APRS sprite. Recomputed each refresh so images re-register when a
+            // station's weather changes and the toggle takes effect immediately.
+            const entry = stations[cs] && stations[cs].data;
+            const modelImg = (wxStationEnabled() && entry && entry.last_weather)
+                ? upsertWxStationImage(cs, entry) : null;
+            if (modelImg) stationFeatures[cs].properties.wx_model = modelImg;
+            else delete stationFeatures[cs].properties.wx_model;
             feats.push(stationFeatures[cs]);
         }
         return { type: 'FeatureCollection', features: feats };
@@ -1737,12 +1789,6 @@
         // GeoJSON null value would otherwise slip past the layer's != null filter.
         if (symbolTable !== '/' && symbolTable !== '\\') {
             props.overlay_hex = hex2(symbolTable);
-        }
-        // WX stations render as NWS station plots (runtime image) when the
-        // "Station plots" toggle is on; others keep the plain APRS sprite.
-        if (wxStationEnabled() && data.last_weather) {
-            const imgId = upsertWxStationImage(cs, data);
-            if (imgId) props.wx_model = imgId;
         }
         stationFeatures[cs] = {
             type: 'Feature',
