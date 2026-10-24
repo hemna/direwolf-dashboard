@@ -1057,6 +1057,7 @@
             zoom: urlMapView ? urlMapView.zoom : toMlZoom(zoom),
             bearing: urlMapView ? urlMapView.bearing : 0,
             pitch: urlMapView ? urlMapView.pitch : 0,
+            zoomSnap: 0.1,  // issue #154: fractional handoff zooms (10.9 etc.)
         });
         map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
         map.addControl(mlControl(buildZoomReadout, 'top-left'));
@@ -1119,10 +1120,21 @@
      *  /basemap mount, with HTTP Range — not the hardcoded sample path). */
     async function fetchStyleForTheme(theme) {
         const name = theme === 'light' ? 'light' : 'dark';
-        const resp = await fetch('/static/basemap/style.' + name + '.json');
+        // issue #154: the served style is split server-side (local z0-11 +
+        // same-origin proxied z12+); every vector source URL the server baked
+        // in is browser-relative, so absolutize them as pmtiles:// URLs.
+        const resp = await fetch('/basemap/style/' + name + '.json');
         const style = await resp.json();
         if (style.sources && style.sources.protomaps) {
-            style.sources.protomaps.url = 'pmtiles://' + new URL('/basemap/region.pmtiles', window.location.href).href;
+            style.sources.protomaps.url = 'pmtiles://' + new URL(style.sources.protomaps.url, window.location.href).href;
+        }
+        if (style.sources) {
+            Object.keys(style.sources).forEach(function (id) {
+                const s = style.sources[id];
+                if (s && s.type === 'vector' && s.url && s.url.indexOf('pmtiles://') !== 0) {
+                    s.url = 'pmtiles://' + new URL(s.url, window.location.href).href;
+                }
+            });
         }
         addWorldFallback(style);
         return absolutizeStyleUrls(style, window.location.href);

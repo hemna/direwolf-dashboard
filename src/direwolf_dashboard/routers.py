@@ -17,7 +17,17 @@ from starlette.routing import Route
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from direwolf_dashboard import __version__
-from direwolf_dashboard.basemap import region_archive_info, resolve_region_archive
+from direwolf_dashboard.basemap import (
+    UPSTREAM_PROXY_URL,
+    BasemapSourceError,
+    UpstreamRangeError,
+    proxy_fetch_range,
+    region_archive_info,
+    render_style,
+    resolve_region_archive,
+    resolve_upstream_cached,
+    upstream_sources,
+)
 from direwolf_dashboard.config import update_config
 from direwolf_dashboard.decoder import decode_packet as _decode
 from direwolf_dashboard.lifecycle import (
@@ -610,3 +620,76 @@ def create_index_handler(static_dir: str):
         return HTMLResponse(content=content)
 
     return index
+
+
+def create_basemap_style_route(container: ServiceContainer):
+    """Return the Route serving the split basemap style (issue #154).
+
+    ``/basemap/style/<theme>.json`` returns the vendored kit style split
+    server-side into a local z0-11 source (the region archive, overzoomed
+    through the whole of zoom 11) and a z12+ upstream source pointed at the
+    same-origin proxy (:data:`UPSTREAM_PROXY_URL`). The browser never talks to
+    an external tile host directly. ``X-Basemap-Source`` records which
+    upstream archive the z12+ source resolves to (observable proof).
+    """
+    async def get_basemap_style(request: Request):
+        theme = request.path_params["theme"]
+        services = _get_services(container)
+        try:
+            _, source_label, upstream_max = resolve_upstream_cached(
+                upstream_sources(services.config)
+            )
+            body = render_style(theme, upstream_max_zoom=upstream_max)
+        except (ValueError, FileNotFoundError):
+            raise HTTPException(status_code=404, detail=f"unknown basemap style: {theme!r}") from None
+        resp = Response(body, media_type="application/json")
+        resp.headers["X-Basemap-Source"] = source_label
+        return resp
+
+    return Route("/basemap/style/{theme}.json", get_basemap_style, name="basemap_style")
+
+
+def create_basemap_tiles_route(container: ServiceContainer):
+    """Return the same-origin z12+ tile proxy route (issue #154).
+
+    ``pmtiles.js`` asks the browser for single byte ranges against this URL;
+    the proxy passes each range through to the resolved upstream
+    (cloud.hemna.com first, Protomaps daily fallback) **server-side**, caches
+    the slice, and returns a same-origin 206. The browser never touches
+    ``build.protomaps.com`` (CORS-blocked) and no CSP change is needed.
+    """
+    async def get_basemap_tiles(request: Request):
+        services = _get_services(container)
+        rng = request.headers.get("Range", "")
+        match = re.fullmatch(r"bytes=(\d+)-(\d+)", rng or "")
+        if not match or int(match.group(2)) < int(match.group(1)):
+            # pmtiles.js always sends a two-sided byte range; anything else is
+            # not addressable and gets the RFC 7233 'no bytes' 416 with total 0.
+            return Response(status_code=416, headers={
+                "Accept-Ranges": "bytes",
+                "Content-Range": "bytes */0",
+            })
+        start, end = int(match.group(1)), int(match.group(2))
+        length = end - start + 1
+        url, label, _upstream_max = resolve_upstream_cached(
+            upstream_sources(services.config)
+        )
+        try:
+            data, total = proxy_fetch_range(url, start, length)
+        except UpstreamRangeError as e:
+            LOG.warning("basemap proxy range unsatisfiable: %s", e)
+            return Response(status_code=416, headers={
+                "Accept-Ranges": "bytes",
+                "Content-Range": f"bytes */{e.total}",
+            })
+        except BasemapSourceError as e:
+            LOG.warning("basemap proxy upstream error: %s", e)
+            return Response(status_code=502, content="bad gateway")
+        return Response(content=data, status_code=206, headers={
+            "Content-Range": f"bytes {start}-{end}/{total}",
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "public, max-age=3600",
+            "X-Basemap-Source": label,
+        })
+
+    return Route(UPSTREAM_PROXY_URL, get_basemap_tiles, name="basemap_tiles")
