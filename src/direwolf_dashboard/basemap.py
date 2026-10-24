@@ -10,10 +10,22 @@ tiles, driven by the ``basemap.region_archive`` config setting.
 from __future__ import annotations
 
 import hashlib
+import json
+import logging
 import mimetypes
 import os
+import re
+import struct
+import threading
+from collections import OrderedDict
 from datetime import UTC, datetime, timedelta
 from math import cos, radians
+from pathlib import Path
+from time import monotonic
+
+import httpx
+
+LOG = logging.getLogger(__name__)
 
 # MapLibre glyph (.pbf) and tile-archive (.pmtiles) assets are binary; without
 # these registrations starlette StaticFiles serves unknown extensions as
@@ -149,3 +161,389 @@ def region_archive_info(path: str) -> dict | None:
     if not path or not os.path.isfile(path):
         return None
     return {"name": os.path.basename(path), "size": os.path.getsize(path)}
+
+
+# ============================================================================
+# Issue #154 - seamless z11/z12 handoff + same-origin z12+ upstream proxy
+# ----------------------------------------------------------------------------
+# Port of the haminfo #269 design (PR hemna/haminfo#270) to this app. The
+# browser never touches an external tile host directly: the served style
+# points the z12+ source at the same-origin proxy route
+# (:data:`UPSTREAM_PROXY_URL`), which passes HTTP byte ranges through to the
+# resolved upstream (``basemap.sources``: cloud.hemna.com first, Protomaps
+# daily fallback - or a single pinned :data:`UPSTREAM_URL_ENV` for dev) and
+# caches the slices.
+# ============================================================================
+
+#: Style source id for the z12+ upstream archive. The kit's ``protomaps``
+#: source keeps its id (JS consumers and the world fallback key on it) and now
+#: points at the local region archive.
+UPSTREAM_SOURCE_ID = "protomaps-hi"
+
+#: Highest zoom the local region archive is asked for; upstream takes over
+#: from z12. MapLibre overzooms the z11 tiles through 11.x (issue #154).
+LOCAL_MAXZOOM = 11
+
+#: Same-origin path the served style points the z12+ upstream source at.
+UPSTREAM_PROXY_URL = "/basemap/tiles/upstream"
+
+#: How long a resolved upstream choice (URL + label + max_zoom) is kept before
+#: the cloud-first probe chain runs again (per-tile proxy requests never
+#: re-probe).
+UPSTREAM_RESOLVE_TTL_SECONDS = 300.0
+
+#: Upper bound on the in-memory byte-range cache entries for the proxy.
+PROXY_CACHE_MAX_ENTRIES = 512
+
+#: Timeout for the proxy upstream ranged fetch (covers slow tile reads).
+PROXY_FETCH_TIMEOUT_SECONDS = 30.0
+
+#: Upstream max_zoom used when it cannot be probed (the single pinned URL path
+#: never probes). Matches the Protomaps daily build / cloud planet.
+FALLBACK_UPSTREAM_MAXZOOM = 15
+
+#: Environment single-pin override for the z12+ upstream archive (dev/test).
+#: A pinned value wins without probing; ``basemap.sources`` is the fallback.
+UPSTREAM_URL_ENV = "DIREWOLF_MAP_TILES_URL"
+
+#: Per-source probe timeout for the serve-time HTTP Range header check.
+PROBE_TIMEOUT_SECONDS = 5.0
+
+#: Ordered upstream sources used when no config is available (the config
+#: ``basemap.sources`` default is identical): cloud.hemna.com first, Protomaps
+#: daily build as the fallback (Hemna tile-source rule, aprs-chat-project).
+DEFAULT_UPSTREAM_SOURCES = [
+    "https://cloud.hemna.com/basemap-kit/archives/planet.pmtiles",
+    "protomaps",
+]
+
+#: The served local region archive URL (same-origin, HTTP Range) the style
+#: points the local z0-11 source at (issue #154).
+LOCAL_REGION_URL = "/basemap/region.pmtiles"
+
+#: On-disk location of the vendored kit surface (styles, sprites, glyphs).
+BASEMAP_DIR = Path(__file__).resolve().parent / "static" / "basemap"
+
+#: Vendored sample fallback used when every upstream source fails (overzoom
+#: keeps the viewport non-blank rather than 502-ing the tile proxy).
+DEFAULT_TILE_ARCHIVE_URL = "/static/basemap/regions/sample.pmtiles"
+
+#: Vector PMTiles v3 header is a fixed 127-byte struct (pmtiles spec v3).
+_PMTILES_MAGIC = b"PMTiles"
+_PMTILES_HEADER_SIZE = 127
+_PMTILES_SPEC_VERSION = 3
+#: ``TileType.Mvt == 1`` in the spec; mirrors the vendored ``pmtiles.js``.
+_PMTILES_TILE_TYPE_MVT = 1
+
+
+class BasemapSourceError(RuntimeError):
+    """A tile source failed its probe (404, network error, invalid archive)."""
+
+
+class UpstreamRangeError(RuntimeError):
+    """The upstream marked the byte range unsatisfiable (HTTP 416)."""
+
+    def __init__(self, total: int):
+        super().__init__(f"upstream range unsatisfiable (total {total})")
+        self.total = total
+
+
+def parse_pmtiles_header(raw: bytes) -> dict:
+    """Validate a PMTiles v3 header (127 bytes) and return its parsed fields.
+
+    Raises :class:`BasemapSourceError` if the bytes are not a vector (MVT)
+    PMTiles v3 header.
+    """
+    if len(raw) < _PMTILES_HEADER_SIZE:
+        raise BasemapSourceError(
+            f"archive header too short ({len(raw)} < {_PMTILES_HEADER_SIZE} bytes)"
+        )
+    if raw[:7] != _PMTILES_MAGIC:
+        raise BasemapSourceError("archive missing PMTiles magic")
+    version = raw[7]
+    if version != _PMTILES_SPEC_VERSION:
+        raise BasemapSourceError(
+            f"archive spec version {version}, expected {_PMTILES_SPEC_VERSION} (v3)"
+        )
+    tile_type = raw[99]
+    if tile_type != _PMTILES_TILE_TYPE_MVT:
+        raise BasemapSourceError(
+            f"archive tile type {tile_type}, expected {_PMTILES_TILE_TYPE_MVT} (MVT/vector)"
+        )
+    min_lon_e7, min_lat_e7, max_lon_e7, max_lat_e7 = struct.unpack("<4i", raw[102:118])
+    return {
+        "version": version,
+        "tile_type": tile_type,
+        "min_zoom": raw[100],
+        "max_zoom": raw[101],
+        "min_lon": min_lon_e7 / 1e7,
+        "min_lat": min_lat_e7 / 1e7,
+        "max_lon": max_lon_e7 / 1e7,
+        "max_lat": max_lat_e7 / 1e7,
+    }
+
+
+def probe_source(src: str, timeout: float = PROBE_TIMEOUT_SECONDS) -> dict:
+    """Probe one tile source; return its parsed v3 header or raise.
+
+    HTTP(S) sources are probed with a ``Range: bytes=0-126`` request (the
+    127-byte header only). A 404, network error, short body, or invalid header
+    raises :class:`BasemapSourceError` - the caller moves on to the next
+    source. Local file paths are read directly.
+    """
+    if os.path.isfile(src):
+        with open(src, "rb") as f:
+            return parse_pmtiles_header(f.read(_PMTILES_HEADER_SIZE))
+    try:
+        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+            resp = client.get(
+                src, headers={"Range": f"bytes=0-{_PMTILES_HEADER_SIZE - 1}"}
+            )
+    except httpx.HTTPError as e:
+        raise BasemapSourceError(f"network error: {type(e).__name__}: {e}") from e
+    if resp.status_code == 404:
+        raise BasemapSourceError("HTTP 404 not found")
+    if resp.status_code not in (200, 206):
+        raise BasemapSourceError(f"HTTP {resp.status_code}")
+    return parse_pmtiles_header(bytes(resp.content[:_PMTILES_HEADER_SIZE]))
+
+
+def _resolve_style(sources=None, probe=None,
+                   planet_factory=default_planet_url) -> tuple[str, str, dict | None]:
+    """Resolve the **z12+ upstream** tile archive for served styles.
+
+    Precedence:
+
+    1. ``DIREWOLF_MAP_TILES_URL`` (single, pinned) wins without probing.
+    2. Otherwise each entry of ``sources`` (default
+       :data:`DEFAULT_UPSTREAM_SOURCES`) is probed in order and the first with
+       a valid vector PMTiles v3 header **and ``max_zoom`` >=
+       :data:`LOCAL_MAXZOOM` + 1** is used. The zoom gate (issue #154) exists
+       because a z0-11 planet archive cannot fill the z12+ slot.
+    3. If every source fails, the vendored sample is used as a last resort
+       (overzoom keeps the viewport non-blank) and a warning is logged.
+
+    Returns ``(url, source_label, header)`` where ``header`` is ``None`` for
+    the single pinned-URL path (which never probes).
+    """
+    single = os.environ.get(UPSTREAM_URL_ENV, "").strip()
+    if single:
+        return single, UPSTREAM_URL_ENV, None
+    probe = probe or probe_source
+    ordered = list(sources) if sources is not None else list(DEFAULT_UPSTREAM_SOURCES)
+    tried = []
+    for entry in ordered:
+        src = planet_factory() if str(entry).strip().lower() == "protomaps" else entry
+        try:
+            header = probe(src)
+        except BasemapSourceError as e:
+            tried.append(f"{src}: {e}")
+            continue
+        if header["max_zoom"] < LOCAL_MAXZOOM + 1:
+            tried.append(f"{src}: max_zoom {header['max_zoom']} < {LOCAL_MAXZOOM + 1}")
+            continue
+        LOG.info("basemap z12+ tiles served from %s", src)
+        return src, f"source:{entry}", header
+    LOG.warning(
+        "all basemap tile sources failed (%s); falling back to the vendored sample",
+        " | ".join(tried),
+    )
+    return DEFAULT_TILE_ARCHIVE_URL, "local-fallback", None
+
+
+def resolve_style_url(sources=None, probe=None) -> tuple[str, str]:
+    """Return ``(url, source_label)`` for the z12+ upstream archive.
+
+    See :func:`_resolve_style` for the cloud-first precedence; this wrapper
+    drops the probed header so callers keep the two-tuple contract.
+    """
+    url, label, _header = _resolve_style(sources, probe)
+    return url, label
+
+
+def upstream_sources(config) -> list:
+    """Ordered upstream source list from ``basemap.sources`` (cloud-first)."""
+    basemap = getattr(config, "basemap", None)
+    if basemap is not None and getattr(basemap, "sources", None):
+        return list(basemap.sources)
+    return list(DEFAULT_UPSTREAM_SOURCES)
+
+
+def render_style(theme: str,
+                 proxy_url: str = UPSTREAM_PROXY_URL,
+                 upstream_max_zoom: int = FALLBACK_UPSTREAM_MAXZOOM) -> str:
+    """Return a kit style split into local z0-11 + same-origin upstream (issue #154).
+
+    The kit's ``protomaps`` vector source is pointed at the served local
+    region archive (:data:`LOCAL_REGION_URL`) and gets ``maxzoom``
+    :data:`LOCAL_MAXZOOM` so MapLibre overzooms the z11 tiles instead of
+    requesting tiles the local archive does not hold. A second vector source
+    (:data:`UPSTREAM_SOURCE_ID`) points at the **same-origin** proxy
+    (:data:`UPSTREAM_PROXY_URL`) for zoom 12+; it gets ``minzoom`` 12 and
+    ``maxzoom`` ``upstream_max_zoom`` so the top archive zoom overzooms and
+    no integer zoom 0-16 is ever left without a drawing layer.
+
+    Layer split (the seamless z11/z12 handoff):
+
+    * Layers whose ``minzoom`` is above :data:`LOCAL_MAXZOOM` are
+      upstream-only: they keep their id and zooms but draw from the upstream
+      source.
+    * Every other layer stays on the local source; its ``maxzoom`` is at
+      least ``LOCAL_MAXZOOM + 1`` (so it draws through the whole of zoom 11),
+      keeping any own min zoom the kit declared. A layer that carries its
+      **own** maxzoom keeps only its local copy - its zoom-12+ range belongs
+      to a counterpart layer in the kit (e.g. the ``_early``/``_late`` casing
+      pairs). A layer without its own maxzoom also gets an ``<id>-hi`` twin
+      on the upstream source starting at z12, so the local and upstream
+      ranges touch with no gap.
+
+    Args:
+        theme: ``"light"`` or ``"dark"`` (the two kit styles).
+        proxy_url: same-origin path the upstream source is pointed at.
+        upstream_max_zoom: the upstream archive's top zoom; the upstream
+            source gets this ``maxzoom`` so beyond it tiles are overzoomed.
+
+    Raises:
+        ValueError: for an unsupported theme.
+    """
+    if theme not in ("light", "dark"):
+        raise ValueError(f"unsupported basemap theme: {theme!r}")
+    style = json.loads((BASEMAP_DIR / f"style.{theme}.json").read_text(encoding="utf-8"))
+
+    local_src = dict(style["sources"]["protomaps"])
+    local_src["url"] = LOCAL_REGION_URL
+    local_src["maxzoom"] = LOCAL_MAXZOOM  # overzoom the z11 tiles past z11
+    style["sources"]["protomaps"] = local_src
+
+    upstream_src = {k: v for k, v in local_src.items() if k != "maxzoom"}
+    upstream_src["url"] = proxy_url
+    upstream_src["minzoom"] = LOCAL_MAXZOOM + 1
+    upstream_src["maxzoom"] = upstream_max_zoom
+    style["sources"][UPSTREAM_SOURCE_ID] = upstream_src
+
+    split_layers = []
+    for layer in style["layers"]:
+        if layer.get("source") != "protomaps":
+            split_layers.append(layer)
+            continue
+        if layer.get("minzoom", 0) > LOCAL_MAXZOOM:
+            layer["source"] = UPSTREAM_SOURCE_ID
+            split_layers.append(layer)
+            continue
+        has_own_maxzoom = "maxzoom" in layer
+        if not has_own_maxzoom:
+            layer["maxzoom"] = LOCAL_MAXZOOM + 1  # draw through the whole of z11
+        elif layer["maxzoom"] < LOCAL_MAXZOOM + 1:
+            layer["maxzoom"] = LOCAL_MAXZOOM + 1  # never leave a hole below z12
+        split_layers.append(layer)
+        if has_own_maxzoom:
+            continue  # own-maxzoom layer: no -hi twin (z12+ counterpart exists)
+        twin = dict(layer)
+        twin["id"] = f"{layer['id']}-hi"
+        twin["source"] = UPSTREAM_SOURCE_ID
+        twin["minzoom"] = max(layer.get("minzoom", 0), LOCAL_MAXZOOM + 1)
+        twin.pop("maxzoom", None)
+        split_layers.append(twin)
+    style["layers"] = split_layers
+    return json.dumps(style)
+
+
+#: Last resolved upstream: ``[monotonic, url, label, max_zoom]`` or ``[]``.
+_UPSTREAM_RESOLVE: list = []
+_UPSTREAM_RESOLVE_LOCK = threading.Lock()
+
+
+def resolve_upstream_cached(sources=None, probe=None,
+                            ttl_seconds: float = UPSTREAM_RESOLVE_TTL_SECONDS
+                            ) -> tuple[str, str, int]:
+    """Return ``(upstream_url, source_label, upstream_max_zoom)``, TTL-cached.
+
+    Runs the cloud-first probe chain (:func:`_resolve_style`) at most once per
+    ``ttl_seconds`` so per-tile proxy requests never re-probe. The label is the
+    same one the style route surfaces in ``X-Basemap-Source``.
+    """
+    with _UPSTREAM_RESOLVE_LOCK:
+        if _UPSTREAM_RESOLVE and (monotonic() - _UPSTREAM_RESOLVE[0]) < ttl_seconds:
+            return _UPSTREAM_RESOLVE[1], _UPSTREAM_RESOLVE[2], _UPSTREAM_RESOLVE[3]
+    url, label, header = _resolve_style(sources, probe)
+    max_zoom = header["max_zoom"] if header else FALLBACK_UPSTREAM_MAXZOOM
+    with _UPSTREAM_RESOLVE_LOCK:
+        _UPSTREAM_RESOLVE[:] = [monotonic(), url, label, max_zoom]
+    return url, label, max_zoom
+
+
+def _content_range_total(headers) -> int:
+    """Parse the upstream 206 ``Content-Range`` for the archive's total size."""
+    value = (headers.get("Content-Range") or "").strip()
+    match = re.fullmatch(r"bytes \d+-\d+/(\d+)", value)
+    if not match:
+        raise BasemapSourceError(
+            f"upstream returned unparsable Content-Range: {value!r}"
+        )
+    return int(match.group(1))
+
+
+#: In-memory byte-range cache for the proxy: key ``(url, start, length)``.
+_PROXY_CACHE: OrderedDict[tuple, tuple] = OrderedDict()
+_PROXY_CACHE_LOCK = threading.Lock()
+
+
+def proxy_fetch_range(url: str, start: int, length: int,
+                      client=None) -> tuple[bytes, int]:
+    """Fetch one byte range from the upstream archive, caching the result.
+
+    Returns ``(data, total_archive_bytes)``. Raises
+    :class:`UpstreamRangeError` (416) or :class:`BasemapSourceError` (network
+    error / non-range response) so the route can answer 416 / 502
+    respectively.
+
+    Local file paths (a dev-hosted basemap archive, or a Pi's on-disk region
+    copy - the same ``os.path.isfile`` case :func:`probe_source` handles) are
+    served straight from disk: no network, nothing cached.
+    """
+    if os.path.isfile(url):
+        total = os.path.getsize(url)
+        if start >= total:
+            raise UpstreamRangeError(total)
+        end = min(start + length - 1, total - 1)
+        with open(url, "rb") as f:
+            f.seek(start)
+            data = f.read(end - start + 1)
+        return data, total
+    key = (url, start, length)
+    with _PROXY_CACHE_LOCK:
+        hit = _PROXY_CACHE.get(key)
+    if hit is not None:
+        return hit
+    end = start + length - 1
+    try:
+        if client is not None:
+            resp = client.get(url, headers={"Range": f"bytes={start}-{end}"})
+        else:
+            with httpx.Client(timeout=PROXY_FETCH_TIMEOUT_SECONDS) as c:
+                resp = c.get(url, headers={"Range": f"bytes={start}-{end}"})
+    except httpx.HTTPError as e:
+        raise BasemapSourceError(
+            f"proxy upstream network error: {type(e).__name__}: {e}"
+        ) from e
+    if resp.status_code == 416:
+        match = re.match(
+            r"bytes \*/(\d+)",
+            (resp.headers.get("Content-Range") or "").strip(),
+        )
+        total = int(match.group(1)) if match else 0
+        raise UpstreamRangeError(total)
+    if resp.status_code != 206:
+        raise BasemapSourceError(
+            f"proxy upstream HTTP {resp.status_code} (want 206 range response)"
+        )
+    total = _content_range_total(resp.headers)
+    data = bytes(resp.content)
+    cached = (data, total)
+    with _PROXY_CACHE_LOCK:
+        _PROXY_CACHE[key] = cached
+        _PROXY_CACHE.move_to_end(key)
+        while len(_PROXY_CACHE) > PROXY_CACHE_MAX_ENTRIES:
+            _PROXY_CACHE.popitem(last=False)
+    return cached
+
