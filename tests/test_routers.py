@@ -27,6 +27,8 @@ class TestCreateApiRoutes:
             "/station/{callsign}",
             "/stations/positions",
             "/stations/tracks",
+            "/weather/stations",
+            "/weather/stations/legend",
             "/stats",
             "/config",
             "/storage",
@@ -445,3 +447,28 @@ class TestWeatherStationsEndpoint:
         resp = client.get("/api/weather/stations")
         assert resp.status_code == 200
         assert resp.json() == []
+
+class TestWxLegendEndpoint:
+    """Tests for the /api/weather/stations/legend endpoint (issue #156)."""
+    def test_legend_route_registered(self):
+        container = ServiceContainer()
+        routes = create_api_routes(container)
+        paths = {r.path for r in routes}
+        assert "/weather/stations/legend" in paths
+
+    def test_legend_returns_scales_lines_and_sample(self):
+        """The endpoint serves both colour scales, per-unit lines and a
+        sample spec without touching services."""
+        container = ServiceContainer()
+        client = TestClient(_build_test_app(container), raise_server_exceptions=False)
+        resp = client.get("/api/weather/stations/legend")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["temp_scale"]) >= 3 and data["temp_scale"][0].startswith("#")
+        assert len(data["wind_scale"]) >= 3 and data["wind_scale"][0].startswith("#")
+        assert any("hPa" in line for line in data["lines_metric"])
+        assert any("kt" in line for line in data["lines_metric"])
+        sample = data["sample"]
+        assert sample["temp_color"] is not None
+        assert sample["pressure_hpa"] == 1013
+        assert sample["wind_color"] is not None
