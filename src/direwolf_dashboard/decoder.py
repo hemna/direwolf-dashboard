@@ -149,6 +149,35 @@ def _generate_annotations(raw: str, parsed: dict) -> list[dict]:
     return annotations
 
 
+def extract_wind(parsed: dict) -> tuple[float | None, float | None]:
+    """Return ``(wind_direction_deg, wind_speed_mps)`` from aprslib output.
+
+    Standard ``weather``-dict fields (already m/s) win when present.  APRS
+    weather stations (symbol ``_``) report wind in the position suffix, which
+    aprslib surfaces as top-level ``course`` (deg) / ``speed`` (km/h — the raw
+    digits scaled x1.852 as if knots); the digits are mph per the APRS
+    weather-field spec, so they are recovered and converted mph -> m/s.
+    Course/speed on any other packet is course-over-ground, not wind.
+    Returns ``(None, None)`` when there is no wind.
+    """
+    weather = parsed.get("weather")
+    weather = weather if isinstance(weather, dict) else {}
+
+    direction = weather.get("wind_direction")
+    speed = weather.get("wind_speed")
+
+    if parsed.get("symbol") == "_":
+        if direction is None and parsed.get("course") is not None:
+            direction = parsed["course"]
+        if speed is None and parsed.get("speed") is not None:
+            # Undo aprslib's x1.852 (knots) scaling of the raw digits; the
+            # `_` comment's speed digits are mph — convert mph -> m/s like
+            # the rest of the wind data (gust, Peet Bros wind_speed).
+            speed = float(parsed["speed"]) / 1.852 * 0.44704
+
+    return (direction, speed)
+
+
 def _categorize_sections(parsed: dict) -> dict[str, dict]:
     """
     Categorize parsed fields into display sections.
@@ -210,6 +239,13 @@ def _categorize_sections(parsed: dict) -> dict[str, dict]:
             weather_data[k] = weather_source[k]
         elif k in parsed:
             weather_data[k] = parsed[k]
+    # `_` weather stations carry wind as top-level course/speed — map to the
+    # standard wind fields so the decode view shows them (issue #152).
+    wind_dir, wind_speed = extract_wind(parsed)
+    if wind_dir is not None:
+        weather_data.setdefault("wind_direction", wind_dir)
+    if wind_speed is not None:
+        weather_data.setdefault("wind_speed", wind_speed)
     if weather_data:
         sections['weather'] = weather_data
 

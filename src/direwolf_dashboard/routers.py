@@ -35,6 +35,7 @@ from direwolf_dashboard.lifecycle import (
     broadcast_event,
     enrich_with_bearing,
 )
+from direwolf_dashboard.station_model import build_station_model
 
 LOG = logging.getLogger(__name__)
 
@@ -232,6 +233,7 @@ def create_api_routes(container: ServiceContainer) -> list:
                 cs = station.get("callsign")
                 if cs in latest_weather:
                     station["last_weather"] = latest_weather[cs]
+                    station["wx_model"] = build_station_model(latest_weather[cs])
         return JSONResponse(stations)
 
     async def get_station_positions(request: Request):
@@ -446,6 +448,7 @@ def create_api_routes(container: ServiceContainer) -> list:
                 entry = {"callsign": cs}
                 if cs in latest_weather:
                     entry["last_weather"] = latest_weather[cs]
+                    entry["wx_model"] = build_station_model(latest_weather[cs])
                 result.append(entry)
         return JSONResponse(result)
 

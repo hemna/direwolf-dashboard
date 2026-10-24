@@ -1047,6 +1047,23 @@ a.secondary.btn-as-link:hover {
 .legend-item:last-child {
     margin-bottom: 0;
 }
+/* Weather-station legend example (issue #152): the barb strokes and fills
+   follow the theme text color. */
+#legend-wx .legend-wx-example {
+    color: var(--text-primary);
+    flex: 0 0 auto;
+}
+#legend-wx .legend-wx-example line,
+#legend-wx .legend-wx-example circle {
+    stroke: currentColor;
+    fill: none;
+}
+#legend-wx .legend-wx-example path {
+    fill: currentColor;
+}
+#legend-wx .legend-wx-example text {
+    fill: currentColor;
+}
 .map-legend.collapsed .legend-body {
     display: none;
 }

@@ -16,6 +16,7 @@ from starlette.websockets import WebSocket
 from direwolf_dashboard.agw import AGWReader
 from direwolf_dashboard.basemap_auto import AutoFetchStatus, auto_fetch_loop
 from direwolf_dashboard.config import Config
+from direwolf_dashboard.decoder import extract_wind
 from direwolf_dashboard.log_tailer import LogTailer
 from direwolf_dashboard.processor import (
     PacketProcessor,
@@ -282,6 +283,10 @@ async def _store_weather_report(packet: dict, services: DirewolfServices) -> Non
             except (ValueError, ZeroDivisionError):
                 pass
 
+        # `_` WX packets carry wind as top-level course/speed; extract_wind
+        # recovers the mph digits and normalises to m/s (issue #152).
+        wind_direction, wind_speed = extract_wind(parsed)
+
         report = {
             "timestamp": packet.get("timestamp", time.time()),
             "callsign": packet.get("from_call", ""),
@@ -289,8 +294,8 @@ async def _store_weather_report(packet: dict, services: DirewolfServices) -> Non
             "dewpoint": dewpoint,
             "humidity": humidity,
             "pressure": pressure,
-            "wind_direction": _first(weather, parsed, key="wind_direction"),
-            "wind_speed": _first(weather, parsed, key="wind_speed"),
+            "wind_direction": wind_direction,
+            "wind_speed": wind_speed,
             "wind_gust": _first(weather, parsed, key="wind_gust"),
             "rain_1h": _first(weather, parsed, key="rain_1h"),
             "rain_24h": _first(weather, parsed, key="rain_24h"),
