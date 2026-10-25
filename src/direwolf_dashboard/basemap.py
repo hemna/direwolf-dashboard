@@ -180,9 +180,17 @@ def region_archive_info(path: str) -> dict | None:
 #: points at the local region archive.
 UPSTREAM_SOURCE_ID = "protomaps-hi"
 
-#: Highest zoom the local region archive is asked for; upstream takes over
-#: from z12. MapLibre overzooms the z11 tiles through 11.x (issue #154).
-LOCAL_MAXZOOM = 11
+#: Highest zoom the local region archive is asked for. The configured region
+#: archive is z0-15 with real tiles at the station through z15, so the
+#: station's z12-15 base map renders from the fast local archive instead of
+#: the slow upstream proxy (issue #160). MapLibre overzooms the tiles past
+#: this cap.
+LOCAL_MAXZOOM = 15
+
+#: Where the z12+ upstream band begins, decoupled from :data:`LOCAL_MAXZOOM`
+#: (issue #160): areas outside the region archive (e.g. Richmond / DC) keep
+#: upstream coverage from z12 even though the local source now reaches z15.
+UPSTREAM_MINZOOM = 12
 
 #: Same-origin path the served style points the z12+ upstream source at.
 UPSTREAM_PROXY_URL = "/basemap/tiles/upstream"
@@ -318,8 +326,8 @@ def _resolve_style(sources=None, probe=None,
     2. Otherwise each entry of ``sources`` (default
        :data:`DEFAULT_UPSTREAM_SOURCES`) is probed in order and the first with
        a valid vector PMTiles v3 header **and ``max_zoom`` >=
-       :data:`LOCAL_MAXZOOM` + 1** is used. The zoom gate (issue #154) exists
-       because a z0-11 planet archive cannot fill the z12+ slot.
+       :data:`UPSTREAM_MINZOOM`** is used. The zoom gate (issue #154) exists
+       because a planet archive that does not reach the z12+ band cannot fill it.
     3. If every source fails, the vendored sample is used as a last resort
        (overzoom keeps the viewport non-blank) and a warning is logged.
 
@@ -339,8 +347,8 @@ def _resolve_style(sources=None, probe=None,
         except BasemapSourceError as e:
             tried.append(f"{src}: {e}")
             continue
-        if header["max_zoom"] < LOCAL_MAXZOOM + 1:
-            tried.append(f"{src}: max_zoom {header['max_zoom']} < {LOCAL_MAXZOOM + 1}")
+        if header["max_zoom"] < UPSTREAM_MINZOOM:
+            tried.append(f"{src}: max_zoom {header['max_zoom']} < {UPSTREAM_MINZOOM}")
             continue
         LOG.info("basemap z12+ tiles served from %s", src)
         return src, f"source:{entry}", header
@@ -372,30 +380,35 @@ def upstream_sources(config) -> list:
 def render_style(theme: str,
                  proxy_url: str = UPSTREAM_PROXY_URL,
                  upstream_max_zoom: int = FALLBACK_UPSTREAM_MAXZOOM) -> str:
-    """Return a kit style split into local z0-11 + same-origin upstream (issue #154).
+    """Return a kit style split into local z0-15 + same-origin upstream
+    (issues #154, #160).
 
     The kit's ``protomaps`` vector source is pointed at the served local
     region archive (:data:`LOCAL_REGION_URL`) and gets ``maxzoom``
-    :data:`LOCAL_MAXZOOM` so MapLibre overzooms the z11 tiles instead of
-    requesting tiles the local archive does not hold. A second vector source
+    :data:`LOCAL_MAXZOOM` so the station's z12-15 tiles render locally (fast,
+    LAN-local) instead of through the upstream proxy. A second vector source
     (:data:`UPSTREAM_SOURCE_ID`) points at the **same-origin** proxy
-    (:data:`UPSTREAM_PROXY_URL`) for zoom 12+; it gets ``minzoom`` 12 and
-    ``maxzoom`` ``upstream_max_zoom`` so the top archive zoom overzooms and
-    no integer zoom 0-16 is ever left without a drawing layer.
+    (:data:`UPSTREAM_PROXY_URL`) for the upstream band; it gets ``minzoom``
+    :data:`UPSTREAM_MINZOOM` and ``maxzoom`` ``upstream_max_zoom`` so areas
+    outside the region archive keep coverage and the top archive zoom
+    overzooms - no integer zoom 0-16 is ever left without a drawing layer.
 
-    Layer split (the seamless z11/z12 handoff):
+    Layer split (the seamless local/upstream handoff):
 
-    * Layers whose ``minzoom`` is above :data:`LOCAL_MAXZOOM` are
+    * Layers whose ``minzoom`` is at or above :data:`UPSTREAM_MINZOOM` are
       upstream-only: they keep their id and zooms but draw from the upstream
       source.
     * Every other layer stays on the local source; its ``maxzoom`` is at
-      least ``LOCAL_MAXZOOM + 1`` (so it draws through the whole of zoom 11),
-      keeping any own min zoom the kit declared. A layer that carries its
-      **own** maxzoom keeps only its local copy - its zoom-12+ range belongs
-      to a counterpart layer in the kit (e.g. the ``_early``/``_late`` casing
-      pairs). A layer without its own maxzoom also gets an ``<id>-hi`` twin
-      on the upstream source starting at z12, so the local and upstream
-      ranges touch with no gap.
+      least ``LOCAL_MAXZOOM + 1`` (so it draws through the whole of zoom
+      :data:`LOCAL_MAXZOOM`), keeping any own min zoom the kit declared. A
+      layer that carries its **own** maxzoom keeps only its local copy - its
+      zoom-12+ range belongs to a counterpart layer in the kit (e.g. the
+      ``_early``/``_late`` casing pairs). A layer without its own maxzoom also
+      gets an ``<id>-hi`` twin on the upstream source starting at
+      :data:`UPSTREAM_MINZOOM`, so local (in-region) and upstream
+      (out-of-region) ranges both have coverage.
+      Note: in-region, local layers and their ``-hi`` twins overlap at
+      z12-15 (same Protomaps data, redrawn) - acceptable, flagged for review.
 
     Args:
         theme: ``"light"`` or ``"dark"`` (the two kit styles).
@@ -412,12 +425,12 @@ def render_style(theme: str,
 
     local_src = dict(style["sources"]["protomaps"])
     local_src["url"] = LOCAL_REGION_URL
-    local_src["maxzoom"] = LOCAL_MAXZOOM  # overzoom the z11 tiles past z11
+    local_src["maxzoom"] = LOCAL_MAXZOOM  # overzoom the z15 tiles past z15
     style["sources"]["protomaps"] = local_src
 
     upstream_src = {k: v for k, v in local_src.items() if k != "maxzoom"}
     upstream_src["url"] = proxy_url
-    upstream_src["minzoom"] = LOCAL_MAXZOOM + 1
+    upstream_src["minzoom"] = UPSTREAM_MINZOOM
     upstream_src["maxzoom"] = upstream_max_zoom
     style["sources"][UPSTREAM_SOURCE_ID] = upstream_src
 
@@ -426,22 +439,22 @@ def render_style(theme: str,
         if layer.get("source") != "protomaps":
             split_layers.append(layer)
             continue
-        if layer.get("minzoom", 0) > LOCAL_MAXZOOM:
+        if layer.get("minzoom", 0) >= UPSTREAM_MINZOOM:
             layer["source"] = UPSTREAM_SOURCE_ID
             split_layers.append(layer)
             continue
         has_own_maxzoom = "maxzoom" in layer
         if not has_own_maxzoom:
-            layer["maxzoom"] = LOCAL_MAXZOOM + 1  # draw through the whole of z11
+            layer["maxzoom"] = LOCAL_MAXZOOM + 1  # draw through the whole of z15
         elif layer["maxzoom"] < LOCAL_MAXZOOM + 1:
-            layer["maxzoom"] = LOCAL_MAXZOOM + 1  # never leave a hole below z12
+            layer["maxzoom"] = LOCAL_MAXZOOM + 1  # never leave a hole below z16
         split_layers.append(layer)
         if has_own_maxzoom:
             continue  # own-maxzoom layer: no -hi twin (z12+ counterpart exists)
         twin = dict(layer)
         twin["id"] = f"{layer['id']}-hi"
         twin["source"] = UPSTREAM_SOURCE_ID
-        twin["minzoom"] = max(layer.get("minzoom", 0), LOCAL_MAXZOOM + 1)
+        twin["minzoom"] = max(layer.get("minzoom", 0), UPSTREAM_MINZOOM)
         twin.pop("maxzoom", None)
         split_layers.append(twin)
     style["layers"] = split_layers
