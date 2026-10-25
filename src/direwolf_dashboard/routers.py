@@ -302,6 +302,9 @@ def create_api_routes(container: ServiceContainer) -> list:
                 )
             )
             d["basemap"]["auto"] = services.basemap_status.to_dict()
+            # The public config is served to unauthenticated readers; never
+            # expose the write token on it (issue #162).
+            d.get("server", {}).pop("api_token", None)
             return JSONResponse(d)
 
         # PUT

@@ -34,6 +34,9 @@ All notable changes to this project are documented here.
   configured zoom now frames the same area as the Leaflet map did (MapLibre
   z = Leaflet z - 1).
 
+### Security
+- **The public config no longer exposes the write token (issue #162)** — `GET /api/config` previously returned `server.api_token` to unauthenticated readers, effectively publishing the token that gates settings changes and storage deletion. The token is now stripped from the public response; it still authenticates `PUT /api/config` and `DELETE /api/storage` exactly as before, and saving settings no longer loses it.
+
 ### Added
 
 - **Worldwide offline maps (#148).** On startup the dashboard downloads a region around the station (`basemap.radius_km` 40, `basemap.maxzoom` 13) from the first working `basemap.sources` entry (default: the basemap-kit planet on cloud.hemna.com, then the Protomaps daily build), using the `pmtiles` CLI or a new pure-Python extractor. It re-downloads when the station moves and falls back to the world map when there's no position or network. Status is reported in `/api/config` under `basemap.auto`. `basemap fetch` uses the same code and config defaults.

@@ -444,6 +444,52 @@ class TestApiTokenAuth:
             r = client.get("/api/health")
             assert r.status_code != 401
 
+    async def test_config_get_never_exposes_api_token(self, test_app_with_token):
+        """Public /api/config must never include server.api_token (issue #162)."""
+        app, _storage = test_app_with_token
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.get("/api/config")
+            assert r.status_code == 200
+            assert "api_token" not in r.json()["server"]
+            # The token value itself must not appear anywhere in the body.
+            assert "sekrit-token" not in r.text
+
+    async def test_config_get_has_no_token_key_when_unset(self, test_app):
+        """No api_token key leaks even when token auth is disabled (issue #162)."""
+        app, _storage = test_app
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.get("/api/config")
+            assert r.status_code == 200
+            assert "api_token" not in r.json()["server"]
+
+    async def test_token_survives_save_without_leaked_value(self, test_app_with_token):
+        """Redacting the public config must not wipe the stored token (issue #162)."""
+        app, _storage = test_app_with_token
+        with TestClient(app, raise_server_exceptions=False) as client:
+            # The browser round-trips the public config back into a PUT; the
+            # api_token key is now absent from what it sends.
+            cfg = client.get("/api/config").json()
+            r = client.put(
+                "/api/config",
+                json={"server": cfg["server"]},
+                headers={"X-API-Token": "sekrit-token"},
+            )
+            assert r.status_code == 200
+            # The token still authenticates after the save...
+            r = client.put(
+                "/api/config",
+                json={"storage": {"retention_days": 14}},
+                headers={"X-API-Token": "sekrit-token"},
+            )
+            assert r.status_code == 200
+            # ...and a wrong token is still rejected.
+            r = client.put(
+                "/api/config",
+                json={"storage": {"retention_days": 14}},
+                headers={"X-API-Token": "wrong"},
+            )
+            assert r.status_code == 401
+
     async def test_config_put_requires_token(self, test_app_with_token):
         app, _storage = test_app_with_token
         with TestClient(app, raise_server_exceptions=False) as client:
