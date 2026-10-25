@@ -1,5 +1,6 @@
 """Router factory functions — create Starlette route lists bound to a ServiceContainer."""
 
+import asyncio
 import csv
 import io
 import logging
@@ -684,7 +685,9 @@ def create_basemap_tiles_route(container: ServiceContainer):
             upstream_sources(services.config)
         )
         try:
-            data, total = proxy_fetch_range(url, start, length)
+            # offload the blocking httpx fetch to a worker thread so a slow
+            # upstream range can't stall local region-archive responses (issue #160)
+            data, total = await asyncio.to_thread(proxy_fetch_range, url, start, length)
         except UpstreamRangeError as e:
             LOG.warning("basemap proxy range unsatisfiable: %s", e)
             return Response(status_code=416, headers={
