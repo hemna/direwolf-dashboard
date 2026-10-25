@@ -391,27 +391,9 @@
                         </div>
                         <div id="legend-wx">
                             <div class="legend-section-title">Weather stations</div>
-                            <div class="legend-item">
-                                <svg class="legend-wx-example" width="56" height="58" viewBox="0 0 56 58">
-                                    <path d="M 28 8 L 36 11.5 L 28 15 Z" fill="currentColor" stroke="currentColor" stroke-width="1"/>
-                                    <line x1="28" y1="15" x2="31" y2="20" stroke-width="1.6"/>
-                                    <line x1="28" y1="20" x2="30.5" y2="25" stroke-width="1.6"/>
-                                    <line x1="28" y1="25" x2="29.5" y2="28.5" stroke-width="1.6"/>
-                                    <circle cx="28" cy="37" r="6" fill="none" stroke-width="1.6"></circle>
-                                    <text x="13" y="9" font-size="9" text-anchor="middle">74&#176;</text>
-                                    <text x="13" y="50" font-size="9" text-anchor="middle">48&#176;</text>
-                                    <text x="44" y="9" font-size="9" text-anchor="middle">29.9</text>
-                                </svg>
-                                <span>65&#160;kt — temp top-left, dewpoint bottom-left, pressure top-right</span>
-                            </div>
-                            <div class="legend-item"><span>Half barb = 5 kt &middot; full barb = 10 kt &middot; pennant = 50 kt</span></div>
-                            <div class="legend-item"><span>Calm = circle around the station (no barb)</span></div>
-                            <div class="legend-item"><span>Gust as G&#60;n&#62; kt beside the barb tip</span></div>
-                            <div class="legend-item"><span>Filled circle = sky cover (oktas)</span></div>
-                            <div class="legend-item"><span>Wind in kt &middot; temp &#176;F/&#176;C &middot; pressure in hPa or inHg as displayed</span></div>
+                            <div id="legend-wx-body"></div>
                         </div>
-                    </div>
-                `;
+                    </div>`;
         const header = container.querySelector('.map-legend-header');
         const legendIcon = container.querySelector('.legend-collapse-icon');
         header.addEventListener('click', () => {
@@ -426,12 +408,48 @@
         }
         map.addControl(mlControl(function () { return container; }, 'bottom-left'));
         setWxLegendVisible(wxStationEnabled());
+        initWxLegend();
     }
 
     /** Show/hide the "Weather stations" legend section with the Station plots toggle. */
     function setWxLegendVisible(show) {
         const el = document.getElementById('legend-wx');
         if (el) el.style.display = show ? '' : 'none';
+    }
+
+    /** Build a colour-scale bar (temp warmth or wind speed) from server hex
+     *  stops — both scales live in the legend (issue #156 fixes 5 & 6). */
+    function wxScaleBar(stops, label) {
+        if (!stops || !stops.length) return '';
+        const p = '<div style="display:flex;align-items:center;gap:5px;margin:3px 0;">';
+        return p +
+            '<div style="width:90px;flex-shrink:0;text-align:left;">' + label + '</div>' +
+            '<div style="flex:1;height:8px;border-radius:3px;border:1px solid rgba(128,128,128,0.5);background:linear-gradient(90deg,' + stops.join(',') + ');"></div>' +
+            '</div>';
+    }
+
+    /** Fill the weather-station legend from the server payload
+     *  (station_model.legend_data): both colour scales, the sample model and
+     *  the per-unit text lines — data-driven so legend and markers always
+     *  agree on units and colours. */
+    function initWxLegend() {
+        fetch(API_BASE + '/weather/stations/legend').then(function (r) { return r.json(); }).then(function (data) {
+            const body = document.getElementById('legend-wx-body');
+            if (!body || !data || !data.temp_scale) return;
+            const tempUnit = isImperial() ? '\u00B0F' : '\u00B0C';
+            let html = wxScaleBar(data.temp_scale, 'Temp (' + tempUnit + ')');
+            html += wxScaleBar(data.wind_scale, 'Wind (kt)');
+            if (data.sample) {
+                html += '<div style="margin:4px 0;text-align:center;">' +
+                    drawStationModelCanvas(data.sample, 'K4ABC', 1).outerHTML + '</div>';
+            }
+            const lines = isImperial() ? data.lines_imperial : data.lines_metric;
+            if (lines && lines.length) {
+                html += '<div class="legend-item"><span>' + lines.join('<br>') + '</span></div>';
+            }
+            body.innerHTML = html;
+            setWxLegendVisible(wxStationEnabled());
+        }).catch(function () {});
     }
 
     // --- Stats Overlay ---
@@ -1638,9 +1656,9 @@
         return localStorage.getItem('dw-station-model') !== '0';
     }
 
-    function drawModelText(ctx, text, x, y) {
-        ctx.font = 'bold 9px sans-serif';
-        ctx.textAlign = 'center';
+    function drawModelText(ctx, text, x, y, size, align) {
+        ctx.font = 'bold ' + (size || 9) + 'px sans-serif';
+        ctx.textAlign = align || 'center';
         ctx.textBaseline = 'middle';
         ctx.lineWidth = 3;
         ctx.strokeStyle = themeColor('--label-shadow');
@@ -1649,112 +1667,117 @@
         ctx.fillText(text, x, y);
     }
 
-    /** Draw one station's NWS plot and register it as a runtime image. Returns
-     *  the image id ('wx-<call>') or null when it cannot draw. entry is the
-     *  full station payload: geometry from entry.wx_model, raw values from
-     *  entry.last_weather. */
-    function upsertWxStationImage(cs, entry) {
-        if (!map || !entry || !entry.wx_model) return null;
-        const model = entry.wx_model;
-        const wx = entry.last_weather || {};
-        const px = window.devicePixelRatio || 1;
-        const size = 56;
+        // Gray "no data" disc when a station sends no temperature (#156 fix 4) —
+    // never an empty circle. Same value the haminfo/#273 reference uses.
+    var NO_TEMP_GRAY = '#6b7280';
+
+    /** Draw one station's NWS plot onto a fresh canvas (104x96 logical px,
+     *  centre (52,48), circle r=13 — the geometry the haminfo marker uses).
+     *  The server computes every colour and converted value (station_model.py);
+     *  this renders hexes and layout only, no math. Returns the canvas. */
+    function drawStationModelCanvas(model, callsign, px) {
+        px = px || 1;
         const canvas = document.createElement('canvas');
-        canvas.width = size * px;
-        canvas.height = size * px;
+        canvas.width = 104 * px;
+        canvas.height = 96 * px;
         const ctx = canvas.getContext('2d');
         ctx.scale(px, px);
-        const cx = size / 2, cy = size / 2;
-        const r = 7;
-
-        // Station circle: open unless a sky-cover value fills it by oktas.
-        const stroke = function (lw) {
-            ctx.lineWidth = lw;
-            ctx.strokeStyle = themeColor('--text-primary');
-            ctx.stroke();
-        };
+        const cx = 52, cy = 48, r = 13;
+        // Station circle: ALWAYS filled and colored by temperature (#156 fix 5)
+        // with the rounded value + unit inside; no temperature -> gray "N/D"
+        // disc (#156 fix 4). Never an empty circle.
         ctx.beginPath();
         ctx.arc(cx, cy, r, 0, Math.PI * 2);
-        if (typeof wx.sky_cover === 'number' && wx.sky_cover > 0) {
-            ctx.fillStyle = 'rgba(127, 160, 200, 0.55)';
-            for (let i = 0; i < Math.min(8, Math.max(0, Math.round(wx.sky_cover))); i++) {
-                const a0 = i * Math.PI / 4 - Math.PI / 2;
-                ctx.beginPath();
-                ctx.moveTo(cx, cy);
-                ctx.arc(cx, cy, r, a0, a0 + Math.PI / 4);
-                ctx.closePath();
-                ctx.fill();
-            }
-            ctx.beginPath();
-            ctx.arc(cx, cy, r, 0, Math.PI * 2);
-        }
-        stroke(2);
-
-        // Calm (0 kt): outer ring, no shaft (NWS).
+        ctx.fillStyle = model.temp_color || NO_TEMP_GRAY;
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = themeColor('--text-primary');
+        ctx.stroke();
+        const tempUnit = isImperial() ? '\u00B0F' : '\u00B0C';
+        const temp = isImperial() ? model.temp_f : model.temp_c;
+        drawModelText(ctx, temp != null ? String(Math.round(temp)) + tempUnit : 'N/D', cx, cy + 4, 9);
+        // Wind: staff, feathers and calm ring colored by the continuous
+        // wind-speed scale (#156 fix 6); color is a server hex.
+        const windColor = model.wind_color || themeColor('--text-primary');
         if (model.calm) {
             ctx.beginPath();
-            ctx.arc(cx, cy, r + 3, 0, Math.PI * 2);
-            stroke(1.5);
+            ctx.arc(cx, cy, r + 4, 0, Math.PI * 2);
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = windColor;
+            ctx.stroke();
         }
-
-        // Wind barb. The shaft's outer tip (and its pennant) points toward the
-        // direction the wind is FROM (0 = north = up); feathers stream downwind.
-        // feathers list is tip-first: index 0 (pennant) is outermost, the last
-        // element sits nearest the station circle — the NWS order.
         if (model.rotation_deg != null) {
             const a = model.rotation_deg * Math.PI / 180;
-            const ux = Math.sin(a), uy = -Math.cos(a);
-            const tipX = cx + ux * 18, tipY = cy + uy * 18;
+            const ux = Math.sin(a), uy = -Math.cos(a);   // toward where wind comes FROM
+            const tipX = cx + ux * (r + 30), tipY = cy + uy * (r + 30);
             ctx.beginPath();
             ctx.moveTo(cx, cy);
             ctx.lineTo(tipX, tipY);
-            stroke(2);
-            const dx = -ux, dy = -uy;  // downwind
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = windColor;
+            ctx.stroke();
+            const dx = -ux, dy = -uy;                    // feathers stream downwind
             const feats = model.feathers || [];
             for (let i = 0; i < feats.length; i++) {
-                const bx = tipX - ux * (i * 3.5 + 2);
-                const by = tipY - uy * (i * 3.5 + 2);
+                const fx = tipX - ux * (i * 6 + 2);
+                const fy = tipY - uy * (i * 6 + 2);
                 if (feats[i] === 'pennant') {
-                    // Filled flag streaming downwind from the attachment.
-                    const w = 3.5;
                     ctx.beginPath();
-                    ctx.moveTo(bx, by);
-                    ctx.lineTo(bx + dy * w - dx * 3, by - dx * w - dy * 3);
-                    ctx.lineTo(bx + dx * 9, by + dy * 9);
-                    ctx.lineTo(bx - dy * w - dx * 3, by + dx * w - dy * 3);
+                    ctx.moveTo(fx, fy);
+                    ctx.lineTo(fx + dy * 4 - dx * 4, fy - dx * 4 - dy * 4);
+                    ctx.lineTo(fx + dx * 8, fy + dy * 8);
+                    ctx.lineTo(fx - dy * 4 - dx * 4, fy + dx * 4 - dy * 4);
                     ctx.closePath();
-                    ctx.fillStyle = themeColor('--text-primary');
+                    ctx.fillStyle = windColor;
                     ctx.fill();
                 } else if (feats[i] === 'full') {
                     ctx.beginPath();
-                    ctx.moveTo(bx, by);
-                    ctx.lineTo(bx + dx * 6.8 + dy * 2.6, by + dy * 6.8 - dx * 2.6);
-                    stroke(2);
+                    ctx.moveTo(fx, fy);
+                    ctx.lineTo(fx + dx * 8 + dy * 3, fy + dy * 8 - dx * 3);
+                    ctx.lineWidth = 2;
+                    ctx.strokeStyle = windColor;
+                    ctx.stroke();
                 } else {  // half
                     ctx.beginPath();
-                    ctx.moveTo(bx, by);
-                    ctx.lineTo(bx + dx * 3.9 + dy * 1.5, by + dy * 3.9 - dx * 1.5);
-                    stroke(2);
+                    ctx.moveTo(fx, fy);
+                    ctx.lineTo(fx + dx * 5 + dy * 1.8, fy + dy * 5 - dx * 1.8);
+                    ctx.lineWidth = 2;
+                    ctx.strokeStyle = windColor;
+                    ctx.stroke();
                 }
             }
-            // Gust annotation beside the barb tip ("G<n>"; the model is always
-            // in knots — units are in the legend).
+            // Gust G<kt> just past the barb tip (#156 fix 3 — every value
+            // carries its unit; no 3-h pressure trend in the APRS feed).
             if (model.gust_kt != null) {
-                const gx = tipX - ux * 3 - uy * 8;
-                const gy = tipY - uy * 3 + ux * 8;
-                drawModelText(ctx, 'G' + String(Math.round(model.gust_kt)), gx, gy);
+                drawModelText(ctx, 'G' + String(Math.round(model.gust_kt)) + 'kt',
+                    cx + Math.sin(a) * 40, cy - Math.cos(a) * 40 + 3, 8);
             }
         }
+        // Dewpoint bottom-left, pressure top-right in hPa (#156 fixes 1 & 3:
+        // each field has its own position and a unit; omitted when the station
+        // did not report them).
+        if (model.dewpoint_c != null) {
+            const dew = isImperial() ? model.dewpoint_f : model.dewpoint_c;
+            drawModelText(ctx, String(Math.round(dew)) + tempUnit, 8, 82, 8);
+        }
+        if (model.pressure_hpa != null) {
+            drawModelText(ctx, String(model.pressure_hpa) + ' hPa', 100, 18, 10, 'right');
+        }
+        // Callsign below the model (#156 fix 2).
+        if (callsign) {
+            drawModelText(ctx, callsign, cx, 94, 8);
+        }
+        return canvas;
+    }
 
-        // Temp top-left, dewpoint bottom-left, pressure top-right; omitted when
-        // the station didn't report them (has_* presence mask). The icon uses
-        // compact NWS numerals (bare values in the app's unit) so the compact
-        // icon stays legible; units live in the legend.
-        const shortDeg = (v) => String(Math.round(isImperial() ? cToF(v) : v));
-        if (wx.temperature != null) drawModelText(ctx, shortDeg(wx.temperature) + '\u00B0', 13, 9);
-        if (wx.dewpoint != null) drawModelText(ctx, shortDeg(wx.dewpoint) + '\u00B0', 13, 47);
-        if (wx.pressure != null) drawModelText(ctx, isImperial() ? hpaToInHg(wx.pressure).toFixed(1) : String(Math.round(wx.pressure)), 43, 9);
-
+    /** Draw one station's NWS plot and register it as a runtime image. Returns
+     *  the image id ('wx-<call>') or null when it cannot draw. entry is the
+     *  full station payload: geometry + server colors from entry.wx_model. */
+    function upsertWxStationImage(cs, entry) {
+        if (!map || !entry || !entry.wx_model) return null;
+        const px = window.devicePixelRatio || 1;
+        const canvas = drawStationModelCanvas(entry.wx_model, cs, px);
+        const ctx = canvas.getContext('2d');
         const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         wxImageCache[cs] = imgData;
         // Re-adding an existing runtime image throws in MapLibre; remove first
@@ -1762,9 +1785,7 @@
         if (map.hasImage('wx-' + cs)) map.removeImage('wx-' + cs);
         map.addImage('wx-' + cs, imgData, { pixelRatio: px });
         return 'wx-' + cs;
-    }
-
-    /** Re-register cached plot images after a style reload (theme switch); drop
+    }/** Re-register cached plot images after a style reload (theme switch); drop
      *  entries whose station no longer reports weather. */
     function reRegisterWxStationImages() {
         if (!map) return;

@@ -35,7 +35,7 @@ from direwolf_dashboard.lifecycle import (
     broadcast_event,
     enrich_with_bearing,
 )
-from direwolf_dashboard.station_model import build_station_model
+from direwolf_dashboard.station_model import build_station_model, legend_data
 
 LOG = logging.getLogger(__name__)
 
@@ -451,7 +451,11 @@ def create_api_routes(container: ServiceContainer) -> list:
                     entry["wx_model"] = build_station_model(latest_weather[cs])
                 result.append(entry)
         return JSONResponse(result)
-
+    async def get_wx_legend(request: Request):
+        """Colour scales, legend text lines and a sample for the WX
+        station-model legend (issue #156 fixes 5 & 6). Server-computed so the
+        frontend keeps no colour/unit math and the legend matches markers."""
+        return JSONResponse(legend_data())
     async def get_weather(request: Request):
         services = _get_services(container)
         callsign = request.path_params["callsign"]
@@ -528,6 +532,7 @@ def create_api_routes(container: ServiceContainer) -> list:
         Route("/storage", wipe_storage, methods=["DELETE"]),
         Route("/decode", decode_packet, methods=["POST"]),
         Route("/weather/stations", get_weather_stations),
+        Route("/weather/stations/legend", get_wx_legend),
         Route("/weather/{callsign}", get_weather),
         Route("/changelog", get_changelog),
         Route("/health", health),

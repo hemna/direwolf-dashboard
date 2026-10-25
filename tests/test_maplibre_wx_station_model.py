@@ -1,10 +1,8 @@
-"""MapLibre WX station plots — per-station runtime images (issue #152).
-
+"""MapLibre WX station plots — per-station runtime images (issues #152, #156).
 Static analysis of app.js: the repo has no JS test runner, so frontend
 behavior is asserted over the source text (pattern from test_maplibre_main_map.py
 and test_maplibre_station_label.py).
 """
-
 import re
 from pathlib import Path
 
@@ -41,7 +39,7 @@ def test_image_registration_replaces_existing():
 
 
 def test_model_uses_last_weather_and_toggle():
-    """The canvas draw reads the weather payload and is gated by the toggle."""
+    """The model draw reads the weather payload and is gated by the toggle."""
     assert "last_weather" in JS
     assert "wxStationEnabled" in JS
 
@@ -64,12 +62,53 @@ def test_legend_section_present_and_toggle_drives_visibility():
     assert "setWxLegendVisible" in JS
 
 
-def test_legend_strings_match_barb_rules():
-    """The legend states the barb values, calm rule, gust, sky cover and units."""
-    for s in ("5", "10", "50", "kt", "calm"):
-        assert s in JS
-    assert "°" in JS
-    assert "inHg" in JS or "hPa" in JS
+def test_legend_is_data_driven_from_server():
+    """Issue #156 fixes 5 & 6: the legend fetches both colour scales, the
+    per-unit lines and the sample from the server (station_model.legend_data)
+    so legend and markers always agree."""
+    assert "legend-wx-body" in JS
+    assert "/weather/stations/legend" in JS
+    assert "temp_scale" in JS
+    assert "wind_scale" in JS
+    assert "lines_imperial" in JS
+    assert "lines_metric" in JS
+
+
+def test_circle_always_filled_and_temp_colored():
+    """Issue #156 fixes 4 & 5: the circle is ALWAYS filled using the server
+    temperature colour, never an empty circle."""
+    assert "model.temp_color || NO_TEMP_GRAY" in JS
+    assert "temp_color" in JS
+
+
+def test_wind_staff_and_calm_ring_colored():
+    """Issue #156 fix 6: staff, feathers and calm ring colored by the server
+    wind-speed hex."""
+    assert "model.wind_color" in JS
+    assert "model.calm" in JS
+    assert "wind_color || themeColor" in JS
+
+
+def test_no_data_disc_marker():
+    """No temperature -> gray 'N/D' disc instead of an empty circle."""
+    assert "N/D" in JS
+    assert "NO_TEMP_GRAY" in JS
+    assert "'#6b7280'" in JS
+
+
+def test_units_on_every_value():
+    """Issue #156 fix 3: temperature, pressure (hPa) and gust (kt) carry units
+    on the model and in the legend."""
+    assert "hPa" in JS
+    assert "+ 'kt'" in JS
+    assert "\\u00B0F" in JS
+    assert "\\u00B0C" in JS
+
+
+def test_callsign_drawn_with_station_model():
+    """Issue #156 fix 2: the callsign is drawn with the station model."""
+    assert "drawStationModelCanvas" in JS
+    assert "drawModelText(ctx, callsign" in JS
 
 
 def test_off_state_falls_back_to_sprite():
