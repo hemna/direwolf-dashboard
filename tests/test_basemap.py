@@ -236,11 +236,12 @@ def _split_style(theme, upstream_max=16):
     return json.loads(render_style(theme, upstream_max_zoom=upstream_max))
 
 
-def test_render_style_handoff_local_through_z11_upstream_from_z12():
-    """Local source draws through all of z11 (overzoom); upstream starts at z12."""
+def test_render_style_handoff_local_through_z15_upstream_from_z12():
+    """Local source draws through all of z15 (overzoom); upstream starts at z12."""
     from direwolf_dashboard.basemap import (
         LOCAL_MAXZOOM,
         LOCAL_REGION_URL,
+        UPSTREAM_MINZOOM,
         UPSTREAM_PROXY_URL,
         UPSTREAM_SOURCE_ID,
     )
@@ -251,22 +252,23 @@ def test_render_style_handoff_local_through_z11_upstream_from_z12():
         assert sources["protomaps"]["url"] == LOCAL_REGION_URL
         assert sources["protomaps"]["maxzoom"] == LOCAL_MAXZOOM
         assert sources[UPSTREAM_SOURCE_ID]["url"] == UPSTREAM_PROXY_URL
-        assert sources[UPSTREAM_SOURCE_ID]["minzoom"] == LOCAL_MAXZOOM + 1
+        assert sources[UPSTREAM_SOURCE_ID]["minzoom"] == UPSTREAM_MINZOOM
         assert sources[UPSTREAM_SOURCE_ID]["maxzoom"] == 16
 
         by_id = {layer["id"]: layer for layer in style["layers"]}
-        # minzoom > 11 layers render upstream under their original id
+        # layers starting inside the upstream band render upstream under their original id
         assert by_id["roads_taxiway"]["source"] == UPSTREAM_SOURCE_ID
         assert by_id["water_stream"]["source"] == UPSTREAM_SOURCE_ID
-        # a plain local layer gets maxzoom 12 (draws through z11) and a -hi twin
+        # a plain local layer gets maxzoom LOCAL_MAXZOOM+1 (draws through z15) and a -hi twin
         earth = by_id["earth"]
         assert earth["source"] == "protomaps"
         assert earth["maxzoom"] == LOCAL_MAXZOOM + 1
         assert by_id["earth-hi"]["source"] == UPSTREAM_SOURCE_ID
-        assert by_id["earth-hi"]["minzoom"] == LOCAL_MAXZOOM + 1
+        assert by_id["earth-hi"]["minzoom"] == UPSTREAM_MINZOOM
         assert "maxzoom" not in by_id["earth-hi"]
-        # a layer with its own maxzoom (the z12 early casing) keeps its local copy
-        assert by_id["roads_major_casing_early"]["maxzoom"] == 12
+        # a layer with its own maxzoom (the z12 early casing) keeps its local copy,
+        # now drawn through the whole local range
+        assert by_id["roads_major_casing_early"]["maxzoom"] == LOCAL_MAXZOOM + 1
 
 
 def test_no_blank_integer_zoom_0_to_16_both_themes():
@@ -508,7 +510,7 @@ def test_style_route_serves_split_with_source_header():
     assert r.headers.get("x-basemap-source") == "source:test"
     style = r.json()
     assert style["sources"]["protomaps-hi"]["url"] == "/basemap/tiles/upstream"
-    assert style["sources"]["protomaps"]["maxzoom"] == 11
+    assert style["sources"]["protomaps"]["maxzoom"] == 15
     assert style["sources"]["protomaps-hi"]["minzoom"] == 12
 
 

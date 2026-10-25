@@ -1,5 +1,6 @@
 """Router factory functions — create Starlette route lists bound to a ServiceContainer."""
 
+import asyncio
 import csv
 import io
 import logging
@@ -634,9 +635,10 @@ def create_basemap_style_route(container: ServiceContainer):
     """Return the Route serving the split basemap style (issue #154).
 
     ``/basemap/style/<theme>.json`` returns the vendored kit style split
-    server-side into a local z0-11 source (the region archive, overzoomed
-    through the whole of zoom 11) and a z12+ upstream source pointed at the
-    same-origin proxy (:data:`UPSTREAM_PROXY_URL`). The browser never talks to
+    server-side into a local z0-15 source (the region archive, so the
+    station's z12-15 tiles render locally - issue #160) and a z12+ upstream
+    source (band :data:`UPSTREAM_MINZOOM`) pointed at the same-origin proxy
+    (:data:`UPSTREAM_PROXY_URL`). The browser never talks to
     an external tile host directly. ``X-Basemap-Source`` records which
     upstream archive the z12+ source resolves to (observable proof).
     """
@@ -683,7 +685,9 @@ def create_basemap_tiles_route(container: ServiceContainer):
             upstream_sources(services.config)
         )
         try:
-            data, total = proxy_fetch_range(url, start, length)
+            # offload the blocking httpx fetch to a worker thread so a slow
+            # upstream range can't stall local region-archive responses (issue #160)
+            data, total = await asyncio.to_thread(proxy_fetch_range, url, start, length)
         except UpstreamRangeError as e:
             LOG.warning("basemap proxy range unsatisfiable: %s", e)
             return Response(status_code=416, headers={
