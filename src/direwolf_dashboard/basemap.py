@@ -184,6 +184,13 @@ UPSTREAM_SOURCE_ID = "protomaps-hi"
 #: from z12. MapLibre overzooms the z11 tiles through 11.x (issue #154).
 LOCAL_MAXZOOM = 11
 
+#: Minor-road (street) label parity gate (issue #157). The kit gates street
+#: names to z15+, but OSM standard starts naming minor streets around z13-14
+#: and the protomaps data carries named minor roads from z14 - served one
+#: zoom earlier, app-side. The durable fix (denser z12+ tiles + aligned label
+#: gates) belongs in hemna/basemap-kit, and is called out in the PR body.
+MINOR_ROAD_LABEL_MINZOOM = 14
+
 #: Same-origin path the served style points the z12+ upstream source at.
 UPSTREAM_PROXY_URL = "/basemap/tiles/upstream"
 
@@ -428,6 +435,11 @@ def render_style(theme: str,
             continue
         if layer.get("minzoom", 0) > LOCAL_MAXZOOM:
             layer["source"] = UPSTREAM_SOURCE_ID
+            # parity gate (#157): name minor streets one zoom earlier than the
+            # kit's z15 - protomaps data carries named minor roads at z14.
+            if (layer.get("id") == "roads_labels_minor"
+                    and layer["minzoom"] > MINOR_ROAD_LABEL_MINZOOM):
+                layer["minzoom"] = MINOR_ROAD_LABEL_MINZOOM
             split_layers.append(layer)
             continue
         has_own_maxzoom = "maxzoom" in layer

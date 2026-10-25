@@ -303,6 +303,29 @@ def test_no_blank_integer_zoom_0_to_16_both_themes():
             assert upstream_cover[z], f"{theme}: no upstream basemap layer at zoom {z}"
 
 
+def test_render_style_minor_road_labels_start_at_14():
+    """Issue #157: minor-road (street) names are served one zoom earlier
+    than the kit's z15 gate. Protomaps data carries named minor roads at z14
+    (matching OSM standard's ~z13-14 start); this is the single app-side
+    label parity gate, for both themes, on the upstream z12+ source."""
+    from direwolf_dashboard.basemap import (
+        LOCAL_MAXZOOM,
+        MINOR_ROAD_LABEL_MINZOOM,
+        UPSTREAM_SOURCE_ID,
+    )
+
+    for theme in ("light", "dark"):
+        style = _split_style(theme)
+        by_id = {layer["id"]: layer for layer in style["layers"]}
+        labels = by_id["roads_labels_minor"]
+        assert labels["minzoom"] == MINOR_ROAD_LABEL_MINZOOM
+        assert labels["source"] == UPSTREAM_SOURCE_ID
+        # the z14 start still sits above the local z0-11 archive, so the
+        # layer stays upstream-only (no -hi twin, id unchanged)
+        assert MINOR_ROAD_LABEL_MINZOOM > LOCAL_MAXZOOM
+        assert MINOR_ROAD_LABEL_MINZOOM < 15
+
+
 def test_render_style_validates_theme():
     import pytest
 
