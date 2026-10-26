@@ -4,6 +4,7 @@ import asyncio
 import os
 
 from direwolf_dashboard.log_tailer import (
+    MAX_PENDING_LINES,
     LogTailer,
     extract_audio_level,
     extract_callsign,
@@ -303,3 +304,65 @@ class TestLogTailer:
 
         assert any(r["callsign"] == "WB4BOR" for r in received), \
             "partial line without trailing newline was never flushed"
+
+    @staticmethod
+    def _retained_lines(task) -> int:
+        """Lines held by the tailer while waiting for a packet callsign."""
+        coro = task.get_coro()
+        while coro is not None:
+            frame = getattr(coro, "cr_frame", None)
+            if frame and "accumulated_lines" in frame.f_locals:
+                return len(frame.f_locals["accumulated_lines"])
+            coro = getattr(coro, "cr_await", None)
+        raise AssertionError("tailer accumulation buffer is not running")
+
+    async def test_orphan_lines_are_bounded(self, tmp_path):
+        """Diagnostics without a callsign must not accumulate without limit.
+
+        Regression for issue #168.
+        """
+        log_file = tmp_path / "direwolf.log"
+        log_file.write_text("")
+
+        received = []
+
+        async def callback(raw_lines, audio_level, callsign):
+            received.append({
+                "raw_lines": raw_lines,
+                "audio_level": audio_level,
+                "callsign": callsign,
+            })
+
+        tailer = LogTailer(str(log_file), callback, sleep_interval=0.01)
+        task = asyncio.create_task(tailer.run())
+        await asyncio.sleep(0.1)
+
+        try:
+            for _ in range(2):
+                # One long diagnostics-only batch with an idle read after it
+                with open(str(log_file), "a") as f:
+                    f.write("diagnostic\n" * 3000)
+                await asyncio.sleep(0.3)
+                assert self._retained_lines(task) <= MAX_PENDING_LINES
+
+            # Normal packet metadata still reaches the callback afterwards
+            with open(str(log_file), "a") as f:
+                f.write("[0 L>R] WB4BOR>APRS:data\n")
+                f.write("audio level = 42(16/11)\n")
+                f.write("[0 L>R] N3LLO>APRS:data\n")
+            await asyncio.sleep(0.3)
+        finally:
+            await tailer.stop()
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        wb4bor = [r for r in received if r["callsign"] == "WB4BOR"]
+        assert len(wb4bor) == 1
+        assert wb4bor[0]["audio_level"] == 42
+        assert wb4bor[0]["raw_lines"] == [
+            "[0 L>R] WB4BOR>APRS:data",
+            "audio level = 42(16/11)",
+        ]
