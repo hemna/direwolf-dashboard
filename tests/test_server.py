@@ -55,6 +55,7 @@ def _create_test_app(config: Config, config_path: str) -> tuple:
         routes=routes,
         exception_handlers={HTTPException: _json_error_handler},
     )
+    app.state.container = container
 
     return app, container
 
@@ -405,6 +406,45 @@ class TestMyPositionValidation:
                 json={"station": {"my_position": {"type": "invalid"}}},
             )
             assert response.status_code == 400
+
+    async def test_rejected_mixed_update_preserves_position_and_cache(self, test_app):
+        app, storage = test_app
+        services = app.state.container.services
+        position = {"type": "pin", "latitude": 37.75, "longitude": -77.45}
+        await storage.set_my_position(position)
+        services._my_position_cache = (37.75, -77.45)
+        services._my_position_dirty = False
+
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.put(
+                "/api/config",
+                json={
+                    "station": {"my_position": None},
+                    "storage": {"retention_days": "bad"},
+                },
+            )
+
+        assert response.status_code == 400
+        assert await storage.get_my_position() == position
+        assert services._my_position_cache == (37.75, -77.45)
+        assert services._my_position_dirty is False
+
+    @pytest.mark.parametrize(
+        "position",
+        [{"type": "pin", "latitude": 38.0, "longitude": -78.0}, None],
+    )
+    async def test_successful_position_update_invalidates_cache(self, test_app, position):
+        app, _storage = test_app
+        services = app.state.container.services
+        services._my_position_dirty = False
+
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.put(
+                "/api/config", json={"station": {"my_position": position}}
+            )
+
+        assert response.status_code == 200
+        assert services._my_position_dirty is True
 
 
 class TestTileProxyRetired:

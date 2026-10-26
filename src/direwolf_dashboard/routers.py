@@ -322,38 +322,34 @@ def create_api_routes(container: ServiceContainer) -> list:
             if not station_updates:
                 updates.pop("station", None)
 
-            if has_my_pos:
-                if my_pos is None:
-                    await services.storage.set_my_position(None)
-                else:
-                    mp_type = my_pos.get("type")
-                    if mp_type == "station":
-                        if not my_pos.get("callsign"):
-                            raise HTTPException(
-                                status_code=400,
-                                detail="my_position type 'station' requires a non-empty callsign",
-                            )
-                    elif mp_type == "pin":
-                        lat = my_pos.get("latitude")
-                        lon = my_pos.get("longitude")
-                        if lat is None or lon is None:
-                            raise HTTPException(
-                                status_code=400,
-                                detail="my_position type 'pin' requires latitude and longitude",
-                            )
-                        if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
-                            raise HTTPException(
-                                status_code=400,
-                                detail="latitude must be [-90, 90], longitude must be [-180, 180]",
-                            )
-                    elif mp_type is not None:
+            position_to_save = None
+            if has_my_pos and my_pos is not None:
+                mp_type = my_pos.get("type")
+                if mp_type == "station":
+                    if not my_pos.get("callsign"):
                         raise HTTPException(
                             status_code=400,
-                            detail=f"Invalid my_position type: {mp_type}",
+                            detail="my_position type 'station' requires a non-empty callsign",
                         )
-                    await services.storage.set_my_position(
-                        my_pos if mp_type else None
+                elif mp_type == "pin":
+                    lat = my_pos.get("latitude")
+                    lon = my_pos.get("longitude")
+                    if lat is None or lon is None:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="my_position type 'pin' requires latitude and longitude",
+                        )
+                    if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
+                        raise HTTPException(
+                            status_code=400,
+                            detail="latitude must be [-90, 90], longitude must be [-180, 180]",
+                        )
+                elif mp_type is not None:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid my_position type: {mp_type}",
                     )
+                position_to_save = my_pos if mp_type else None
 
             updated_fields = []
             restart_required = False
@@ -364,6 +360,7 @@ def create_api_routes(container: ServiceContainer) -> list:
                 services.config = new_config
 
             if has_my_pos:
+                await services.storage.set_my_position(position_to_save)
                 # Invalidate the cached my_position so the next packet
                 # re-reads the updated value from the database.
                 services._my_position_dirty = True
