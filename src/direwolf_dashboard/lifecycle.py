@@ -231,6 +231,7 @@ async def broadcast_event(event: str, data: dict, ws_clients: set[WebSocket]) ->
     if not ws_clients:
         return
 
+    clients = tuple(ws_clients)
     message = json.dumps({"event": event, "data": data}, default=str)
     disconnected = set()
 
@@ -238,10 +239,10 @@ async def broadcast_event(event: str, data: dict, ws_clients: set[WebSocket]) ->
         await asyncio.wait_for(ws.send_text(message), timeout=WS_SEND_TIMEOUT)
 
     results = await asyncio.gather(
-        *[_send(ws) for ws in ws_clients],
+        *[_send(ws) for ws in clients],
         return_exceptions=True,
     )
-    for ws, res in zip(ws_clients, results, strict=True):
+    for ws, res in zip(clients, results, strict=True):
         if isinstance(res, Exception):
             disconnected.add(ws)
 
