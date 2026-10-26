@@ -535,7 +535,7 @@ class TestHousekeepingJitter:
         mock_storage.housekeep.return_value = 0
 
         services = DirewolfServices(
-            config=MagicMock(),
+            config=Config(),
             config_path=None,
             storage=mock_storage,
             processor=MagicMock(),
@@ -553,11 +553,53 @@ class TestHousekeepingJitter:
 
         with patch("direwolf_dashboard.lifecycle.asyncio.sleep", side_effect=capture_sleep):
             with pytest.raises(asyncio.CancelledError):
-                await _housekeeping_loop(services, retention_days=7)
+                await _housekeeping_loop(services)
 
         assert len(sleep_durations) == 1
         duration = sleep_durations[0]
         assert 3420 <= duration <= 3780, f"Sleep duration {duration} outside jitter range [3420, 3780]"
+
+
+class TestHousekeepingRetention:
+    """Housekeeping uses the live retention value (issue #173)."""
+
+    async def test_retention_change_applies_without_restart(self):
+        """Changing retention 7 -> 14 must affect the next cleanup."""
+        from direwolf_dashboard.lifecycle import _housekeeping_loop
+
+        mock_storage = AsyncMock()
+        mock_storage.housekeep.return_value = 0
+
+        config = MagicMock()
+        config.storage.retention_days = 7
+
+        services = DirewolfServices(
+            config=config,
+            config_path=None,
+            storage=mock_storage,
+            processor=MagicMock(),
+            broadcast_queue=asyncio.Queue(),
+            agw_reader=MagicMock(connected=False),
+            log_tailer=MagicMock(active=False),
+            start_time=time.time(),
+        )
+
+        sleeps = []
+
+        async def capture_sleep(duration):
+            sleeps.append(duration)
+            if len(sleeps) == 1:
+                # Config PUT replaces services.config while the loop sleeps
+                config.storage.retention_days = 14
+                return
+            raise asyncio.CancelledError()
+
+        with patch("direwolf_dashboard.lifecycle.asyncio.sleep", side_effect=capture_sleep):
+            with pytest.raises(asyncio.CancelledError):
+                await _housekeeping_loop(services)
+
+        used = [call.args[0] for call in mock_storage.housekeep.await_args_list]
+        assert used == [7, 14]
 
 
 class TestMyPositionCallsignCache:
