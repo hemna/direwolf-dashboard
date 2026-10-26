@@ -2,6 +2,7 @@
 
 import logging
 import os
+import tempfile
 from dataclasses import asdict, dataclass, field
 from typing import Optional
 
@@ -298,8 +299,22 @@ def save_config(config: Config, path: Optional[str] = None) -> None:
 
     config_dict = config.to_dict()
 
-    with open(path, "w") as f:
-        yaml.dump(config_dict, f, default_flow_style=False, sort_keys=False)
+    # Write to a temp file in the same directory, then atomically replace the
+    # original only after the write succeeds, so a failed save never truncates
+    # the previous file (issue #164).
+    fd, tmp_path = tempfile.mkstemp(
+        dir=os.path.dirname(path), prefix=".config.", suffix=".tmp"
+    )
+    try:
+        with os.fdopen(fd, "w") as f:
+            yaml.dump(config_dict, f, default_flow_style=False, sort_keys=False)
+        os.replace(tmp_path, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def update_config(
