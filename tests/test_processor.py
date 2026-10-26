@@ -351,3 +351,57 @@ class TestPacketProcessor:
 
         packet = queue.get_nowait()
         assert packet["audio_level"] == 42
+
+    async def test_audio_level_not_attached_to_next_packet(self):
+        """A level that arrives after its packet must not land on the next one.
+
+        Regression for issue #175: AGW ``>first``, its log level 87, then AGW
+        ``>second`` used to attach 87 to ``>second``.
+        """
+        queue = asyncio.Queue(maxsize=100)
+        proc = PacketProcessor(broadcast_queue=queue)
+
+        await proc.on_agw_packet(
+            b"WB4BOR>APRS:>first", tx=False, call_from="WB4BOR", call_to="APRS"
+        )
+        await proc.on_log_lines(
+            raw_lines=["[0 L>R] WB4BOR>APRS:>first", "audio level = 87"],
+            audio_level=87,
+            callsign="WB4BOR",
+        )
+        await proc.on_agw_packet(
+            b"WB4BOR>APRS:>second", tx=False, call_from="WB4BOR", call_to="APRS"
+        )
+
+        first = queue.get_nowait()
+        second = queue.get_nowait()
+        assert "first" in first["raw_packet"]
+        assert first["audio_level"] is None
+        assert "second" in second["raw_packet"]
+        assert second["audio_level"] is None
+
+    async def test_audio_level_matched_by_payload_not_arrival_order(self):
+        """Metadata for a later packet wins over an older pending entry."""
+        queue = asyncio.Queue(maxsize=100)
+        proc = PacketProcessor(broadcast_queue=queue)
+
+        await proc.on_agw_packet(
+            b"WB4BOR>APRS:>first", tx=False, call_from="WB4BOR", call_to="APRS"
+        )
+        await proc.on_log_lines(
+            raw_lines=["[0 L>R] WB4BOR>APRS:>second", "audio level = 87"],
+            audio_level=87,
+            callsign="WB4BOR",
+        )
+        await proc.on_log_lines(
+            raw_lines=["[0 L>R] WB4BOR>APRS:>first", "audio level = 55"],
+            audio_level=55,
+            callsign="WB4BOR",
+        )
+        await proc.on_agw_packet(
+            b"WB4BOR>APRS:>second", tx=False, call_from="WB4BOR", call_to="APRS"
+        )
+
+        packets = [queue.get_nowait(), queue.get_nowait()]
+        second = next(p for p in packets if "second" in p["raw_packet"])
+        assert second["audio_level"] == 87
