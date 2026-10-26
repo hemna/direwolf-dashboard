@@ -333,8 +333,14 @@ async def _broadcast_consumer(services: DirewolfServices) -> None:
                     if packet.get("type") == "WeatherPacket":
                         await _store_weather_report(packet, services)
 
-                    # Update stations table if position data present
-                    if (
+                    # Update stations table if position data present — but
+                    # never for object/item packets.  Those report a named
+                    # location, not the reporting station's own position, so
+                    # they must not overwrite the station row or extend its
+                    # movement track (issue #170).
+                    if packet.get("type") in ("ObjectPacket", "ItemPacket"):
+                        pass
+                    elif (
                         packet.get("latitude") is not None
                         and packet.get("longitude") is not None
                     ):

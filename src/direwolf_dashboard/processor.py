@@ -270,6 +270,12 @@ def packet_to_dict(
         packet["symbol_table"] = parsed.get("symbol_table", "")
         packet["human_info"] = _build_human_info(parsed)
         packet["comment"] = parsed.get("comment", "")
+        # Object/item packets carry a name of their own (e.g. "OBJONE"),
+        # separate from the reporting station's callsign.  Keep it on the
+        # packet so stores/frontend can tell the object apart from the
+        # station that reported it. (issue #170)
+        packet["object_name"] = parsed.get("object_name", "").strip()
+        packet["item_name"] = parsed.get("item_name", "").strip()
         # For message packets, the real destination is the addressee, not
         # the AX.25 tocall (which is just a software identifier like APWW11).
         addressee = parsed.get("addresse")
@@ -335,14 +341,14 @@ def _classify_packet_type(parsed: dict) -> str:
         return "MessagePacket"
     elif parsed.get("weather"):
         return "WeatherPacket"
-    elif parsed.get("latitude") is not None:
-        return "GPSPacket"
-    elif "status" in fmt.lower():
-        return "StatusPacket"
     elif "object" in fmt.lower():
         return "ObjectPacket"
     elif "item" in fmt.lower():
         return "ItemPacket"
+    elif parsed.get("latitude") is not None:
+        return "GPSPacket"
+    elif "status" in fmt.lower():
+        return "StatusPacket"
     elif parsed.get("telemetry"):
         return "TelemetryPacket"
     else:

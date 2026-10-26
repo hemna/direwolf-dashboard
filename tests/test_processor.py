@@ -258,6 +258,48 @@ class TestPacketToDict:
         assert result is not None
         assert result["path"] == ["WIDE1-1", "WIDE2-1"]
 
+    def test_object_packet_classified_as_object_not_gps(self):
+        """An APRS object is a named location, not the reporter's position.
+        Regression for issue #170: it must be classified ObjectPacket, not
+        GPSPacket, and keep its own name and coordinates."""
+        raw = "WB4BOR>APRS,TCPIP*:;OBJONE   *111111z3745.00N/07730.00W>"
+        result = packet_to_dict(raw, tx=False, call_from="WB4BOR", call_to="APRS")
+
+        assert result is not None
+        assert result["type"] == "ObjectPacket"
+        assert result["object_name"] == "OBJONE"
+        assert result["from_call"] == "WB4BOR"
+        assert result["latitude"] is not None
+        assert result["longitude"] is not None
+
+    def test_item_packet_classified_as_item_not_gps(self):
+        """An APRS item is a named location, not the reporter's position.
+        Regression for issue #170: it must be classified ItemPacket, not
+        GPSPacket, and keep its own name and coordinates."""
+        raw = "WB4BOR>APRS,TCPIP*:)FIRE!3745.00N/07730.00W>"
+        result = packet_to_dict(raw, tx=False, call_from="WB4BOR", call_to="APRS")
+
+        assert result is not None
+        assert result["type"] == "ItemPacket"
+        assert result["item_name"] == "FIRE"
+        assert result["from_call"] == "WB4BOR"
+        assert result["latitude"] is not None
+        assert result["longitude"] is not None
+
+    def test_two_objects_from_one_reporter(self):
+        """Two APRS objects from the same station stay distinct and both keep
+        the reporter's callsign and their own coordinates (issue #170)."""
+        raw1 = "WB4BOR>APRS,TCPIP*:;OBJONE   *111111z3745.00N/07730.00W>"
+        raw2 = "WB4BOR>APRS,TCPIP*:;OBJTWO   *111112z3800.00N/07700.00W>"
+        r1 = packet_to_dict(raw1, tx=False, call_from="WB4BOR", call_to="APRS")
+        r2 = packet_to_dict(raw2, tx=False, call_from="WB4BOR", call_to="APRS")
+
+        assert r1["type"] == r2["type"] == "ObjectPacket"
+        assert r1["object_name"] == "OBJONE"
+        assert r2["object_name"] == "OBJTWO"
+        assert r1["from_call"] == r2["from_call"] == "WB4BOR"
+        assert (r1["latitude"], r1["longitude"]) != (r2["latitude"], r2["longitude"])
+
 
 class TestPacketProcessor:
     """Test the packet processor queue behavior."""

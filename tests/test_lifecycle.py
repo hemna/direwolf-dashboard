@@ -297,6 +297,99 @@ class TestBroadcastConsumerRollback:
         mock_storage.get_station.assert_not_awaited()
 
 
+class TestObjectItemNotStations:
+    """Object/item packets report a named location, not the reporting
+    station's own position — they must not update the stations table
+    (issue #170)."""
+
+    def _make_services(self, storage, queue):
+        return DirewolfServices(
+            config=Config(),
+            config_path=None,
+            storage=storage,
+            processor=MagicMock(),
+            broadcast_queue=queue,
+            agw_reader=MagicMock(connected=False),
+            log_tailer=MagicMock(active=False),
+            start_time=time.time(),
+        )
+
+    async def _run_one(self, services):
+        task = asyncio.create_task(_broadcast_consumer(services))
+        await asyncio.sleep(0.05)
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+    async def test_object_packet_does_not_update_station(self):
+        """An APRS object must not overwrite the reporting station's row."""
+        mock_storage = AsyncMock()
+        mock_storage.insert_packet.return_value = 1
+        mock_storage.get_my_position.return_value = None
+
+        queue = asyncio.Queue()
+        await queue.put({
+            "from_call": "WB4BOR",
+            "type": "ObjectPacket",
+            "timestamp": time.time(),
+            "latitude": 37.75,
+            "longitude": -77.45,
+            "symbol": ">",
+            "symbol_table": "/",
+            "object_name": "OBJONE",
+        })
+        services = self._make_services(mock_storage, queue)
+        await self._run_one(services)
+
+        mock_storage.insert_packet.assert_awaited_once()
+        mock_storage.upsert_station.assert_not_awaited()
+        mock_storage.get_station.assert_not_awaited()
+
+    async def test_item_packet_does_not_update_station(self):
+        """An APRS item must not overwrite the reporting station's row."""
+        mock_storage = AsyncMock()
+        mock_storage.insert_packet.return_value = 1
+        mock_storage.get_my_position.return_value = None
+
+        queue = asyncio.Queue()
+        await queue.put({
+            "from_call": "WB4BOR",
+            "type": "ItemPacket",
+            "timestamp": time.time(),
+            "latitude": 37.75,
+            "longitude": -77.45,
+            "symbol": ">",
+            "symbol_table": "/",
+            "item_name": "FIRE",
+        })
+        services = self._make_services(mock_storage, queue)
+        await self._run_one(services)
+
+        mock_storage.insert_packet.assert_awaited_once()
+        mock_storage.upsert_station.assert_not_awaited()
+        mock_storage.get_station.assert_not_awaited()
+
+    async def test_gps_packet_still_updates_station(self):
+        """Ordinary station position packets keep updating the station table."""
+        mock_storage = AsyncMock()
+        mock_storage.insert_packet.return_value = 1
+        mock_storage.get_my_position.return_value = None
+
+        queue = asyncio.Queue()
+        await queue.put({
+            "from_call": "WB4BOR",
+            "type": "GPSPacket",
+            "timestamp": time.time(),
+            "latitude": 37.75,
+            "longitude": -77.45,
+            "symbol": ">",
+            "symbol_table": "/",
+        })
+        services = self._make_services(mock_storage, queue)
+        await self._run_one(services)
+
+        mock_storage.upsert_station.assert_awaited_once()
+
+
 class TestResolveMyPositionCache:
     """Tests for the my_position caching logic in resolve_my_position."""
 

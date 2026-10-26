@@ -320,6 +320,7 @@ class Storage:
                 FROM packets
                 WHERE from_call = ? AND latitude IS NOT NULL
                     AND longitude IS NOT NULL AND timestamp >= ?
+                    AND type NOT IN ('ObjectPacket', 'ItemPacket')
                 ORDER BY timestamp DESC
                 LIMIT ?""",
                 (callsign, since, limit),
@@ -330,6 +331,7 @@ class Storage:
                 FROM packets
                 WHERE from_call = ? AND latitude IS NOT NULL
                     AND longitude IS NOT NULL
+                    AND type NOT IN ('ObjectPacket', 'ItemPacket')
                 ORDER BY timestamp DESC
                 LIMIT ?""",
                 (callsign, limit),
@@ -360,6 +362,7 @@ class Storage:
                 WHERE latitude IS NOT NULL
                   AND longitude IS NOT NULL
                   AND timestamp >= ?
+                  AND type NOT IN ('ObjectPacket', 'ItemPacket')
             )
             WHERE rn <= ?
             ORDER BY from_call, timestamp ASC""",

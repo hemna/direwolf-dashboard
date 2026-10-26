@@ -248,6 +248,78 @@ class TestStations:
         track = await storage.get_station_track("WB4BOR", since=t - 3600 + 200)
         assert len(track) == 3  # points at i=2,3,4
 
+    async def test_station_track_excludes_objects_and_items(self, storage):
+        """Object/item packets report a named location, not the reporter's
+        movement — they must not appear in the station's track (issue #170)."""
+        t = time.time()
+        await storage.insert_packet(
+            _make_packet(
+                from_call="WB4BOR",
+                timestamp=t,
+                latitude=37.75,
+                longitude=-77.45,
+                type="GPSPacket",
+            )
+        )
+        await storage.insert_packet(
+            _make_packet(
+                from_call="WB4BOR",
+                timestamp=t + 1,
+                latitude=38.0,
+                longitude=-78.0,
+                type="ObjectPacket",
+            )
+        )
+        await storage.insert_packet(
+            _make_packet(
+                from_call="WB4BOR",
+                timestamp=t + 2,
+                latitude=39.0,
+                longitude=-79.0,
+                type="ItemPacket",
+            )
+        )
+
+        track = await storage.get_station_track("WB4BOR")
+        assert len(track) == 1  # only the real GPS position
+        assert track[0]["latitude"] == 37.75
+
+    async def test_all_station_tracks_exclude_objects_and_items(self, storage):
+        """The bulk track query must also skip object/item packets so they
+        never join a station's movement track (issue #170)."""
+        t = time.time()
+        await storage.insert_packet(
+            _make_packet(
+                from_call="WB4BOR",
+                timestamp=t,
+                latitude=37.75,
+                longitude=-77.45,
+                type="GPSPacket",
+            )
+        )
+        await storage.insert_packet(
+            _make_packet(
+                from_call="WB4BOR",
+                timestamp=t + 1,
+                latitude=38.0,
+                longitude=-78.0,
+                type="ObjectPacket",
+            )
+        )
+        await storage.insert_packet(
+            _make_packet(
+                from_call="WB4BOR",
+                timestamp=t + 2,
+                latitude=39.0,
+                longitude=-79.0,
+                type="ItemPacket",
+            )
+        )
+
+        tracks = await storage.get_all_station_tracks(since=t - 10)
+        assert tracks["WB4BOR"] and len(tracks["WB4BOR"]) == 1
+        assert tracks["WB4BOR"][0]["latitude"] == 37.75
+
     async def test_get_all_station_tracks(self, storage):
         t = time.time()
         for i in range(3):
