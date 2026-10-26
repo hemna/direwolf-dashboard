@@ -1,5 +1,6 @@
 """Tests for SQLite storage layer."""
 
+import asyncio
 import time
 
 import pytest
@@ -520,6 +521,55 @@ class TestReset:
 
 class TestStorageRollback:
     """Tests for the rollback() method."""
+
+    async def test_failed_write_cannot_commit_with_overlapping_position(
+        self, storage, monkeypatch
+    ):
+        """A failed write rolls back before another write can use the connection."""
+        first_commit_started = asyncio.Event()
+        release_first_commit = asyncio.Event()
+        release_second_commit = asyncio.Event()
+        original_commit = storage._db.commit
+        commit_count = 0
+
+        async def controlled_commit():
+            nonlocal commit_count
+            commit_count += 1
+            if commit_count == 1:
+                first_commit_started.set()
+                await release_first_commit.wait()
+                raise RuntimeError("injected commit failure")
+            if commit_count == 2:
+                await release_second_commit.wait()
+            await original_commit()
+
+        monkeypatch.setattr(storage._db, "commit", controlled_commit)
+
+        failed_write = asyncio.create_task(
+            storage.upsert_station("FAIL", last_seen=time.time())
+        )
+        await first_commit_started.wait()
+        position_started = asyncio.Event()
+
+        async def save_position():
+            position_started.set()
+            await storage.set_my_position({"type": "pin", "latitude": 1, "longitude": 2})
+
+        position_write = asyncio.create_task(save_position())
+        await position_started.wait()
+        release_first_commit.set()
+        with pytest.raises(RuntimeError, match="injected commit failure"):
+            await failed_write
+
+        release_second_commit.set()
+        await position_write
+
+        assert await storage.get_station("FAIL") is None
+        assert await storage.get_my_position() == {
+            "type": "pin",
+            "latitude": 1,
+            "longitude": 2,
+        }
 
     async def test_rollback_no_op_when_no_pending_changes(self, storage):
         """rollback() on a clean connection is a safe no-op."""

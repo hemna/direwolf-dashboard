@@ -1,10 +1,12 @@
 """SQLite storage layer for Direwolf Dashboard."""
 
+import asyncio
 import json
 import logging
 import os
 import sqlite3
 import time
+from contextlib import asynccontextmanager
 from typing import Optional
 
 import aiosqlite
@@ -80,6 +82,7 @@ class Storage:
     def __init__(self, db_path: str):
         self.db_path = db_path
         self._db: Optional[aiosqlite.Connection] = None
+        self._write_lock = asyncio.Lock()
 
     async def init(self) -> None:
         """Initialize database: create tables, enable WAL mode."""
@@ -123,8 +126,23 @@ class Storage:
 
     async def rollback(self) -> None:
         """Roll back any uncommitted transaction on the DB connection."""
-        if self._db:
-            await self._db.rollback()
+        async with self._write_lock:
+            if self._db:
+                await self._db.rollback()
+
+    @asynccontextmanager
+    async def _write_transaction(self):
+        async with self._write_lock:
+            try:
+                yield
+                await self._db.commit()
+            except BaseException:
+                if self._db:
+                    try:
+                        await self._db.rollback()
+                    except Exception:
+                        LOG.exception("Failed to roll back SQLite write transaction")
+                raise
 
     async def reset(self) -> None:
         """Delete all data from packets, stations, and config tables.
@@ -134,21 +152,22 @@ class Storage:
         The autoincrement counter is also reset so IDs start fresh.
         """
         LOG.info("Resetting database — deleting all data")
-        await self._db.execute("DELETE FROM packets")
-        await self._db.execute("DELETE FROM stations")
-        await self._db.execute("DELETE FROM config")
-        await self._db.execute("DELETE FROM weather_reports")
-        # Reset autoincrement counters
-        await self._db.execute(
-            "DELETE FROM sqlite_sequence WHERE name IN ('packets', 'weather_reports')"
-        )
-        await self._db.commit()
+        async with self._write_transaction():
+            await self._db.execute("DELETE FROM packets")
+            await self._db.execute("DELETE FROM stations")
+            await self._db.execute("DELETE FROM config")
+            await self._db.execute("DELETE FROM weather_reports")
+            # Reset autoincrement counters
+            await self._db.execute(
+                "DELETE FROM sqlite_sequence WHERE name IN ('packets', 'weather_reports')"
+            )
         # Shrink the DB file after a full wipe — matters on small ramdisks
         # where the file lives in /tmp. Non-fatal if it fails. (issue #83)
-        try:
-            await self._db.execute("VACUUM")
-        except sqlite3.OperationalError as e:
-            LOG.warning(f"VACUUM after reset failed (non-fatal): {e}")
+        async with self._write_lock:
+            try:
+                await self._db.execute("VACUUM")
+            except sqlite3.OperationalError as e:
+                LOG.warning(f"VACUUM after reset failed (non-fatal): {e}")
         LOG.info("Database reset complete")
 
     async def insert_packet(self, packet: dict) -> int:
@@ -156,32 +175,32 @@ class Storage:
         # Serialize list fields to JSON strings
         path = json.dumps(packet.get("path")) if packet.get("path") else None
 
-        cursor = await self._db.execute(
-            """INSERT INTO packets
-            (timestamp, type, tx, from_call, to_call, path, msg_no,
-             latitude, longitude, symbol, symbol_table, human_info,
-             comment, audio_level, compact_log, raw_packet)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                packet.get("timestamp", time.time()),
-                packet.get("type", "Unknown"),
-                packet.get("tx", False),
-                packet.get("from_call", ""),
-                packet.get("to_call", ""),
-                path,
-                packet.get("msg_no"),
-                packet.get("latitude"),
-                packet.get("longitude"),
-                packet.get("symbol"),
-                packet.get("symbol_table"),
-                packet.get("human_info"),
-                packet.get("comment"),
-                packet.get("audio_level"),
-                packet.get("compact_log"),
-                packet.get("raw_packet"),
-            ),
-        )
-        await self._db.commit()
+        async with self._write_transaction():
+            cursor = await self._db.execute(
+                """INSERT INTO packets
+                (timestamp, type, tx, from_call, to_call, path, msg_no,
+                 latitude, longitude, symbol, symbol_table, human_info,
+                 comment, audio_level, compact_log, raw_packet)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    packet.get("timestamp", time.time()),
+                    packet.get("type", "Unknown"),
+                    packet.get("tx", False),
+                    packet.get("from_call", ""),
+                    packet.get("to_call", ""),
+                    path,
+                    packet.get("msg_no"),
+                    packet.get("latitude"),
+                    packet.get("longitude"),
+                    packet.get("symbol"),
+                    packet.get("symbol_table"),
+                    packet.get("human_info"),
+                    packet.get("comment"),
+                    packet.get("audio_level"),
+                    packet.get("compact_log"),
+                    packet.get("raw_packet"),
+                ),
+            )
         return cursor.lastrowid
 
     async def query_packets(
@@ -238,24 +257,24 @@ class Storage:
     ) -> None:
         """Insert or update a station record, incrementing packet_count."""
         path_json = json.dumps(path) if path else None
-        await self._db.execute(
-            """INSERT INTO stations
-            (callsign, last_seen, latitude, longitude, symbol, symbol_table,
-             last_comment, last_path, packet_count)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
-            ON CONFLICT(callsign) DO UPDATE SET
-                last_seen = excluded.last_seen,
-                latitude = COALESCE(excluded.latitude, stations.latitude),
-                longitude = COALESCE(excluded.longitude, stations.longitude),
-                symbol = COALESCE(excluded.symbol, stations.symbol),
-                symbol_table = COALESCE(excluded.symbol_table, stations.symbol_table),
-                last_comment = COALESCE(excluded.last_comment, stations.last_comment),
-                last_path = COALESCE(excluded.last_path, stations.last_path),
-                packet_count = stations.packet_count + 1
-            """,
-            (callsign, last_seen, latitude, longitude, symbol, symbol_table, comment, path_json),
-        )
-        await self._db.commit()
+        async with self._write_transaction():
+            await self._db.execute(
+                """INSERT INTO stations
+                (callsign, last_seen, latitude, longitude, symbol, symbol_table,
+                 last_comment, last_path, packet_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+                ON CONFLICT(callsign) DO UPDATE SET
+                    last_seen = excluded.last_seen,
+                    latitude = COALESCE(excluded.latitude, stations.latitude),
+                    longitude = COALESCE(excluded.longitude, stations.longitude),
+                    symbol = COALESCE(excluded.symbol, stations.symbol),
+                    symbol_table = COALESCE(excluded.symbol_table, stations.symbol_table),
+                    last_comment = COALESCE(excluded.last_comment, stations.last_comment),
+                    last_path = COALESCE(excluded.last_path, stations.last_path),
+                    packet_count = stations.packet_count + 1
+                """,
+                (callsign, last_seen, latitude, longitude, symbol, symbol_table, comment, path_json),
+            )
 
     def _station_row_to_dict(self, row) -> dict:
         """Convert a stations DB row to a dict, deserialising JSON fields."""
@@ -410,29 +429,29 @@ class Storage:
 
     async def insert_weather_report(self, report: dict) -> int:
         """Insert a parsed weather report. Returns the inserted row id."""
-        cursor = await self._db.execute(
-            """INSERT INTO weather_reports
-            (timestamp, callsign, temperature, dewpoint, humidity, pressure,
-             wind_direction, wind_speed, wind_gust, rain_1h, rain_24h,
-             rain_since_midnight, luminosity)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                report.get("timestamp", time.time()),
-                report.get("callsign", ""),
-                report.get("temperature"),
-                report.get("dewpoint"),
-                report.get("humidity"),
-                report.get("pressure"),
-                report.get("wind_direction"),
-                report.get("wind_speed"),
-                report.get("wind_gust"),
-                report.get("rain_1h"),
-                report.get("rain_24h"),
-                report.get("rain_since_midnight"),
-                report.get("luminosity"),
-            ),
-        )
-        await self._db.commit()
+        async with self._write_transaction():
+            cursor = await self._db.execute(
+                """INSERT INTO weather_reports
+                (timestamp, callsign, temperature, dewpoint, humidity, pressure,
+                 wind_direction, wind_speed, wind_gust, rain_1h, rain_24h,
+                 rain_since_midnight, luminosity)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    report.get("timestamp", time.time()),
+                    report.get("callsign", ""),
+                    report.get("temperature"),
+                    report.get("dewpoint"),
+                    report.get("humidity"),
+                    report.get("pressure"),
+                    report.get("wind_direction"),
+                    report.get("wind_speed"),
+                    report.get("wind_gust"),
+                    report.get("rain_1h"),
+                    report.get("rain_24h"),
+                    report.get("rain_since_midnight"),
+                    report.get("luminosity"),
+                ),
+            )
         return cursor.lastrowid
 
     async def get_weather_reports(
@@ -504,17 +523,17 @@ class Storage:
 
         Pass None to clear the saved position.
         """
-        if my_position is None:
-            await self._db.execute(
-                "DELETE FROM config WHERE key = 'my_position'"
-            )
-        else:
-            await self._db.execute(
-                "INSERT INTO config (key, value) VALUES ('my_position', ?)"
-                " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                (json.dumps(my_position),),
-            )
-        await self._db.commit()
+        async with self._write_transaction():
+            if my_position is None:
+                await self._db.execute(
+                    "DELETE FROM config WHERE key = 'my_position'"
+                )
+            else:
+                await self._db.execute(
+                    "INSERT INTO config (key, value) VALUES ('my_position', ?)"
+                    " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    (json.dumps(my_position),),
+                )
 
     async def get_stats(self) -> dict:
         """Return storage statistics."""

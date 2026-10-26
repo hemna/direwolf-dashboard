@@ -204,8 +204,8 @@ class TestBroadcastConsumerRollback:
             start_time=time.time(),
         )
 
-    async def test_rollback_called_on_insert_failure(self):
-        """When insert_packet raises, rollback() is called."""
+    async def test_consumer_does_not_rollback_a_storage_transaction(self):
+        """The consumer leaves transaction rollback to the storage method."""
         mock_storage = AsyncMock()
         mock_storage.insert_packet.side_effect = RuntimeError("disk full")
 
@@ -222,7 +222,7 @@ class TestBroadcastConsumerRollback:
 
         await run_one()
 
-        mock_storage.rollback.assert_awaited_once()
+        mock_storage.rollback.assert_not_awaited()
 
     async def test_consumer_continues_after_storage_error(self):
         """Consumer processes subsequent packets even after a storage failure."""
@@ -256,7 +256,7 @@ class TestBroadcastConsumerRollback:
         await run_two()
 
         assert mock_storage.insert_packet.await_count == 2
-        mock_storage.rollback.assert_awaited_once()
+        mock_storage.rollback.assert_not_awaited()
 
     async def test_zero_coordinates_upsert_station(self):
         """A packet at lat=0.0/lon=0.0 (equator/prime meridian) is treated as

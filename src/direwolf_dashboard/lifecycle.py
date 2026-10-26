@@ -319,9 +319,8 @@ async def _broadcast_consumer(services: DirewolfServices) -> None:
             from_call = packet.get("from_call", "?")
             LOG.debug(f"[TIMING] Consumer got {from_call} from queue at {t0:.3f} (age={t0 - pkt_ts:.3f}s)")
 
-            # Store in database — wrapped in its own try/except so a storage
-            # failure (e.g. disk full on DigiPi) rolls back the transaction and
-            # lets the consumer continue broadcasting to WebSocket clients.
+            # Storage methods own their transactions; keep storage failures from
+            # preventing the packet from reaching WebSocket clients.
             if services.storage:
                 try:
                     row_id = await services.storage.insert_packet(packet)
@@ -383,16 +382,9 @@ async def _broadcast_consumer(services: DirewolfServices) -> None:
                     LOG.debug(f"[TIMING] pkt#{pkt_id} DB+enrich done at {t2:.3f} (+{t2 - t0:.3f}s)")
 
                 except Exception as db_err:
-                    # Roll back any uncommitted transaction so the connection stays
-                    # in a clean state for the next packet.  Log the error but do
-                    # NOT re-raise — the packet will still be broadcast over
-                    # WebSocket even if it couldn't be persisted.
+                    # Log the error but do NOT re-raise — the packet will still
+                    # be broadcast over WebSocket even if it couldn't be persisted.
                     LOG.error(f"Storage error for packet from {from_call}: {db_err}")
-                    try:
-                        await services.storage.rollback()
-                    except Exception:
-                        pass  # If rollback itself fails the connection is broken;
-                        # the next DB call will surface a fresh error.
 
             # Broadcast to WebSocket clients
             packet["_broadcast_ts"] = time.time()
