@@ -250,8 +250,10 @@ LOCAL_REGION_URL = "/basemap/region.pmtiles"
 BASEMAP_DIR = Path(__file__).resolve().parent / "static" / "basemap"
 
 #: Vendored sample fallback used when every upstream source fails (overzoom
-#: keeps the viewport non-blank rather than 502-ing the tile proxy).
-DEFAULT_TILE_ARCHIVE_URL = "/static/basemap/regions/sample.pmtiles"
+#: keeps the viewport non-blank rather than 502-ing the tile proxy). This is a
+#: filesystem path: the proxy serves local archives straight from disk, so a
+#: browser-style URL here would send every range to httpx and 502 (issue #171).
+DEFAULT_TILE_ARCHIVE_PATH = str(BASEMAP_DIR / "regions" / "sample.pmtiles")
 
 #: Vector PMTiles v3 header is a fixed 127-byte struct (pmtiles spec v3).
 _PMTILES_MAGIC = b"PMTiles"
@@ -373,7 +375,7 @@ def _resolve_style(sources=None, probe=None,
         "all basemap tile sources failed (%s); falling back to the vendored sample",
         " | ".join(tried),
     )
-    return DEFAULT_TILE_ARCHIVE_URL, "local-fallback", None
+    return DEFAULT_TILE_ARCHIVE_PATH, "local-fallback", None
 
 
 def resolve_style_url(sources=None, probe=None) -> tuple[str, str]:
