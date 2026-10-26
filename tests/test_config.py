@@ -405,3 +405,49 @@ class TestResolveDataDirFallback:
         assert result == os.path.expanduser(fallback)
         # The fallback was actually verified writable (test file removed)
         assert not os.path.exists(os.path.join(fallback, ".write_test"))
+
+
+class TestDataDirFollowsDerivedDbPath:
+    """Changing data_dir updates the derived database path (issue #174)."""
+
+    def _loaded(self, tmp_path, data_dir):
+        config_path = str(tmp_path / "config.yaml")
+        save_config(Config(data_dir=str(data_dir)), config_path)
+        return config_path, load_config(config_path)
+
+    def test_derived_db_path_follows_new_data_dir(self, tmp_path):
+        old = tmp_path / "old"
+        new = tmp_path / "new"
+        config_path, config = self._loaded(tmp_path, old)
+        assert config.storage.db_path == os.path.join(str(old), "packets.db")
+
+        update_config(config, {"data_dir": str(new)}, config_path)
+
+        reloaded = load_config(config_path)
+        assert reloaded.data_dir == str(new)
+        assert reloaded.storage.db_path == os.path.join(str(new), "packets.db")
+
+    def test_custom_db_path_is_preserved(self, tmp_path):
+        old = tmp_path / "old"
+        custom = tmp_path / "custom" / "history.db"
+        config = Config(data_dir=str(old))
+        config.storage.db_path = str(custom)
+        config_path = str(tmp_path / "config.yaml")
+        save_config(config, config_path)
+
+        update_config(load_config(config_path), {"data_dir": str(tmp_path / "new")}, config_path)
+
+        assert load_config(config_path).storage.db_path == str(custom)
+
+    def test_explicit_db_path_in_same_update_is_preserved(self, tmp_path):
+        old = tmp_path / "old"
+        explicit = tmp_path / "explicit" / "packets.db"
+        config_path, config = self._loaded(tmp_path, old)
+
+        update_config(
+            config,
+            {"data_dir": str(tmp_path / "new"), "storage": {"db_path": str(explicit)}},
+            config_path,
+        )
+
+        assert load_config(config_path).storage.db_path == str(explicit)
