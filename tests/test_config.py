@@ -186,6 +186,47 @@ class TestLoadSaveConfig:
         assert d["station"]["latitude"] == 0.0 if (d := data) else False
 
 
+class TestAtomicSaveConfig:
+    """save_config must not destroy the existing file when the write fails."""
+
+    def test_failed_save_preserves_original_bytes(self, tmp_path, monkeypatch):
+        config_path = tmp_path / "config.yaml"
+        config = Config()
+        config.server.port = 9090
+        save_config(config, str(config_path))
+        original = config_path.read_bytes()
+        assert original  # the file must have had real content
+
+        def _no_space(*args, **kwargs):
+            raise OSError(28, "No space left on device")
+
+        monkeypatch.setattr("direwolf_dashboard.config.yaml.dump", _no_space)
+
+        with pytest.raises(OSError):
+            save_config(config, str(config_path))
+
+        # The previous file is untouched and no temp files are left behind.
+        assert config_path.read_bytes() == original
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["config.yaml"]
+
+    def test_successful_save_replaces_file(self, tmp_path):
+        config_path = tmp_path / "config.yaml"
+        first = Config()
+        first.server.port = 9090
+        save_config(first, str(config_path))
+        original = config_path.read_bytes()
+
+        second = Config()
+        second.server.port = 8081
+        save_config(second, str(config_path))
+
+        with open(config_path) as f:
+            data = yaml.safe_load(f)
+        assert data["server"]["port"] == 8081
+        assert config_path.read_bytes() != original
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["config.yaml"]
+
+
 class TestUpdateConfig:
     """Test partial config updates."""
 
