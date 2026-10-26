@@ -210,6 +210,16 @@ UPSTREAM_RESOLVE_TTL_SECONDS = 300.0
 #: Upper bound on the in-memory byte-range cache entries for the proxy.
 PROXY_CACHE_MAX_ENTRIES = 512
 
+#: Largest single byte range the proxy will fetch and serve. pmtiles.js asks
+#: for directory and tile ranges well below this; anything bigger is refused
+#: before the upstream fetch so one anonymous request cannot pull a huge slice
+#: (issue #169).
+PROXY_RANGE_MAX_BYTES = 256 * 1024
+
+#: Total bytes retained by the proxy cache across all entries. Bounds the
+#: persistent memory one or more anonymous requests can occupy (issue #169).
+PROXY_CACHE_MAX_BYTES = 16 * 1024 * 1024
+
 #: Timeout for the proxy upstream ranged fetch (covers slow tile reads).
 PROXY_FETCH_TIMEOUT_SECONDS = 30.0
 
@@ -568,7 +578,13 @@ def proxy_fetch_range(url: str, start: int, length: int,
     with _PROXY_CACHE_LOCK:
         _PROXY_CACHE[key] = cached
         _PROXY_CACHE.move_to_end(key)
-        while len(_PROXY_CACHE) > PROXY_CACHE_MAX_ENTRIES:
+        # Bound both the entry count and the retained bytes so anonymous
+        # requests cannot pin an unbounded amount of memory (issue #169).
+        while _PROXY_CACHE and (
+            len(_PROXY_CACHE) > PROXY_CACHE_MAX_ENTRIES
+            or sum(len(entry[0]) for entry in _PROXY_CACHE.values())
+            > PROXY_CACHE_MAX_BYTES
+        ):
             _PROXY_CACHE.popitem(last=False)
     return cached
 

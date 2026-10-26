@@ -19,6 +19,7 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from direwolf_dashboard import __version__
 from direwolf_dashboard.basemap import (
+    PROXY_RANGE_MAX_BYTES,
     UPSTREAM_PROXY_URL,
     BasemapSourceError,
     UpstreamRangeError,
@@ -681,6 +682,17 @@ def create_basemap_tiles_route(container: ServiceContainer):
             })
         start, end = int(match.group(1)), int(match.group(2))
         length = end - start + 1
+        if length > PROXY_RANGE_MAX_BYTES:
+            # Refuse before the upstream fetch: one anonymous request must not
+            # pull a multi-megabyte slice into memory (issue #169).
+            LOG.warning(
+                "basemap proxy range too large: %d bytes (max %d)",
+                length, PROXY_RANGE_MAX_BYTES,
+            )
+            return Response(status_code=416, headers={
+                "Accept-Ranges": "bytes",
+                "Content-Range": "bytes */0",
+            })
         url, label, _upstream_max = resolve_upstream_cached(
             upstream_sources(services.config)
         )

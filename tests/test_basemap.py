@@ -573,3 +573,74 @@ def test_upstream_tile_proxy_route_serves_ranges_from_local_file(tmp_path):
     assert r2.status_code == 206 and r2.content == b"0" * 100
     assert r416.status_code == 416
     assert r_bad.status_code == 416
+
+
+def test_upstream_tile_proxy_rejects_oversized_range_before_fetch():
+    from unittest.mock import MagicMock, patch
+
+    from starlette.applications import Starlette
+    from starlette.testclient import TestClient
+
+    from direwolf_dashboard.lifecycle import ServiceContainer
+    from direwolf_dashboard.routers import create_basemap_tiles_route
+
+    container = ServiceContainer()
+    container.services = MagicMock()
+    app = Starlette(routes=[create_basemap_tiles_route(container)])
+
+    with patch(
+        "direwolf_dashboard.routers.resolve_upstream_cached",
+        return_value=("https://e.example/planet.pmtiles", "source:test", 15),
+    ), patch(
+        "direwolf_dashboard.routers.proxy_fetch_range",
+        return_value=(b"x" * 8_388_608, 100_000_000),
+    ) as fetch:
+        with TestClient(app, raise_server_exceptions=False) as c:
+            r = c.get(
+                "/basemap/tiles/upstream",
+                headers={"Range": "bytes=0-8388607"},
+            )
+
+    assert r.status_code == 416
+    assert fetch.call_count == 0
+
+
+def test_proxy_cache_respects_total_byte_budget(monkeypatch):
+    from direwolf_dashboard import basemap as basemap_module
+
+    monkeypatch.setattr(basemap_module, "PROXY_CACHE_MAX_BYTES", 1000)
+    basemap_module._PROXY_CACHE.clear()
+    fetched = []
+
+    class _Resp:
+        status_code = 206
+
+        def __init__(self, start, length):
+            self.headers = {
+                "Content-Range": f"bytes {start}-{start + length - 1}/999999"
+            }
+            self.content = b"x" * length
+
+    class _Client:
+        def get(self, url, headers=None, timeout=None):
+            start, end = headers["Range"].removeprefix("bytes=").split("-")
+            start, length = int(start), int(end) - int(start) + 1
+            fetched.append(start)
+            return _Resp(start, length)
+
+    url = "https://tiles.example/u.pmtiles"
+    client = _Client()
+    for start in (0, 300, 600, 900, 1200):
+        data, _total = basemap_module.proxy_fetch_range(url, start, 300, client=client)
+        assert len(data) == 300
+
+    retained = sum(len(entry[0]) for entry in basemap_module._PROXY_CACHE.values())
+    assert retained <= 1000
+
+    # Newest range is still cached: no additional upstream fetch.
+    before = len(fetched)
+    data, _total = basemap_module.proxy_fetch_range(url, 1200, 300, client=client)
+    assert len(data) == 300
+    assert len(fetched) == before
+
+    basemap_module._PROXY_CACHE.clear()
