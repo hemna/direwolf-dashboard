@@ -451,3 +451,32 @@ class TestDataDirFollowsDerivedDbPath:
         )
 
         assert load_config(config_path).storage.db_path == str(explicit)
+
+
+class TestRelativeConfigPath:
+    """A plain relative config filename works (issue #178)."""
+
+    def test_missing_relative_filename_creates_defaults(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+
+        config = load_config("relative.yaml")
+
+        assert os.path.isfile("relative.yaml")
+        assert config.storage.db_path != ""
+
+    def test_relative_path_saves_and_reloads(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        config = load_config("relative.yaml")
+        config.station.latitude = 38.5
+
+        save_config(config, "relative.yaml")
+
+        assert load_config("relative.yaml").station.latitude == 38.5
+
+    def test_nested_relative_path_creates_parent(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+
+        config = load_config(os.path.join("nested", "dir", "config.yaml"))
+
+        assert os.path.isfile(os.path.join("nested", "dir", "config.yaml"))
+        assert config.station.latitude == 0
