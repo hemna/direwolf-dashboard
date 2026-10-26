@@ -208,11 +208,25 @@ async def enrich_with_bearing(packet: dict, services: DirewolfServices) -> None:
         LOG.debug("Failed to compute bearing/distance for packet", exc_info=True)
 
 
+# A WebSocket send that has not completed within this many seconds is
+# treated as a stalled client (wedged tab, full TCP buffer) and is dropped
+# so the shared packet consumer — and with it packet storage — keeps
+# progressing (issue #166).  Slow-but-alive clients on congested links
+# still complete well inside this window.
+WS_SEND_TIMEOUT = 30.0
+
+# Bound closing dropped sockets too: closing a wedged connection can also
+# block, and the consumer must never wait on a dead client.
+WS_CLOSE_TIMEOUT = 5.0
+
+
 async def broadcast_event(event: str, data: dict, ws_clients: set[WebSocket]) -> None:
     """Send an event to all connected WebSocket clients.
 
     Sends are dispatched concurrently so one slow client cannot block the
-    rest (issue #84).
+    rest (issue #84), and each send is bounded by WS_SEND_TIMEOUT so a
+    stalled client is dropped instead of blocking the consumer, which
+    would also stop packet storage (issue #166).
     """
     if not ws_clients:
         return
@@ -220,20 +234,24 @@ async def broadcast_event(event: str, data: dict, ws_clients: set[WebSocket]) ->
     message = json.dumps({"event": event, "data": data}, default=str)
     disconnected = set()
 
-    if len(ws_clients) == 1:
-        ws = next(iter(ws_clients))
-        try:
-            await ws.send_text(message)
-        except Exception:
+    async def _send(ws: WebSocket) -> None:
+        await asyncio.wait_for(ws.send_text(message), timeout=WS_SEND_TIMEOUT)
+
+    results = await asyncio.gather(
+        *[_send(ws) for ws in ws_clients],
+        return_exceptions=True,
+    )
+    for ws, res in zip(ws_clients, results, strict=True):
+        if isinstance(res, Exception):
             disconnected.add(ws)
-    else:
-        results = await asyncio.gather(
-            *[ws.send_text(message) for ws in ws_clients],
-            return_exceptions=True,
-        )
-        for ws, res in zip(ws_clients, results, strict=True):
-            if isinstance(res, Exception):
-                disconnected.add(ws)
+
+    # Close dropped sockets (bounded) so their endpoint task wakes up and
+    # releases them; a wedged close must not block the consumer either.
+    for ws in disconnected:
+        try:
+            await asyncio.wait_for(ws.close(), timeout=WS_CLOSE_TIMEOUT)
+        except Exception:
+            pass
 
     ws_clients -= disconnected
 

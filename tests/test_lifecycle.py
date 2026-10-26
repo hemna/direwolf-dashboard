@@ -635,3 +635,89 @@ class TestBroadcastConcurrent:
         ws = AsyncMock()
         await broadcast_event("test", {"k": "v"}, {ws})
         ws.send_text.assert_awaited_once()
+
+
+class TestBroadcastStalledClient:
+    """A client whose send never completes must not block the broadcast —
+    and therefore must not block packet storage (issue #166)."""
+
+    class _StalledWS:
+        """Fake WebSocket whose send_text never completes until cancelled."""
+
+        def __init__(self):
+            self.closed = False
+
+        async def send_text(self, message):
+            await asyncio.sleep(3600)  # never completes on its own
+
+        async def close(self):
+            self.closed = True
+
+    async def test_stalled_client_removed_others_served(self, monkeypatch):
+        """A stalled client is dropped; healthy clients still get the event
+        and the broadcast returns promptly instead of hanging forever."""
+        monkeypatch.setattr("direwolf_dashboard.lifecycle.WS_SEND_TIMEOUT", 0.05)
+        monkeypatch.setattr("direwolf_dashboard.lifecycle.WS_CLOSE_TIMEOUT", 0.2)
+
+        stalled = self._StalledWS()
+        healthy = AsyncMock()
+        clients = {stalled, healthy}
+
+        t0 = time.time()
+        await broadcast_event("packet", {"id": 1}, clients)
+        elapsed = time.time() - t0
+
+        assert elapsed < 1.0, f"broadcast blocked on stalled client: {elapsed:.2f}s"
+        assert stalled not in clients
+        assert stalled.closed  # dropped socket was closed
+        assert healthy in clients
+        healthy.send_text.assert_awaited_once()
+
+    async def test_consumer_storage_progresses_with_stalled_client(self, monkeypatch):
+        """Regression for issue #166: packet storage keeps progressing while
+        one browser client is stalled, instead of queueing behind it."""
+        monkeypatch.setattr("direwolf_dashboard.lifecycle.WS_SEND_TIMEOUT", 0.05)
+        monkeypatch.setattr("direwolf_dashboard.lifecycle.WS_CLOSE_TIMEOUT", 0.2)
+
+        stalled = self._StalledWS()
+        mock_storage = AsyncMock()
+        mock_storage.insert_packet.return_value = 1
+        mock_storage.get_my_position.return_value = None
+
+        queue = asyncio.Queue()
+        for i in range(3):
+            await queue.put({
+                "from_call": f"ST{i}",
+                "type": "GPSPacket",
+                "timestamp": time.time(),
+                "latitude": 37.75,
+                "longitude": -77.45,
+                "symbol": ">",
+                "symbol_table": "/",
+            })
+
+        services = DirewolfServices(
+            config=Config(),
+            config_path=None,
+            storage=mock_storage,
+            processor=MagicMock(),
+            broadcast_queue=queue,
+            agw_reader=MagicMock(connected=False),
+            log_tailer=MagicMock(active=False),
+            start_time=time.time(),
+        )
+        services.ws_clients.add(stalled)
+
+        async def run_three():
+            task = asyncio.create_task(_broadcast_consumer(services))
+            await asyncio.sleep(0.3)
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+        await run_three()
+
+        # All packets stored even though the first broadcast had to time out
+        # the stalled client; the stalled client is gone after the first one.
+        assert mock_storage.insert_packet.await_count == 3
+        assert stalled not in services.ws_clients
+        assert stalled.closed
