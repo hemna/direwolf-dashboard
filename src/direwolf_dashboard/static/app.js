@@ -2395,10 +2395,14 @@
         var t0 = performance.now();
         var serverAge = packet.timestamp ? ((Date.now() / 1000) - packet.timestamp).toFixed(2) : '?';
         addLogRow(packet);
-        if (packet.latitude != null && packet.longitude != null) {
+        // Object/item packets report a named location that is NOT the
+        // reporting station's own position — keep them off the reporter's
+        // marker, position cache and movement track (issue #170).
+        var isPlacePacket = packet.type === 'ObjectPacket' || packet.type === 'ItemPacket';
+        if (!isPlacePacket && packet.latitude != null && packet.longitude != null) {
             updatePositionCache(packet.from_call, packet.latitude, packet.longitude);
         }
-        if (packet.latitude != null && packet.longitude != null) {
+        if (!isPlacePacket && packet.latitude != null && packet.longitude != null) {
             if (waitingForPosition) {
                 dismissWaiting();
                 const zoom = config.station?.zoom || 12;
