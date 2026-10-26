@@ -183,6 +183,52 @@ class TestBroadcastEvent:
         assert ws_bad not in clients
         assert ws_good in clients
 
+    async def test_broadcast_keeps_replacement_client(self):
+        """A failed send is paired with the client that was actually sent to."""
+        send_started = asyncio.Event()
+        finish_send = asyncio.Event()
+        ws_bad = AsyncMock()
+        ws_bad.send_text.side_effect = self._blocked_failure(send_started, finish_send)
+        ws_replacement = AsyncMock()
+        clients = {ws_bad}
+
+        task = asyncio.create_task(broadcast_event("test", {}, clients))
+        await send_started.wait()
+        clients.remove(ws_bad)
+        clients.add(ws_replacement)
+        finish_send.set()
+        await task
+
+        assert ws_bad not in clients
+        assert ws_replacement in clients
+
+    async def test_broadcast_handles_added_client(self):
+        """Adding a client during send does not break result pairing."""
+        send_started = asyncio.Event()
+        finish_send = asyncio.Event()
+        ws_bad = AsyncMock()
+        ws_bad.send_text.side_effect = self._blocked_failure(send_started, finish_send)
+        ws_added = AsyncMock()
+        clients = {ws_bad}
+
+        task = asyncio.create_task(broadcast_event("test", {}, clients))
+        await send_started.wait()
+        clients.add(ws_added)
+        finish_send.set()
+        await task
+
+        assert ws_bad not in clients
+        assert ws_added in clients
+
+    @staticmethod
+    def _blocked_failure(send_started, finish_send):
+        async def fail(*args):
+            send_started.set()
+            await finish_send.wait()
+            raise RuntimeError("disconnected")
+
+        return fail
+
     async def test_broadcast_empty_clients(self):
         """No-op when no clients connected."""
         clients: set = set()
