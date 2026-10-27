@@ -328,6 +328,10 @@ def update_config(
     current_dict = config.to_dict()
     updated_fields = []
     restart_required = False
+    # The path derived from the current data_dir, before any update is applied.
+    old_derived_db_path = (
+        os.path.join(config.data_dir, "packets.db") if config.data_dir else None
+    )
 
     def _apply_updates(base: dict, updates: dict, prefix: str = ""):
         nonlocal restart_required
@@ -343,6 +347,19 @@ def update_config(
                         restart_required = True
 
     _apply_updates(current_dict, updates)
+
+    # A new data_dir must carry the derived default database path with it.
+    # Custom paths and an explicitly supplied db_path are left alone; existing
+    # history is never moved (issue #174).
+    new_data_dir = os.path.expanduser(current_dict.get("data_dir") or "")
+    if (
+        "data_dir" in updated_fields
+        and old_derived_db_path
+        and new_data_dir
+        and current_dict["storage"]["db_path"] == old_derived_db_path
+        and "db_path" not in (updates.get("storage") or {})
+    ):
+        current_dict["storage"]["db_path"] = os.path.join(new_data_dir, "packets.db")
 
     new_config = _dict_to_config(current_dict)
     save_config(new_config, path)
