@@ -399,6 +399,30 @@ def _build_human_info(parsed: dict) -> str:
     return " ".join(parts) if parts else ""
 
 
+_LOG_INFO_RE = re.compile(r"\[[\d.]+\s+[LR]>[LR]\]\s+[^:\s]+:(.*)$")
+
+#: Pending log metadata entries kept per callsign while waiting for the AGW
+#: packet that produced them.
+MAX_PENDING_PER_CALLSIGN = 20
+
+
+def _log_info_field(raw_lines: list[str]) -> Optional[str]:
+    """Return the APRS info field from a decoded log line, if it carries one."""
+    for line in raw_lines:
+        match = _LOG_INFO_RE.search(line)
+        if match:
+            return match.group(1).strip()
+    return None
+
+
+def _agw_info_field(raw_aprs: str) -> Optional[str]:
+    """Return the APRS info field of an AGW payload (TNC2 string or bare info)."""
+    header, sep, payload = raw_aprs.partition(":")
+    if sep and ">" in header:
+        return payload.strip()
+    return raw_aprs.strip() or None
+
+
 class PacketProcessor:
     """Processes packets from AGW and log tailer, merges data, broadcasts.
 
@@ -413,8 +437,8 @@ class PacketProcessor:
         self.broadcast_queue = broadcast_queue
         # Buffer for correlating AGW packets with log data
         self._pending_log_data: dict[
-            str, dict
-        ] = {}  # callsign -> {audio_level, raw_lines, timestamp}
+            str, list[dict]
+        ] = {}  # callsign -> [{audio_level, raw_lines, payload, timestamp}]
         self._correlation_window = 2.0  # seconds
 
     async def on_agw_packet(
@@ -430,14 +454,33 @@ class PacketProcessor:
         except Exception:
             raw_aprs = ""
 
-        # Check for correlated log data (audio level only)
+        # Check for correlated log data: match on the packet's info field, so a
+        # level that arrives after its packet cannot attach to the next one from
+        # the same callsign (issue #175). An entry without a payload keeps the
+        # log-first behaviour of matching the oldest pending entry.
         audio_level = None
-        log_data = self._pending_log_data.pop(call_from, None)
-        if (
-            log_data
-            and (time.time() - log_data["timestamp"]) < self._correlation_window
-        ):
-            audio_level = log_data.get("audio_level")
+        now = time.time()
+        entries = [
+            entry
+            for entry in self._pending_log_data.get(call_from, [])
+            if now - entry["timestamp"] < self._correlation_window
+        ]
+        info = _agw_info_field(raw_aprs)
+        match = next(
+            (
+                i
+                for i, entry in enumerate(entries)
+                if entry["payload"] is None
+                or (info is not None and entry["payload"] == info)
+            ),
+            None,
+        )
+        if match is not None:
+            audio_level = entries.pop(match)["audio_level"]
+        if entries:
+            self._pending_log_data[call_from] = entries
+        else:
+            self._pending_log_data.pop(call_from, None)
 
         packet = packet_to_dict(
             raw_aprs_string=raw_aprs,
@@ -467,28 +510,36 @@ class PacketProcessor:
 
         Stores them for correlation with AGW packets.
         """
+        now = time.time()
         if callsign:
-            self._pending_log_data[callsign] = {
-                "audio_level": audio_level,
-                "raw_lines": raw_lines,
-                "timestamp": time.time(),
-            }
+            entries = self._pending_log_data.setdefault(callsign, [])
+            entries.append(
+                {
+                    "audio_level": audio_level,
+                    "raw_lines": raw_lines,
+                    "payload": _log_info_field(raw_lines),
+                    "timestamp": now,
+                }
+            )
+            del entries[:-MAX_PENDING_PER_CALLSIGN]
 
         # Clean old pending data
-        now = time.time()
-        stale = [
-            k
-            for k, v in self._pending_log_data.items()
-            if now - v["timestamp"] > self._correlation_window * 2
-        ]
-        for k in stale:
-            del self._pending_log_data[k]
+        for k, entries in list(self._pending_log_data.items()):
+            fresh = [
+                entry
+                for entry in entries
+                if now - entry["timestamp"] <= self._correlation_window * 2
+            ]
+            if fresh:
+                self._pending_log_data[k] = fresh
+            else:
+                del self._pending_log_data[k]
 
         # Hard cap: if still large (e.g. AGW connection absent), evict oldest half
         if len(self._pending_log_data) > 500:
             oldest = sorted(
                 self._pending_log_data,
-                key=lambda k: self._pending_log_data[k]["timestamp"],
+                key=lambda k: self._pending_log_data[k][0]["timestamp"],
             )
             for k in oldest[:250]:
                 del self._pending_log_data[k]
