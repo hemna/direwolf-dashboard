@@ -115,3 +115,25 @@ def test_off_state_falls_back_to_sprite():
     """The model path is gated by the toggle, so off falls back to the sprite."""
     assert "wxStationEnabled" in JS
     assert "filter-station-model" in JS
+
+
+def test_gust_label_avoids_every_fixed_field():
+    """Issue #156 fix 1: the gust label takes the first free slot on the barb
+    tip ring instead of a fixed 40 px spot, and the disc, pressure, dewpoint
+    and callsign boxes are reserved, so no two values are drawn on each other
+    (the fixed spot landed on the pressure text for some wind directions)."""
+    assert "const offsets = [0, 10, -10, 20, -20, 30, -30, 45, -45" in JS
+    assert "const radii = [40, 34, 28, 22]" in JS
+    assert "const reserved = [[cx - r - 1, cy - r - 1, cx + r + 1, cy + r + 1]]" in JS
+    assert "reserved.push(labelBox(ctx, pressureLabel, 100, 18, 10, 'right'))" in JS
+    assert "reserved.push(labelBox(ctx, dewLabel, 4, 82, 8, 'left'))" in JS
+    assert "reserved.push(labelBox(ctx, callsign, cx, 94, 8))" in JS
+    assert "boxesHit(box, b)" in JS
+    assert "insideCanvas(box)" in JS
+
+
+def test_dewpoint_start_anchored_inside_canvas():
+    """Issue #156 fix 1/3: the dewpoint is start-anchored at x=4, so its text
+    and halo stay inside the 104 px canvas (centre-anchored at x=8 pushed the
+    halo past the left edge)."""
+    assert "drawModelText(ctx, dewLabel, 4, 82, 8, 'left')" in JS

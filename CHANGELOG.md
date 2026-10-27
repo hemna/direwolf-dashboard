@@ -33,6 +33,15 @@ All notable changes to this project are documented here.
   The overlay layer no longer requests an empty `aprs-o-` image, and the
   configured zoom now frames the same area as the Leaflet map did (MapLibre
   z = Leaflet z - 1).
+- **Station plot: the gust label never lands on another value (issue #156)** —
+  the gust ("G<kt>") was drawn at one fixed spot past the wind-barb tip, so for
+  winds from some directions it landed on the pressure number (14 of the 52
+  plots that draw a gust in a 661-station sample), on the callsign (3) or on
+  the dewpoint (1); it now takes the first free position on the tip ring and
+  avoids the disc, pressure, dewpoint and callsign. The dewpoint also moved
+  from centre-anchored at x=8 to start-anchored at x=4, so its outline is no
+  longer cut off at the left edge of the 104 pixel plot (it was on 630 of the
+  637 plots that draw a dewpoint).
 
 ### Security
 - **The public config no longer exposes the write token (issue #162)** — `GET /api/config` previously returned `server.api_token` to unauthenticated readers, effectively publishing the token that gates settings changes and storage deletion. The token is now stripped from the public response; it still authenticates `PUT /api/config` and `DELETE /api/storage` exactly as before, and saving settings no longer loses it.
