@@ -292,7 +292,9 @@ def save_config(config: Config, path: Optional[str] = None) -> None:
     if path is None:
         path = DEFAULT_CONFIG_PATH
 
-    path = os.path.expanduser(path)
+    # Absolute so a plain relative filename has a parent directory to create
+    # and the temp file lands next to the target (issue #178).
+    path = os.path.abspath(os.path.expanduser(path))
 
     # Ensure directory exists
     os.makedirs(os.path.dirname(path), exist_ok=True)
