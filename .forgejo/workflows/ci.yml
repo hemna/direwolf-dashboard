@@ -49,10 +49,7 @@ jobs:
     container:
       image: node:20-bookworm
     steps:
-      - name: Install SSH client
-        run: |
-          apt-get update -qq
-          apt-get install -y -qq openssh-client
+      # node:20-bookworm already ships ssh and ssh-keyscan.
       - name: Roll digipi.hemna.com to master
         env:
           DIGIPI_SSH_KEY: ${{ secrets.DIGIPI_SSH_KEY }}
@@ -62,7 +59,7 @@ jobs:
           install -d -m 700 ~/.ssh
           printf '%s\n' "$DIGIPI_SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H digipi.hemna.com >> ~/.ssh/known_hosts 2>/dev/null
+          ssh-keyscan -H digipi.hemna.com >> ~/.ssh/known_hosts
           # The token goes in on stdin so it stays out of the remote process list.
           {
             printf "DIGIPI_GIT_TOKEN='%s'\n" "$DIGIPI_GIT_TOKEN"
