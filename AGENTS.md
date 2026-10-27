@@ -157,12 +157,25 @@ sudo bash contrib/install.sh
 
 ### Deploying to production (merge to master)
 
+Every merge to master is rolled to the DigiPi automatically by the `deploy-digipi`
+job in `.forgejo/workflows/ci.yml`, after lint and tests pass. To re-roll by hand,
+start the CI workflow from the Actions tab (`workflow_dispatch`).
+
+The job SSHes to `pi@digipi.hemna.com` (key in repo secret `DIGIPI_SSH_KEY`), fetches
+master from `git.hemna.com` (read token in repo secret `DIGIPI_GIT_TOKEN`), remounts
+the readonly root filesystem rw for the checkout and `uv pip install -e .`, remounts
+it ro again, restarts the service and waits for `/api/health` on port 8088. Local
+changes on the Pi are `git stash`ed before the checkout, never discarded.
+
+Manual equivalent, if the action is unavailable:
+
 ```bash
 ssh pi@digipi.local
 cd ~/direwolf-dashboard
-git checkout master
-git pull origin master
-uv pip install -e .
+sudo mount -o remount,rw /
+git fetch origin master && git checkout -B master FETCH_HEAD
+VIRTUAL_ENV=.venv uv pip install -e .
+sudo mount -o remount,ro /
 sudo systemctl restart direwolf-dashboard
 ```
 
