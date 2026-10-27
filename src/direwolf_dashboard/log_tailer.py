@@ -97,6 +97,7 @@ class LogTailer:
         """
         self._running = True
         backoff = min(1.0, self.max_backoff)
+        first_open = True
 
         while self._running:
             try:
@@ -113,7 +114,8 @@ class LogTailer:
                     break
 
                 backoff = 1.0  # Reset on success
-                await self._tail_file()
+                await self._tail_file(initial=first_open)
+                first_open = False
 
             except asyncio.CancelledError:
                 break
@@ -129,14 +131,19 @@ class LogTailer:
         self._running = False
         self._active = False
 
-    async def _tail_file(self) -> None:
-        """Open the file, seek to end, and tail new lines."""
+    async def _tail_file(self, initial: bool = False) -> None:
+        """Open the file and tail new lines.
+
+        Only the first open skips to the end (existing content is pre-startup
+        history). A reopened file after rotation, or a file that shrank in place
+        (copytruncate), is read from the beginning (issue #176).
+        """
         initial_inode = os.stat(self.log_path).st_ino
         LOG.info(f"Tailing log file: {self.log_path} (inode: {initial_inode})")
 
         with open(self.log_path) as f:
-            # Seek to end — only read new lines
-            f.seek(0, 2)
+            if initial:
+                f.seek(0, 2)
             self._active = True
 
             line_buffer = ""
@@ -156,6 +163,12 @@ class LogTailer:
                     LOG.warning("Log file disappeared, waiting for it to return...")
                     self._active = False
                     return
+
+                # Detect an in-place truncation (copytruncate keeps the inode)
+                if os.fstat(f.fileno()).st_size < f.tell():
+                    LOG.info("Log file truncated, reading from the start")
+                    f.seek(0)
+                    line_buffer = ""
 
                 chunk = f.readline()
                 if chunk:

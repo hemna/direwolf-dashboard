@@ -234,6 +234,88 @@ class TestLogTailer:
         callsigns = [r["callsign"] for r in received]
         assert "ROTATED" in callsigns
 
+    async def test_rotation_reads_replacement_file_from_start(self, tmp_path):
+        """A replacement log file is read from its beginning (issue #176)."""
+        log_file = tmp_path / "direwolf.log"
+        log_file.write_text("[0 L>R] OLD>APRS:before startup\n")
+
+        received = []
+
+        async def callback(raw_lines, audio_level, callsign):
+            received.append({"callsign": callsign, "audio_level": audio_level})
+
+        tailer = LogTailer(str(log_file), callback, sleep_interval=0.02, max_backoff=0.5)
+        task = asyncio.create_task(tailer.run())
+        await asyncio.sleep(0.2)
+
+        # Atomically replace the log with a populated file (new inode)
+        replacement = tmp_path / "replacement.log"
+        replacement.write_text(
+            "[0 L>R] W1NEW>APRS:first\n"
+            "audio level = 42(16/11)\n"
+        )
+        os.replace(str(replacement), str(log_file))
+        await asyncio.sleep(0.5)
+
+        with open(str(log_file), "a") as f:
+            f.write("[0 L>R] W2NEW>APRS:second\n")
+
+        await asyncio.sleep(0.5)
+
+        await tailer.stop()
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+        callsigns = [r["callsign"] for r in received]
+        assert "W1NEW" in callsigns
+        assert "W2NEW" in callsigns
+        w1 = next(r for r in received if r["callsign"] == "W1NEW")
+        assert w1["audio_level"] == 42
+
+    async def test_truncation_resets_offset(self, tmp_path):
+        """copytruncate (same inode) must be read again from the start (issue #176)."""
+        log_file = tmp_path / "direwolf.log"
+        log_file.write_text("")
+
+        received = []
+
+        async def callback(raw_lines, audio_level, callsign):
+            received.append({"callsign": callsign, "audio_level": audio_level})
+
+        tailer = LogTailer(str(log_file), callback, sleep_interval=0.02, max_backoff=0.5)
+        task = asyncio.create_task(tailer.run())
+        await asyncio.sleep(0.2)
+
+        with open(str(log_file), "a") as f:
+            f.write("[0 L>R] W1OLD>APRS:before truncation\n")
+        await asyncio.sleep(0.4)
+
+        # copytruncate: same inode shrinks to zero, then new lines are written
+        with open(str(log_file), "w"):
+            pass
+        await asyncio.sleep(0.3)
+        with open(str(log_file), "a") as f:
+            f.write(
+                "[0 L>R] W3TRUNC>APRS:after truncation\n"
+                "audio level = 12(4/3)\n"
+            )
+
+        await asyncio.sleep(0.5)
+
+        await tailer.stop()
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+        w3 = [r for r in received if r["callsign"] == "W3TRUNC"]
+        assert len(w3) == 1
+        assert w3[0]["audio_level"] == 12
+
     async def test_extract_audio_level_from_tail(self, tmp_path):
         """Verify audio levels are correctly extracted during tailing."""
         log_file = tmp_path / "direwolf.log"
