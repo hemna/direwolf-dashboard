@@ -5,6 +5,7 @@ on:
     branches: [master]
   pull_request:
     branches: [master]
+  workflow_dispatch:
 
 jobs:
   lint:
@@ -35,3 +36,69 @@ jobs:
       - name: JS syntax check
         run: |
           find . -name '*.js' -not -path '*/node_modules/*' -not -path '*/.venv/*' -not -path '*/vendor/*' -print0 | xargs -0 -n1 node --check
+
+  deploy-digipi:
+    name: Deploy to DigiPi
+    needs: lint
+    # Merge to master (or a manual dispatch) rolls the Pi to master; PRs only lint.
+    if: github.event_name != 'pull_request'
+    concurrency:
+      group: deploy-digipi
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    container:
+      image: node:20-bookworm
+    steps:
+      - name: Install SSH client
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq openssh-client
+      - name: Roll digipi.hemna.com to master
+        env:
+          DIGIPI_SSH_KEY: ${{ secrets.DIGIPI_SSH_KEY }}
+          DIGIPI_GIT_TOKEN: ${{ secrets.DIGIPI_GIT_TOKEN }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DIGIPI_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H digipi.hemna.com >> ~/.ssh/known_hosts 2>/dev/null
+          # The token goes in on stdin so it stays out of the remote process list.
+          {
+            printf "DIGIPI_GIT_TOKEN='%s'\n" "$DIGIPI_GIT_TOKEN"
+            cat <<'REMOTE'
+          set -euo pipefail
+          cd /home/pi/direwolf-dashboard
+          git fetch --quiet "http://oauth2:$DIGIPI_GIT_TOKEN@git.hemna.com/hemna/direwolf-dashboard.git" \
+            '+refs/heads/master:refs/remotes/deploy/master'
+          target=$(git rev-parse refs/remotes/deploy/master)
+          if [ "$(git rev-parse HEAD)" = "$target" ] && [ -z "$(git status --porcelain)" ]; then
+            echo "already at $target"
+            exit 0
+          fi
+          # DigiPi has a readonly root filesystem; writes are needed to check out code.
+          sudo mount -o remount,rw /
+          trap 'sudo mount -o remount,ro /' EXIT
+          if [ -n "$(git status --porcelain)" ]; then
+            git stash push --quiet -m "pre-deploy $(date -u +%Y%m%dT%H%M%SZ)"
+            echo "stashed local changes (recover with: git stash list)"
+          fi
+          git checkout --quiet -B master "$target"
+          VIRTUAL_ENV=/home/pi/direwolf-dashboard/.venv /usr/local/bin/uv pip install --quiet -e .
+          sudo sync
+          sudo mount -o remount,ro /
+          trap - EXIT
+          sudo systemctl restart direwolf-dashboard
+          echo "deployed $target"
+          for _ in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:8088/api/health >/dev/null 2>&1; then
+              echo "health ok"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "health check failed" >&2
+          systemctl --no-pager -l status direwolf-dashboard | tail -20 >&2
+          exit 1
+          REMOTE
+          } | ssh pi@digipi.hemna.com 'bash -s'
