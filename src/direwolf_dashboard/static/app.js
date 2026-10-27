@@ -2886,7 +2886,13 @@
                     ? `Saved. Restart required for: ${result.updated.join(', ')}`
                     : `Saved: ${result.updated.join(', ') || 'no changes'}`;
                 feedback.classList.remove('hidden');
-                config = { ...config, ...updates };
+                // Merge section-wise: an ordinary save must not drop fields it
+                // did not submit, such as station.my_position (issue #172).
+                const merged = { ...config };
+                for (const [section, values] of Object.entries(updates)) {
+                    merged[section] = { ...(config[section] || {}), ...values };
+                }
+                config = merged;
                 // Apply display settings immediately
                 showRouteDistances = updates.display.show_route_distances;
                 showGpxOverlay = updates.display.show_gpx_overlay;
