@@ -161,19 +161,84 @@
 
     function applyTheme(theme) {
         if (theme !== 'light' && theme !== 'dark') return;
+        var redundant = theme === _currentTheme;
         _currentTheme = theme;
         document.documentElement.setAttribute('data-theme', theme);
         if (!_embedded) localStorage.setItem('dw-theme', theme);
         updateThemeIcon();
-        // Reload the maplibre style for the new theme; station layers are
-        // re-added on the 'style.load' event (theme-dependent paint colors).
+        // A repeated 'theme-change' message from the embedding window asks for
+        // a theme already on screen; nothing to repaint (#201).
+        if (redundant) return;
+        // Swap the maplibre style's paint in place; a full setStyle drops every
+        // layer the page adds on 'style.load' and re-adds it (#201).
         if (mainMapIsMaplibre && map) {
-            fetchStyleForTheme(theme).then(function (style) {
-                map.setStyle(style);
-            }).catch(function (e) {
+            fetchStyleForTheme(theme).then(applyThemeStyle).catch(function (e) {
                 console.error('Failed to switch map style:', e);
             });
         }
+    }
+    /** True when the kit layer only differs in paint: same type, source and
+     *  filter/layout, so setPaintProperty is enough. */
+    function themeStructureMatches(layer, live) {
+        if (!live || layer.type !== live.type) return false;
+        if (layer.source !== live.source || layer['source-layer'] !== live['source-layer']) {
+            return false;
+        }
+        return ['layout', 'filter', 'minzoom', 'maxzoom'].every(function (k) {
+            return JSON.stringify(layer[k]) === JSON.stringify(live[k]);
+        });
+    }
+    /** Apply a theme style to the live map. The light and dark kit styles carry
+     *  the same sources, layer ids, order, layout and filters; only the paint
+     *  values and the base sprite differ (measured in #201). Push those instead
+     *  of replacing the style; anything structural still gets a full replace. */
+    function applyThemeStyle(style) {
+        // shortcut: a kit style that removes layers between page load and a
+        // theme click keeps the stale layer until reload; revisit when the kit
+        // pin in basemap.py changes.
+        var liveLayers = new Map(map.getStyle().layers.map(function (l) { return [l.id, l]; }));
+        var structural = style.layers.some(function (l) {
+            return !themeStructureMatches(l, liveLayers.get(l.id));
+        });
+        if (structural || !style.sprite || typeof map.setSprite !== 'function') {
+            map.setStyle(style);
+            return;
+        }
+        style.layers.forEach(function (layer) {
+            var have = liveLayers.get(layer.id).paint || {};
+            var want = layer.paint || {};
+            Object.keys(want).forEach(function (k) {
+                if (JSON.stringify(want[k]) !== JSON.stringify(have[k])) {
+                    map.setPaintProperty(layer.id, k, want[k]);
+                }
+            });
+            Object.keys(have).forEach(function (k) {
+                if (!(k in want)) map.setPaintProperty(layer.id, k, null);
+            });
+        });
+        map.setSprite(style.sprite);
+        repaintAppLayers();
+    }
+    /** Paint the layers the page adds itself with the new theme's colours; the
+     *  in-place swap leaves them untouched, and they are not in the kit style. */
+    function repaintAppLayers() {
+        function paint(id, key, value) {
+            if (map.getLayer(id)) map.setPaintProperty(id, key, value);
+        }
+        paint('stations-my-glow', 'circle-color', themeColor('--my-station-glow'));
+        paint('stations-my-glow-core', 'circle-color', themeColor('--my-station-glow'));
+        paint('stations-label', 'text-color', themeColor('--text-primary'));
+        paint('stations-label', 'text-halo-color', themeColor('--label-shadow'));
+        paint('station-tracks-line', 'line-color', themeColor('--station-track'));
+        paint('station-overlay-path', 'line-color', themeColor('--path-overlay-color') || '#ff9500');
+        paint('station-overlay-distance', 'line-color', themeColor('--distance-line-color') || '#00bfff');
+        paint('tx-arcs-line', 'line-color', themeColor('--route-tcpip-line'));
+        paint('gpx-track', 'line-color', themeColor('--gpx-accent'));
+        paint('gpx-route', 'line-color', themeColor('--gpx-accent'));
+        paint('gpx-points', 'circle-color', ['match', ['get', 'kind'],
+            'start', themeColor('--gpx-start'),
+            'end', themeColor('--gpx-end'),
+            themeColor('--gpx-waypoint')]);
     }
 
     function toggleTheme() {
@@ -1144,7 +1209,7 @@
         });
 
         // (Re-)add the station source + layers after every style load, including
-        // after theme switches via map.setStyle().
+        // a structural theme swap; the paint-only path (#201) leaves them alone.
         map.on('style.load', addStationLayers);
         map.on('style.load', addOverlaySources);
 
@@ -1318,8 +1383,9 @@
     }
 
     // --- Dynamic GeoJSON line sources (tracks, popup overlay, tx arcs) ---
-    // Added below the station symbol layers; re-added after every style.load (so
-    // theme switches survive). Their data is stored in JS state, not the map.
+    // Added below the station symbol layers; re-added after every style.load (a
+    // full style replace, including a structural theme swap). Their data is
+    // stored in JS state, not the map.
     function addOverlaySources() {
         if (!mainMapIsMaplibre || !map) return;
 
