@@ -52,20 +52,26 @@ jobs:
       # node:20-bookworm already ships ssh and ssh-keyscan.
       - name: Roll digipi.hemna.com to master
         env:
+          DIGIPI_HOST: 192.168.0.21
           DIGIPI_SSH_KEY: ${{ secrets.DIGIPI_SSH_KEY }}
           DIGIPI_GIT_TOKEN: ${{ secrets.DIGIPI_GIT_TOKEN }}
         run: |
           set -euo pipefail
+          # Connect by the Pi's eth0 address: digipi.hemna.com has two A records
+          # (192.168.1.21 is unreachable from the runner network).
           install -d -m 700 ~/.ssh
           printf '%s\n' "$DIGIPI_SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H digipi.hemna.com >> ~/.ssh/known_hosts
+          ssh-keyscan -H "$DIGIPI_HOST" >> ~/.ssh/known_hosts
           # The token goes in on stdin so it stays out of the remote process list.
           {
             printf "DIGIPI_GIT_TOKEN='%s'\n" "$DIGIPI_GIT_TOKEN"
             cat <<'REMOTE'
           set -euo pipefail
           cd /home/pi/direwolf-dashboard
+          # DigiPi has a readonly root filesystem; git and uv need writes.
+          sudo mount -o remount,rw /
+          trap 'sudo mount -o remount,ro /' EXIT
           git fetch --quiet "http://oauth2:$DIGIPI_GIT_TOKEN@git.hemna.com/hemna/direwolf-dashboard.git" \
             '+refs/heads/master:refs/remotes/deploy/master'
           target=$(git rev-parse refs/remotes/deploy/master)
@@ -73,9 +79,6 @@ jobs:
             echo "already at $target"
             exit 0
           fi
-          # DigiPi has a readonly root filesystem; writes are needed to check out code.
-          sudo mount -o remount,rw /
-          trap 'sudo mount -o remount,ro /' EXIT
           if [ -n "$(git status --porcelain)" ]; then
             git stash push --quiet -m "pre-deploy $(date -u +%Y%m%dT%H%M%SZ)"
             echo "stashed local changes (recover with: git stash list)"
@@ -98,4 +101,4 @@ jobs:
           systemctl --no-pager -l status direwolf-dashboard | tail -20 >&2
           exit 1
           REMOTE
-          } | ssh pi@digipi.hemna.com 'bash -s'
+          } | ssh "pi@$DIGIPI_HOST" 'bash -s'
