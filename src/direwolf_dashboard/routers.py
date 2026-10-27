@@ -144,7 +144,7 @@ def create_api_routes(container: ServiceContainer) -> list:
     async def get_packets(request: Request):
         services = _get_services(container)
         since = _qfloat(request, "since")
-        limit = _qint(request, "limit", 100, max_val=500)
+        limit = _qint(request, "limit", 100, min_val=1, max_val=500)
         callsign = request.query_params.get("callsign") or None
         ptype = request.query_params.get("type") or None
         packets = await services.storage.query_packets(
@@ -168,11 +168,11 @@ def create_api_routes(container: ServiceContainer) -> list:
           since    — Unix timestamp lower bound
           callsign — filter by from_call
           type     — filter by packet type
-          limit    — max rows (default 10000, max 50000)
+          limit    — max rows (default 10000, min 1, max 50000)
         """
         services = _get_services(container)
         since = _qfloat(request, "since")
-        limit = _qint(request, "limit", 10_000, max_val=50_000)
+        limit = _qint(request, "limit", 10_000, min_val=1, max_val=50_000)
         callsign = request.query_params.get("callsign") or None
         ptype = request.query_params.get("type") or None
 
@@ -219,7 +219,7 @@ def create_api_routes(container: ServiceContainer) -> list:
     async def get_messages(request: Request):
         services = _get_services(container)
         since = _qfloat(request, "since")
-        limit = _qint(request, "limit", 200, max_val=1000)
+        limit = _qint(request, "limit", 200, min_val=1, max_val=1000)
         callsign = request.query_params.get("callsign") or None
         messages = await services.storage.query_packets(
             since=since, limit=limit, callsign=callsign, packet_type="MessagePacket"

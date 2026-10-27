@@ -181,6 +181,43 @@ class TestPacketsEndpoint:
             assert len(data) == 1
             assert data[0]["from_call"] == "WB4BOR"
 
+    async def test_negative_limit_is_clamped(self, test_app):
+        """A negative limit must not bypass the response cap (issue #177)."""
+        app, storage = test_app
+        for i in range(3):
+            await storage.insert_packet(_make_packet(from_call=f"CALL{i}"))
+
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.get("/api/packets?limit=-1")
+
+        assert response.status_code == 200
+        assert len(response.json()) == 1
+
+    async def test_negative_limit_is_clamped_for_messages(self, test_app):
+        app, storage = test_app
+        for i in range(3):
+            await storage.insert_packet(
+                _make_packet(from_call=f"CALL{i}", type="MessagePacket")
+            )
+
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.get("/api/messages?limit=-1")
+
+        assert response.status_code == 200
+        assert len(response.json()) == 1
+
+    async def test_negative_limit_is_clamped_for_csv_export(self, test_app):
+        app, storage = test_app
+        for i in range(3):
+            await storage.insert_packet(_make_packet(from_call=f"CALL{i}"))
+
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.get("/api/packets/export?limit=-1")
+
+        assert response.status_code == 200
+        rows = [line for line in response.text.splitlines() if line.strip()]
+        assert len(rows) == 2  # header + one packet
+
 
 class TestStationsEndpoint:
     async def test_get_stations_empty(self, test_app):
