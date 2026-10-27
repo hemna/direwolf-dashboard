@@ -390,3 +390,50 @@ def test_route_distance_labels_ported():
     tx = _function_body(js, "playTransmitAnimation", "// --- WebSocket")
     assert "removeRouting" in tx, "route lines + labels must be removed together"
     assert "label.remove()" in tx
+
+
+def test_theme_swap_paints_in_place_instead_of_replacing_style():
+    """Issue #201: a light/dark swap must not drop and re-add the app layers."""
+    js = APP_JS.read_text(encoding="utf-8")
+    theme = _function_body(js, "applyTheme", "function themeStructureMatches")
+    assert "if (redundant) return;" in theme, "a repeated theme must not refetch the style"
+    assert "map.setStyle(" not in theme, "applyTheme must not replace the map style"
+    assert "fetchStyleForTheme(theme).then(applyThemeStyle)" in theme
+    swap = _function_body(js, "applyThemeStyle", "function repaintAppLayers")
+    assert "map.setPaintProperty(layer.id, k, want[k])" in swap
+    assert "map.setSprite(style.sprite)" in swap
+    assert "map.setStyle(style);" in swap, "a structural difference must still replace the style"
+    assert "addLayer" not in swap and "addSource" not in swap, "the paint path must not re-add layers"
+    repaint = _function_body(js, "repaintAppLayers", "function toggleTheme")
+    for layer in ("stations-label", "station-tracks-line", "station-overlay-path",
+                  "tx-arcs-line", "gpx-track", "gpx-points"):
+        assert "'" + layer + "'" in repaint, f"{layer} keeps a stale theme colour without a repaint"
+
+
+def test_theme_structure_matches_only_paint_differences_in_node():
+    """themeStructureMatches, verbatim from app.js, under node (issue #201)."""
+    if not shutil.which("node"):
+        pytest.skip("node not installed")
+    js = APP_JS.read_text(encoding="utf-8")
+    harness = (
+        _extract_js_function(js, "themeStructureMatches")
+        + "\n"
+        + "const base = { id: 'water', type: 'fill', source: 'protomaps',"
+        + " 'source-layer': 'water', layout: { visibility: 'visible' },"
+        + " filter: ['==', ['get', 'k'], 1], minzoom: 0, maxzoom: 12,"
+        + " paint: { 'fill-color': '#111' } };\n"
+        + "const dark = { ...base, paint: { 'fill-color': '#000' } };\n"
+        + "console.log('PAINT', themeStructureMatches(dark, base));\n"
+        + "console.log('TYPE', themeStructureMatches({ ...dark, type: 'line' }, base));\n"
+        + "console.log('SRC', themeStructureMatches({ ...dark, source: 'world' }, base));\n"
+        + "console.log('LAYOUT', themeStructureMatches({ ...dark, layout: { visibility: 'none' } }, base));\n"
+        + "console.log('FILTER', themeStructureMatches({ ...dark, filter: ['==', ['get', 'k'], 2] }, base));\n"
+        + "console.log('ZOOM', themeStructureMatches({ ...dark, maxzoom: 14 }, base));\n"
+        + "console.log('MISSING', themeStructureMatches(dark, undefined));\n"
+    )
+    result = subprocess.run(["node", "-e", harness], capture_output=True, text=True)
+    assert result.returncode == 0, f"node failed:\n{result.stderr}\n{result.stdout}"
+    out = result.stdout
+    assert "PAINT true" in out, "a paint-only difference must take the paint path: " + out
+    for case in ("TYPE", "SRC", "LAYOUT", "FILTER", "ZOOM", "MISSING"):
+        assert case + " false" in out, f"{case} must fall back to a full style replace: " + out
