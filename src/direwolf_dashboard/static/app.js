@@ -1667,6 +1667,26 @@
         ctx.fillText(text, x, y);
     }
 
+    // Box a label would paint, in canvas px: the measured text width plus a
+    // 2 px pad for the 3 px halo, and the font em box for the height, so the
+    // estimate is never smaller than the real ink. [left, top, right, bottom].
+    function labelBox(ctx, text, x, y, size, align) {
+        ctx.font = 'bold ' + size + 'px sans-serif';
+        const w = ctx.measureText(text).width;
+        let left = x;
+        if (align === 'right') left = x - w;
+        else if (align !== 'left') left = x - w / 2;
+        return [left - 2, y - size / 2 - 2, left + w + 2, y + size / 2 + 2];
+    }
+
+    function boxesHit(a, b) {
+        return a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
+    }
+
+    function insideCanvas(box) {
+        return box[0] > 0 && box[2] < 104 && box[1] > 0 && box[3] < 96;
+    }
+
         // Gray "no data" disc when a station sends no temperature (#156 fix 4) —
     // never an empty circle. Same value the haminfo/#273 reference uses.
     var NO_TEMP_GRAY = '#6b7280';
@@ -1696,6 +1716,18 @@
         const tempUnit = isImperial() ? '\u00B0F' : '\u00B0C';
         const temp = isImperial() ? model.temp_f : model.temp_c;
         drawModelText(ctx, temp != null ? String(Math.round(temp)) + tempUnit : 'N/D', cx, cy + 4, 9);
+        // The fixed fields, so the gust label can be placed around them instead
+        // of on top of them (#156 fix 1: nothing overlaps; same geometry and
+        // first-free-slot search as the haminfo #273 reference).
+        const dewLabel = model.dewpoint_c != null
+            ? String(Math.round(isImperial() ? model.dewpoint_f : model.dewpoint_c)) + tempUnit
+            : null;
+        const pressureLabel = model.pressure_hpa != null
+            ? String(model.pressure_hpa) + ' hPa' : null;
+        const reserved = [[cx - r - 1, cy - r - 1, cx + r + 1, cy + r + 1]];
+        if (pressureLabel) reserved.push(labelBox(ctx, pressureLabel, 100, 18, 10, 'right'));
+        if (dewLabel) reserved.push(labelBox(ctx, dewLabel, 4, 82, 8, 'left'));
+        if (callsign) reserved.push(labelBox(ctx, callsign, cx, 94, 8));
         // Wind: staff, feathers and calm ring colored by the continuous
         // wind-speed scale (#156 fix 6); color is a server hex.
         const windColor = model.wind_color || themeColor('--text-primary');
@@ -1747,21 +1779,44 @@
                 }
             }
             // Gust G<kt> just past the barb tip (#156 fix 3 — every value
-            // carries its unit; no 3-h pressure trend in the APRS feed).
+            // carries its unit; no 3-h pressure trend in the APRS feed). The
+            // fixed 40 px tip position hit the pressure text (or the callsign
+            // or dewpoint) for winds from certain directions, so walk the tip
+            // ring and take the first slot that clears every reserved box.
             if (model.gust_kt != null) {
-                drawModelText(ctx, 'G' + String(Math.round(model.gust_kt)) + 'kt',
-                    cx + Math.sin(a) * 40, cy - Math.cos(a) * 40 + 3, 8);
+                const gustText = 'G' + String(Math.round(model.gust_kt)) + 'kt';
+                const offsets = [0, 10, -10, 20, -20, 30, -30, 45, -45, 60, -60, 75, -75, 90, -90];
+                const radii = [40, 34, 28, 22];
+                let spot = null;
+                for (let ri = 0; ri < radii.length && !spot; ri++) {
+                    for (let oi = 0; oi < offsets.length; oi++) {
+                        const ga = (model.rotation_deg + offsets[oi]) * Math.PI / 180;
+                        const gx = cx + radii[ri] * Math.sin(ga);
+                        const gy = cy - radii[ri] * Math.cos(ga) + 3;
+                        const box = labelBox(ctx, gustText, gx, gy, 8);
+                        if (!insideCanvas(box)) continue;
+                        if (reserved.some(function (b) { return boxesHit(box, b); })) continue;
+                        spot = [gx, gy];
+                        break;
+                    }
+                }
+                if (!spot) {  // fallback (not reached in practice): clamp inside
+                    spot = [Math.max(34, Math.min(70, cx + 40 * Math.sin(a))),
+                        Math.max(14, Math.min(88, cy - 40 * Math.cos(a) + 3))];
+                }
+                drawModelText(ctx, gustText, spot[0], spot[1], 8);
             }
         }
         // Dewpoint bottom-left, pressure top-right in hPa (#156 fixes 1 & 3:
         // each field has its own position and a unit; omitted when the station
         // did not report them).
-        if (model.dewpoint_c != null) {
-            const dew = isImperial() ? model.dewpoint_f : model.dewpoint_c;
-            drawModelText(ctx, String(Math.round(dew)) + tempUnit, 8, 82, 8);
+        if (dewLabel) {
+            // Start-anchored at x=4 (haminfo #273 geometry) so the halo stays
+            // inside the canvas instead of being cut at the left edge.
+            drawModelText(ctx, dewLabel, 4, 82, 8, 'left');
         }
-        if (model.pressure_hpa != null) {
-            drawModelText(ctx, String(model.pressure_hpa) + ' hPa', 100, 18, 10, 'right');
+        if (pressureLabel) {
+            drawModelText(ctx, pressureLabel, 100, 18, 10, 'right');
         }
         // Callsign below the model (#156 fix 2).
         if (callsign) {
