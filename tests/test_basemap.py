@@ -448,7 +448,7 @@ def test_resolve_upstream_both_down_falls_back_to_sample(monkeypatch):
     url, label, header = basemap_module._resolve_style(
         basemap_module.DEFAULT_UPSTREAM_SOURCES, probe=_probe
     )
-    assert url == basemap_module.DEFAULT_TILE_ARCHIVE_URL
+    assert url == basemap_module.DEFAULT_TILE_ARCHIVE_PATH
     assert label == "local-fallback"
     assert header is None
 
@@ -603,6 +603,41 @@ def test_upstream_tile_proxy_rejects_oversized_range_before_fetch():
 
     assert r.status_code == 416
     assert fetch.call_count == 0
+
+
+def test_offline_fallback_serves_bundled_archive_bytes(monkeypatch):
+    """With every probe down, the fallback must serve real bytes, not 502."""
+    import os
+    from unittest.mock import MagicMock, patch
+
+    from direwolf_dashboard import basemap as basemap_module
+    from direwolf_dashboard.lifecycle import ServiceContainer
+    from direwolf_dashboard.routers import create_basemap_tiles_route
+
+    def _probe(src):
+        raise basemap_module.BasemapSourceError("HTTP 404 not found")
+
+    monkeypatch.delenv(basemap_module.UPSTREAM_URL_ENV, raising=False)
+    monkeypatch.setattr(basemap_module, "_UPSTREAM_RESOLVE", [])
+    url, label, _header = basemap_module._resolve_style(probe=_probe)
+    assert label == "local-fallback"
+    assert os.path.isfile(url), f"fallback is not a filesystem path: {url!r}"
+
+    container = ServiceContainer()
+    container.services = MagicMock()
+    app = Starlette(routes=[create_basemap_tiles_route(container)])
+
+    with patch(
+        "direwolf_dashboard.routers.resolve_upstream_cached",
+        return_value=(url, label, 15),
+    ):
+        with TestClient(app, raise_server_exceptions=False) as c:
+            r = c.get("/basemap/tiles/upstream", headers={"Range": "bytes=0-126"})
+
+    assert r.status_code == 206, r.text
+    assert len(r.content) == 127
+    with open(url, "rb") as f:
+        assert r.content == f.read(127)
 
 
 def test_proxy_cache_respects_total_byte_budget(monkeypatch):
