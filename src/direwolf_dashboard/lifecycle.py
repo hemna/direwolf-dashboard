@@ -111,7 +111,7 @@ async def startup_services(config: Config, config_path: str | None = None) -> Di
     background_tasks.append(asyncio.create_task(agw_reader.run()))
     background_tasks.append(asyncio.create_task(log_tailer.run()))
     background_tasks.append(asyncio.create_task(_broadcast_consumer(services)))
-    background_tasks.append(asyncio.create_task(_housekeeping_loop(services, config.storage.retention_days)))
+    background_tasks.append(asyncio.create_task(_housekeeping_loop(services)))
     background_tasks.append(asyncio.create_task(_stats_broadcaster(services)))
     background_tasks.append(asyncio.create_task(
         auto_fetch_loop(config, services.basemap_status, lambda: resolve_my_position(services))
@@ -429,12 +429,18 @@ async def _broadcast_consumer(services: DirewolfServices) -> None:
             LOG.error(f"Broadcast consumer error: {e}")
 
 
-async def _housekeeping_loop(services: DirewolfServices, retention_days: int) -> None:
-    """Periodic housekeeping — runs on startup and every hour."""
+async def _housekeeping_loop(services: DirewolfServices) -> None:
+    """Periodic housekeeping — runs on startup and every hour.
+
+    The retention value is read from the live config on each iteration so a
+    settings save that changes it applies without a restart (issue #173).
+    """
     while True:
         try:
             if services.storage:
-                deleted = await services.storage.housekeep(retention_days)
+                deleted = await services.storage.housekeep(
+                    services.config.storage.retention_days
+                )
                 if deleted:
                     LOG.info(f"Housekeeping deleted {deleted} old packets")
         except asyncio.CancelledError:
