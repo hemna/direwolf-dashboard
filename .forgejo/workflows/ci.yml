@@ -24,6 +24,14 @@ jobs:
           . .venv/bin/activate
           pip install ruff
           ruff check . --select=E,F --ignore=E501
+      - name: Install project and test dependencies
+        run: |
+          . .venv/bin/activate
+          pip install -e ".[dev]"
+      - name: Run tests
+        run: |
+          . .venv/bin/activate
+          python -m pytest tests/ -q
       - name: JS syntax check
         run: |
-          find . -name '*.js' -not -path '*/node_modules/*' -not -path '*/.venv/*' -not -path '*/vendor/*' | head -50 | xargs -I{} node --check {} 2>&1 || true
+          find . -name '*.js' -not -path '*/node_modules/*' -not -path '*/.venv/*' -not -path '*/vendor/*' -print0 | xargs -0 -n1 node --check
