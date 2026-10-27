@@ -18,6 +18,11 @@ CALLSIGN_RE = re.compile(r"\[[\d.]+\s+[LR]>[LR]\]\s+([A-Z0-9]{1,7}(?:-\d{1,2})?)
 # TX indicator in direwolf log
 TX_INDICATOR_RE = re.compile(r"\[[\d.]+\s+R>L\]")
 
+# Metadata lines buffered while waiting for a packet callsign. A run of
+# diagnostics without a decoded packet must not grow the buffer without
+# limit (issue #168).
+MAX_PENDING_LINES = 100
+
 
 def extract_audio_level(line: str) -> Optional[int]:
     """Extract audio level from a Direwolf log line.
@@ -182,6 +187,11 @@ class LogTailer:
                             level = extract_audio_level(line)
                             if level is not None:
                                 current_audio_level = level
+                            if (
+                                current_callsign is None
+                                and len(accumulated_lines) > MAX_PENDING_LINES
+                            ):
+                                del accumulated_lines[:-MAX_PENDING_LINES]
                 else:
                     # No new data — flush any pending packet if we've waited long enough
                     if accumulated_lines and current_callsign:
@@ -196,6 +206,11 @@ class LogTailer:
                         accumulated_lines = []
                         current_audio_level = None
                         current_callsign = None
+                    else:
+                        # Nothing to attach this metadata to; keep only the
+                        # bounded tail so a quiet radio cannot grow it (issue #168).
+                        del accumulated_lines[:-MAX_PENDING_LINES]
+                        current_audio_level = None
 
                     # Flush a partial line that never received a trailing
                     # newline (e.g. the very last line of the log file).
