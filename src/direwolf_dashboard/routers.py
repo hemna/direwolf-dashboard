@@ -647,8 +647,9 @@ def create_basemap_style_route(container: ServiceContainer):
         theme = request.path_params["theme"]
         services = _get_services(container)
         try:
-            _, source_label, upstream_max = resolve_upstream_cached(
-                upstream_sources(services.config)
+            # Probing is blocking HTTP; keep it off the event loop (issue #180).
+            _, source_label, upstream_max = await asyncio.to_thread(
+                resolve_upstream_cached, upstream_sources(services.config)
             )
             body = render_style(theme, upstream_max_zoom=upstream_max)
         except (ValueError, FileNotFoundError):
@@ -693,8 +694,9 @@ def create_basemap_tiles_route(container: ServiceContainer):
                 "Accept-Ranges": "bytes",
                 "Content-Range": "bytes */0",
             })
-        url, label, _upstream_max = resolve_upstream_cached(
-            upstream_sources(services.config)
+        # Probing is blocking HTTP; keep it off the event loop (issue #180).
+        url, label, _upstream_max = await asyncio.to_thread(
+            resolve_upstream_cached, upstream_sources(services.config)
         )
         try:
             # offload the blocking httpx fetch to a worker thread so a slow
