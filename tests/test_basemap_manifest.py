@@ -221,8 +221,7 @@ def test_int_type_violations_do_not_say_missing(tmp_path):
     path = _write_manifest(tmp_path, doc)
     with pytest.raises(BasemapSourceError) as ei:
         kit_region_manifest(path)
-    assert "order is not an int" in str(ei.value)
-    assert "missing" not in str(ei.value)
+    assert str(ei.value) == f"region list at {path}: group 'sample' order is not an int"
 
 
 # ---------------------------------------------------------------------------
