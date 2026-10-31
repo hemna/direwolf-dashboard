@@ -32,7 +32,7 @@ CONTINENT_GROUPS = [
 ]
 
 
-def _kit_manifest(regions=("sample", "world"), **overrides):
+def _kit_manifest(regions=("sample", "world")):
     """Two-region manifest in the shape the kit publishes."""
     doc = {
         "schemaVersion": 1,
@@ -53,7 +53,6 @@ def _kit_manifest(regions=("sample", "world"), **overrides):
             for rid in regions
         ],
     }
-    doc.update(overrides)
     return doc
 
 
@@ -185,3 +184,31 @@ def test_loader_raises_on_empty_regions_or_groups(tmp_path):
     path = _write_manifest(tmp_path, doc)
     with pytest.raises(BasemapSourceError, match="regions and groups"):
         kit_region_manifest(path)
+
+
+def test_loader_raises_when_a_group_entry_is_not_an_object(tmp_path):
+    # A structurally corrupt manifest must not leak a bare AttributeError:
+    # every consumer catches BasemapSourceError.
+    doc = _kit_manifest()
+    doc["groups"] = ["oops"]
+    path = _write_manifest(tmp_path, doc)
+    with pytest.raises(BasemapSourceError, match="oops"):
+        kit_region_manifest(path)
+
+
+def test_loader_raises_when_a_region_entry_is_not_an_object(tmp_path):
+    doc = _kit_manifest()
+    doc["regions"] = ["oops"]
+    path = _write_manifest(tmp_path, doc)
+    with pytest.raises(BasemapSourceError, match="oops"):
+        kit_region_manifest(path)
+
+
+def test_int_type_violations_do_not_say_missing(tmp_path):
+    doc = _kit_manifest()
+    doc["groups"][0]["order"] = "zero"
+    path = _write_manifest(tmp_path, doc)
+    with pytest.raises(BasemapSourceError) as ei:
+        kit_region_manifest(path)
+    assert "order is not an int" in str(ei.value)
+    assert "missing" not in str(ei.value)

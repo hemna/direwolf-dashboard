@@ -305,23 +305,32 @@ def kit_region_manifest(path: Path | None = None) -> dict:
         if not regions or not groups:
             raise KeyError("a non-empty regions and groups array")
         if type(doc["schemaVersion"]) is not int:
-            raise KeyError("schemaVersion as an int")
+            raise BasemapSourceError(
+                f"region list at {p}: schemaVersion is not an int")
         for key in ("tileSchema", "buildDate"):
             if key not in doc:
                 raise KeyError(key)
         for g in groups:
+            if not isinstance(g, dict):
+                raise BasemapSourceError(
+                    f"region list at {p}: groups entry is not an object: {g!r}")
             for key in ("id", "name", "order"):
                 if key not in g:
                     raise KeyError(f"group {g.get('id')!r}: {key}")
             if type(g["order"]) is not int:
-                raise KeyError(f"group {g.get('id')!r}: order")
+                raise BasemapSourceError(
+                    f"region list at {p}: group {g['id']!r} order is not an int")
         for r in regions:
+            if not isinstance(r, dict):
+                raise BasemapSourceError(
+                    f"region list at {p}: regions entry is not an object: {r!r}")
             for key in ("id", "name", "group", "url", "bytes", "sha256",
                         "maxzoom", "bounds"):
                 if key not in r:
                     raise KeyError(f"region {r.get('id')!r}: {key}")
             if type(r["maxzoom"]) is not int:
-                raise KeyError(f"region {r['id']!r}: maxzoom")
+                raise BasemapSourceError(
+                    f"region list at {p}: region {r['id']!r} maxzoom is not an int")
         declared = {g["id"] for g in groups}
         unknown = sorted({r["group"] for r in regions if r["group"] not in declared})
         if unknown:
