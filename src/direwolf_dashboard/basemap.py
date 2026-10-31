@@ -255,6 +255,15 @@ BASEMAP_DIR = Path(__file__).resolve().parent / "static" / "basemap"
 #: browser-style URL here would send every range to httpx and 502 (issue #171).
 DEFAULT_TILE_ARCHIVE_PATH = str(BASEMAP_DIR / "regions" / "sample.pmtiles")
 
+#: The kit's published region list (hemna/basemap-kit builds and owns
+#: ``maps-manifest.json``); this host serves it as published so ids, names,
+#: groups, sizes, digests, maxzoom and bounds cannot drift (issue #204).
+REGION_MANIFEST_FILE = BASEMAP_DIR / "maps-manifest.json"
+
+#: Internal zoom-11 gap filler, not a region an app may choose. The loader
+#: never lets these through into the list clients read.
+INTERNAL_REGION_IDS = frozenset({"low-fallback"})
+
 #: Vector PMTiles v3 header is a fixed 127-byte struct (pmtiles spec v3).
 _PMTILES_MAGIC = b"PMTiles"
 _PMTILES_HEADER_SIZE = 127
@@ -273,6 +282,54 @@ class UpstreamRangeError(RuntimeError):
     def __init__(self, total: int):
         super().__init__(f"upstream range unsatisfiable (total {total})")
         self.total = total
+
+
+def kit_region_manifest(path: Path | None = None) -> dict:
+    """The kit's published region list, read exactly as published.
+
+    Raises :class:`BasemapSourceError` with a message a log reader can act on
+    when the file is missing, is not the shape clients read, or lists a region
+    under a group the list does not define. Serving a differently-named or
+    partly-filled list would be worse than an error. Regions named in
+    :data:`INTERNAL_REGION_IDS` never appear in the returned ``regions`` list.
+    """
+    p = Path(path) if path is not None else REGION_MANIFEST_FILE
+    try:
+        doc = json.loads(p.read_text(encoding="utf-8"))
+    except OSError as e:
+        raise BasemapSourceError(f"region list unreadable at {p}: {e}") from e
+    except ValueError as e:
+        raise BasemapSourceError(f"region list is not valid JSON at {p}: {e}") from e
+    try:
+        regions, groups = doc["regions"], doc["groups"]
+        if not regions or not groups:
+            raise KeyError("a non-empty regions and groups array")
+        if type(doc["schemaVersion"]) is not int:
+            raise KeyError("schemaVersion as an int")
+        for key in ("tileSchema", "buildDate"):
+            if key not in doc:
+                raise KeyError(key)
+        for g in groups:
+            for key in ("id", "name", "order"):
+                if key not in g:
+                    raise KeyError(f"group {g.get('id')!r}: {key}")
+            if type(g["order"]) is not int:
+                raise KeyError(f"group {g.get('id')!r}: order")
+        for r in regions:
+            for key in ("id", "name", "group", "url", "bytes", "sha256",
+                        "maxzoom", "bounds"):
+                if key not in r:
+                    raise KeyError(f"region {r.get('id')!r}: {key}")
+            if type(r["maxzoom"]) is not int:
+                raise KeyError(f"region {r['id']!r}: maxzoom")
+        declared = {g["id"] for g in groups}
+        unknown = sorted({r["group"] for r in regions if r["group"] not in declared})
+        if unknown:
+            raise KeyError(f"a groups entry for {unknown}")
+    except (KeyError, TypeError) as e:
+        raise BasemapSourceError(f"region list at {p} is missing {e}") from e
+    visible = [r for r in regions if r["id"] not in INTERNAL_REGION_IDS]
+    return {**doc, "regions": visible}
 
 
 def parse_pmtiles_header(raw: bytes) -> dict:
