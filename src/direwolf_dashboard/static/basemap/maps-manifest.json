@@ -1,0 +1,549 @@
+{
+  "schemaVersion": 1,
+  "tileSchema": "v4",
+  "buildDate": "2026-10-28T00:00:00Z",
+  "groups": [
+    {
+      "id": "sample",
+      "name": "Sample",
+      "order": 0
+    },
+    {
+      "id": "world",
+      "name": "World overview",
+      "order": 10
+    },
+    {
+      "id": "africa",
+      "name": "Africa",
+      "order": 20
+    },
+    {
+      "id": "asia",
+      "name": "Asia",
+      "order": 30
+    },
+    {
+      "id": "europe",
+      "name": "Europe",
+      "order": 40
+    },
+    {
+      "id": "north-america",
+      "name": "North America",
+      "order": 50
+    },
+    {
+      "id": "oceania",
+      "name": "Oceania",
+      "order": 60
+    },
+    {
+      "id": "south-america",
+      "name": "South America",
+      "order": 70
+    },
+    {
+      "id": "antarctica",
+      "name": "Antarctica",
+      "order": 80
+    }
+  ],
+  "regions": [
+    {
+      "id": "africa-central",
+      "name": "Africa - Central",
+      "group": "africa",
+      "url": "pmtiles://https://cloud.hemna.com/basemap-kit/archives/africa-central.pmtiles",
+      "maxzoom": 8,
+      "bounds": [
+        6.468,
+        -18.02,
+        31.274,
+        23.445
+      ],
+      "bytes": 17408828,
+      "sha256": "0b9ddfa21c6743a630e787626071ff45da21dd982528487f63a0772a6c5cd46e"
+    },
+    {
+      "id": "africa-east",
+      "name": "Africa - East",
+      "group": "africa",
+      "url": "pmtiles://https://cloud.hemna.com/basemap-kit/archives/africa-east.pmtiles",
+      "maxzoom": 8,
+      "bounds": [
+        21.979,
+        -26.862,
+        57.792,
+        18.005
+      ],
+      "bytes": 12231435,
+      "sha256": "08df5eb45cb36bc2591029b01e32a160233f88c22fa555d5a0529468768b5058"
+    },
+    {
+      "id": "africa-north",
+      "name": "Africa - North",
+      "group": "africa",
+      "url": "pmtiles://https://cloud.hemna.com/basemap-kit/archives/africa-north.pmtiles",
+      "maxzoom": 8,
+      "bounds": [
+        -17.099,
+        8.666,
+        38.609,
+        37.34
+      ],
+      "bytes": 8147287,
+      "sha256": "6ed3f88cf7c3c7da2cb3d9dbedd7a9b84f57e25da389705fb81df26a143e7db7"
+    },
+    {
+      "id": "africa-south",
+      "name": "Africa - South",
+      "group": "africa",
+      "url": "pmtiles://https://cloud.hemna.com/basemap-kit/archives/africa-south.pmtiles",
+      "maxzoom": 8,
+      "bounds": [
+        11.722,
+        -46.963,
+        37.888,
+        -16.968
+      ],
+      "bytes": 3153409,
+      "sha256": "33e39a81c21d5ce3e26d3719f512477a56caa8e5f40027356051f50c75c16bcb"
+    },
+    {
+      "id": "africa-west",
+      "name": "Africa - West",
+      "group": "africa",
+      "url": "pmtiles://https://cloud.hemna.com/basemap-kit/archives/africa-west.pmtiles",
+      "maxzoom": 8,
+      "bounds": [
+        -25.337,
+        -16.004,
+        15.963,
+        27.286
+      ],
+      "bytes": 9240047,
+      "sha256": "070f94fc8239413596589578878d64006321a500b459c2a04fdce2c47fe2e995"
+    },
+    {
+      "id": "antarctica",
+      "name": "Antarctica",
+      "group": "antarctica",
+      "url": "pmtiles://https://cloud.hemna.com/basemap-kit/archives/antarctica.pmtiles",
+      "maxzoom": 6,
+      "bounds": [
+        -180,
+        -89.999,
+        180,
+        -46.327
+      ],
+      "bytes": 1559522,
+      "sha256": "b98ca9b1025cd89fac48730f3b17e0e5d84142430fb64d2a9bd011871406a79b"
+    },
+    {
+      "id": "asia-central",
+      "name": "Asia - Central",
+      "group": "asia",
+      "url": "pmtiles://https://cloud.hemna.com/basemap-kit/archives/asia-central.pmtiles",
+      "maxzoom": 8,
+      "bounds": [
+        46.609,
+        35.171,
+        87.3229999,
+        55.39
+      ],
+      "bytes": 8329712,
+      "sha256": "34b2d44e1df5f8d17c73de4dbb8bc02db1934374cf4127d55dd68d76396d5184"
+    },
+    {
+      "id": "asia-east",
+      "name": "Asia - East",
+      "group": "asia",
+      "url": "pmtiles://https://cloud.hemna.com/basemap-kit/archives/asia-east.pmtiles",
+      "maxzoom": 8,
+      "bounds": [
+        73.607,
+        18.218,
+        145.833,
+        53.556
+      ],
+      "bytes": 43126529,
+      "sha256": "8772f9ba906fdb24387a5ea7b147da4045d5c8aac41fe14fce6f0cc4522748a3"
+    },
+    {
+      "id": "asia-south",
+      "name": "Asia - South",
+      "group": "asia",
+      "url": "pmtiles://https://cloud.hemna.com/basemap-kit/archives/asia-south.pmtiles",
+      "maxzoom": 8,
+      "bounds": [
+        44.023,
+        -7.435,
+        97.344,
+        39.769
+      ],
+      "bytes": 21597159,
+      "sha256": "1597c4c6d034e15e2e573b970d729ed47b6a486c881a977ebc3f97dab19d9489"
+    },
+    {
+      "id": "asia-southeast",
+      "name": "Asia - South-East",
+      "group": "asia",
+      "url": "pmtiles://https://cloud.hemna.com/basemap-kit/archives/asia-southeast.pmtiles",
+      "maxzoom": 8,
+      "bounds": [
+        92.18,
+        -12.1969999,
+        140.976,
+        28.517
+      ],
+      "bytes": 14157203,
+      "sha256": "19b5709781ec5777e4b7ee2786b1887e79b08cca1ccbb8f7bd0c3a2e969eb7d7"
+    },
+    {
+      "id": "asia-west",
+      "name": "Asia - West",
+      "group": "asia",
+      "url": "pmtiles://https://cloud.hemna.com/basemap-kit/archives/asia-west.pmtiles",
+      "maxzoom": 8,
+      "bounds": [
+        25.669,
+        12.319,
+        59.838,
+        43.57
+      ],
+      "bytes": 15169715,
+      "sha256": "7ccd616c70ef229c425edd5126aa0e362ee29b71f42349fc8d8955ca5477b90c"
+    },
+    {
+      "id": "australia",
+      "name": "Australia",
+      "group": "oceania",
+      "url": "pmtiles://https://cloud.hemna.com/basemap-kit/archives/australia.pmtiles",
+      "maxzoom": 8,
+      "bounds": [
+        112.908,
+        -54.749,
+        158.959,
+        -10.052
+      ],
+      "bytes": 10093590,
+      "sha256": "5c7accdf175f4076da294b8071813a8263ef943039b00936e9730eff5d671851"
+    },
+    {
+      "id": "brazil",
+      "name": "Brazil",
+      "group": "south-america",
+      "url": "pmtiles://https://cloud.hemna.com/basemap-kit/archives/brazil.pmtiles",
+      "maxzoom": 8,
+      "bounds": [
+        -74.002,
+        -33.742,
+        -34.805,
+        5.258
+      ],
+      "bytes": 15230231,
+      "sha256": "080c2c035026d3b299d3d88836fd1fa201b7f3c5685bb377b4361f259a13b1d7"
+    },
+    {
+      "id": "canada",
+      "name": "Canada",
+      "group": "north-america",
+      "url": "pmtiles://https://cloud.hemna.com/basemap-kit/archives/canada.pmtiles",
+      "maxzoom": 8,
+      "bounds": [
+        -141.002,
+        32.26,
+        -52.654,
+        83.116
+      ],
+      "bytes": 99756790,
+      "sha256": "915413d27c94bf84d2601f2a0f7994bd31c5c35b450fdff2b6f413b25655575d"
+    },
+    {
+      "id": "caribbean",
+      "name": "Caribbean",
+      "group": "north-america",
+      "url": "pmtiles://https://cloud.hemna.com/basemap-kit/archives/caribbean.pmtiles",
+      "maxzoom": 8,
+      "bounds": [
+        -84.887,
+        10.065,
+        -59.428,
+        26.94
+      ],
+      "bytes": 2757196,
+      "sha256": "52d4716b42f11ad9b924d32608c4d8bacbbddcb2662ee78bc77283b558f3ba51"
+    },
+    {
+      "id": "central-america",
+      "name": "Central America",
+      "group": "north-america",
+      "url": "pmtiles://https://cloud.hemna.com/basemap-kit/archives/central-america.pmtiles",
+      "maxzoom": 8,
+      "bounds": [
+        -118.401,
+        7.22,
+        -77.196,
+        32.715
+      ],
+      "bytes": 6647603,
+      "sha256": "c7360b8e521dc869d7c0cf10f52dd645ebd8a78a7377baaeb196515a531adf08"
+    },
+    {
+      "id": "europe-east",
+      "name": "Europe - East",
+      "group": "europe",
+      "url": "pmtiles://https://cloud.hemna.com/basemap-kit/archives/europe-east.pmtiles",
+      "maxzoom": 8,
+      "bounds": [
+        12.09,
+        41.244,
+        40.128,
+        56.146
+      ],
+      "bytes": 45161162,
+      "sha256": "db1bc9de34de53d631eaa08337c50ff3519fd683e261edc9393b71600b9dbcee"
+    },
+    {
+      "id": "europe-north",
+      "name": "Europe - North",
+      "group": "europe",
+      "url": "pmtiles://https://cloud.hemna.com/basemap-kit/archives/europe-north.pmtiles",
+      "maxzoom": 8,
+      "bounds": [
+        -24.476,
+        49.17,
+        33.629,
+        80.478
+      ],
+      "bytes": 63286073,
+      "sha256": "7c2adeff6ab44b7a2ba7e369392f9cf563bf8d8ff15dd6999afb929fbe551f90"
+    },
+    {
+      "id": "europe-south",
+      "name": "Europe - South",
+      "group": "europe",
+      "url": "pmtiles://https://cloud.hemna.com/basemap-kit/archives/europe-south.pmtiles",
+      "maxzoom": 8,
+      "bounds": [
+        -31.283,
+        27.646,
+        28.232,
+        47.082
+      ],
+      "bytes": 29427620,
+      "sha256": "09892d10eee35226bf18aa756dc5e599949fe5fab9d652dd689e07105b543ee5"
+    },
+    {
+      "id": "europe-west",
+      "name": "Europe - West",
+      "group": "europe",
+      "url": "pmtiles://https://cloud.hemna.com/basemap-kit/archives/europe-west.pmtiles",
+      "maxzoom": 8,
+      "bounds": [
+        -68.371,
+        -21.369,
+        55.839,
+        55.059
+      ],
+      "bytes": 39696845,
+      "sha256": "f006e5f43a879eb4a2c3d42f45f0b671ac9b2a861a11d927870505f51668d8a0"
+    },
+    {
+      "id": "greenland",
+      "name": "Greenland",
+      "group": "north-america",
+      "url": "pmtiles://https://cloud.hemna.com/basemap-kit/archives/greenland.pmtiles",
+      "maxzoom": 8,
+      "bounds": [
+        -72.818,
+        59.815,
+        -11.426,
+        83.6
+      ],
+      "bytes": 6117212,
+      "sha256": "dbd7fdddbfbb8b7d56b11fe0fedbab872032c8942459596a3eca5a0d8227c7cd"
+    },
+    {
+      "id": "new-zealand",
+      "name": "New Zealand",
+      "group": "oceania",
+      "url": "pmtiles://https://cloud.hemna.com/basemap-kit/archives/new-zealand.pmtiles",
+      "maxzoom": 8,
+      "bounds": [
+        -176.848,
+        -52.57,
+        178.536,
+        -8.546
+      ],
+      "bytes": 3072535,
+      "sha256": "9a870d9232773c6eba4a9a6a61e752936efc55031a4f98ea0d989105e79c75e7"
+    },
+    {
+      "id": "pacific-islands",
+      "name": "Pacific Islands",
+      "group": "oceania",
+      "url": "pmtiles://https://cloud.hemna.com/basemap-kit/archives/pacific-islands.pmtiles",
+      "maxzoom": 8,
+      "bounds": [
+        -180,
+        -29.088,
+        180,
+        18.807
+      ],
+      "bytes": 2356060,
+      "sha256": "3feefd5ba7cb115cf9f2d57ed43cbe01200b9c8ee05a947d631fbeac58b44831"
+    },
+    {
+      "id": "russia",
+      "name": "Russia",
+      "group": "asia",
+      "url": "pmtiles://https://cloud.hemna.com/basemap-kit/archives/russia.pmtiles",
+      "maxzoom": 8,
+      "bounds": [
+        -180,
+        41.199,
+        180,
+        81.854
+      ],
+      "bytes": 99704561,
+      "sha256": "622035828b7e4bae4d654296638c12899391b14653f45e367892b78f49d29edb"
+    },
+    {
+      "id": "sample",
+      "name": "Sample (Florence, IT)",
+      "group": "sample",
+      "url": "pmtiles://https://cloud.hemna.com/basemap-kit/archives/sample.pmtiles",
+      "maxzoom": 15,
+      "bounds": [
+        11.221144,
+        43.745121,
+        11.287543,
+        43.789306
+      ],
+      "bytes": 6041449,
+      "sha256": "b52bcbf8c9c119aed1d825bace2b5b7667e8c5bd5556ac8a9e20414d61610c94"
+    },
+    {
+      "id": "south-america-north",
+      "name": "South America - North",
+      "group": "south-america",
+      "url": "pmtiles://https://cloud.hemna.com/basemap-kit/archives/south-america-north.pmtiles",
+      "maxzoom": 8,
+      "bounds": [
+        -91.647,
+        -22.892,
+        -53.99,
+        12.432
+      ],
+      "bytes": 9715984,
+      "sha256": "18d69684540ec23598eed14bded86cd6b248cdb897eff6778048349d4a9bbede"
+    },
+    {
+      "id": "south-america-south",
+      "name": "South America - South",
+      "group": "south-america",
+      "url": "pmtiles://https://cloud.hemna.com/basemap-kit/archives/south-america-south.pmtiles",
+      "maxzoom": 8,
+      "bounds": [
+        -109.434,
+        -55.892,
+        -53.126,
+        -17.506
+      ],
+      "bytes": 11179852,
+      "sha256": "ca04630f4a653b304a29c961364a85a02396ad6ab06c89edd2b6775efde3b7b1"
+    },
+    {
+      "id": "us-central",
+      "name": "United States - Central",
+      "group": "north-america",
+      "url": "pmtiles://https://cloud.hemna.com/basemap-kit/archives/us-central.pmtiles",
+      "maxzoom": 8,
+      "bounds": [
+        -106.668,
+        25.871,
+        -80.519,
+        49.37
+      ],
+      "bytes": 16701321,
+      "sha256": "6b3c204f1229f7b42d947c2eff69123a4262c50b74cdf20d2caf412f7cb9c200"
+    },
+    {
+      "id": "us-east",
+      "name": "United States - East",
+      "group": "north-america",
+      "url": "pmtiles://https://cloud.hemna.com/basemap-kit/archives/us-east.pmtiles",
+      "maxzoom": 8,
+      "bounds": [
+        -91.656,
+        24.542,
+        -66.987,
+        47.463
+      ],
+      "bytes": 19683579,
+      "sha256": "70c95bf09c8165a83d5f3c7648e38c93df471a619d1060ef6767e931f01cc501"
+    },
+    {
+      "id": "us-west",
+      "name": "United States - West",
+      "group": "north-america",
+      "url": "pmtiles://https://cloud.hemna.com/basemap-kit/archives/us-west.pmtiles",
+      "maxzoom": 8,
+      "bounds": [
+        -178.195,
+        18.964,
+        -102.013,
+        71.408
+      ],
+      "bytes": 20016105,
+      "sha256": "b74f794c67c46957d278657060f509b60455b530989b5f6bb0662484f17b0412"
+    },
+    {
+      "id": "va-appomattox",
+      "name": "Extra - Central Virginia (Appomattox)",
+      "group": "north-america",
+      "url": "pmtiles://https://cloud.hemna.com/basemap-kit/archives/va-appomattox.pmtiles",
+      "maxzoom": 11,
+      "bounds": [
+        -79.6,
+        36.8,
+        -78.1,
+        37.9
+      ],
+      "bytes": 3912473,
+      "sha256": "525b63ffda671c1e61fd4da51b62086bec8178dfb7ff362a4d3325f9d226910e"
+    },
+    {
+      "id": "va-east",
+      "name": "Extra - Eastern North America (VA east)",
+      "group": "north-america",
+      "url": "pmtiles://https://cloud.hemna.com/basemap-kit/archives/va-east.pmtiles",
+      "maxzoom": 11,
+      "bounds": [
+        -86,
+        33,
+        -70,
+        43
+      ],
+      "bytes": 195866965,
+      "sha256": "fd90a54e5004f1b2130cbc78d449e9f3bf50847a407525ea287f2c0795e52727"
+    },
+    {
+      "id": "world",
+      "name": "World",
+      "group": "world",
+      "url": "pmtiles://https://cloud.hemna.com/basemap-kit/archives/world.pmtiles",
+      "maxzoom": 4,
+      "bounds": [
+        -180,
+        -85.051129,
+        180,
+        85.051129
+      ],
+      "bytes": 6026893,
+      "sha256": "9c71dba0fbaefe60502c04a119e575324494705146b0b91a0d6842bed3070451"
+    }
+  ]
+}

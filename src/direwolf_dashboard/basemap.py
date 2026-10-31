@@ -255,10 +255,27 @@ BASEMAP_DIR = Path(__file__).resolve().parent / "static" / "basemap"
 #: browser-style URL here would send every range to httpx and 502 (issue #171).
 DEFAULT_TILE_ARCHIVE_PATH = str(BASEMAP_DIR / "regions" / "sample.pmtiles")
 
+#: Directory holding region archives a client may download (issue #204).
+REGIONS_DIR = BASEMAP_DIR / "regions"
+
 #: The kit's published region list (hemna/basemap-kit builds and owns
 #: ``maps-manifest.json``); this host serves it as published so ids, names,
 #: groups, sizes, digests, maxzoom and bounds cannot drift (issue #204).
 REGION_MANIFEST_FILE = BASEMAP_DIR / "maps-manifest.json"
+
+#: Served URLs for the client-facing region list and per-region archives
+#: (issue #204; same values as hemna/basemap-kit's nginx config).
+REGION_MANIFEST_ROUTE = "/basemap/maps-manifest.json"
+REGION_ARCHIVE_ROUTE = "/basemap/regions/{name}.pmtiles"
+
+#: Same values as the kit's published CORS block (docker/basemap-kit/cors.conf);
+#: pmtiles:// downloaders range-request the archives cross-origin.
+CORS_HEADERS = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+    "Access-Control-Allow-Headers": "Range, If-Match, If-None-Match, If-Modified-Since",
+    "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges, ETag",
+}
 
 #: Internal zoom-11 gap filler, not a region an app may choose. The loader
 #: never lets these through into the list clients read.
