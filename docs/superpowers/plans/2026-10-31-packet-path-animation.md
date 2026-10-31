@@ -67,7 +67,7 @@ Four-HELD-enhancement companion. Mirrors haminfo issue #345 / PR #394
 
 ## Tasks (TDD, one commit each)
 
-### T1 — Server hop algorithm
+### Task 1 — Server hop algorithm
 - **RED:** `tests/test_packet_paths.py`, mirroring `8dabb959:…/tests/test_packet_paths.py`:
   every fixture id in `tests/fixtures/packet_paths.json` asserts
   `hops`/`rx_igate`/`tx_igate`/`tx_hops`/`no_rf_leg`/`packet_id`; malformed
@@ -75,7 +75,7 @@ Four-HELD-enhancement companion. Mirrors haminfo issue #345 / PR #394
 - **GREEN:** new `src/direwolf_dashboard/packet_paths.py` (port).
 - Commit: `feat(processor): shared packet-path hop algorithm from basemap-kit#63 (#205)`
 
-### T2 — Wire the packet dict + websocket
+### Task 2 — Wire the packet dict + websocket
 - **RED:** extend `tests/test_processor.py` (or new `tests/test_packet_path_fields.py`)
   — `packet_to_dict` output carries the new keys for a third-party and a
   plain-rf fixture; `tests/test_routers.py` asserts `/api/packets` and the
@@ -83,7 +83,7 @@ Four-HELD-enhancement companion. Mirrors haminfo issue #345 / PR #394
 - **GREEN:** call `parse_packet_path` in `packet_to_dict`; keep `path`.
 - Commit: `feat(processor): serve packet-path fields to the map client (#205)`
 
-### T3 — Client path parsing + position cache (node harness)
+### Task 3 — Client path parsing + position cache (node harness)
 - **RED:** `tests/test_packet_path_parsing.py` using the
   `test_app_settings_save.py` node pattern: extract `parsePath` and
   `updatePositionCache` from `app.js`, run the fixture expectations
@@ -93,7 +93,7 @@ Four-HELD-enhancement companion. Mirrors haminfo issue #345 / PR #394
   grep, keeping their error handling.
 - Commit: `fix(map): conform packet path parsing and position cache (#205)`
 
-### T4 — Animator + layers + cap (node harness)
+### Task 4 — Animator + layers + cap (node harness)
 - **RED:** `tests/test_packet_path_animation.py` — extract the animator section
   under node with a stub `maplibregl`/DOM prelude: cap is enforced in
   `offer()` (a 4th concurrent animation is dropped, `dropped` counted), queue is
@@ -104,7 +104,7 @@ Four-HELD-enhancement companion. Mirrors haminfo issue #345 / PR #394
   `stations-symbol-base`, re-added on style reload the way `tx-arcs` is.
 - Commit: `feat(map): animate APRS packet paths with a concurrency cap (#205)`
 
-### T5 — Setting, reduced motion, tab-idle guard
+### Task 5 — Setting, reduced motion, tab-idle guard
 - **RED:** source-assert tests: navbar toggle exists, `dw-packet-paths` persisted,
   `prefers-reduced-motion` gate, `visibilitychange` pause; node harness:
   reduce-motion ⇒ initial off, explicit toggle still turns it on.

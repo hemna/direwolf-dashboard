@@ -57,7 +57,7 @@ Companion to the HELD enhancements. Mirrors haminfo issue #350 / PR #401
 
 ## Tasks (TDD, one commit each)
 
-### T1 — Follow state machine (node harness)
+### Task 1 — Follow state machine (node harness)
 - **RED:** `tests/test_map_follow_station.py`, node-harness style: extract the
   follow functions from `app.js`, stub `mapFlyTo`/`map`/`fetch`, then assert the
   reference behaviour: `follow(cs)` locks and dims, a far packet triggers
@@ -68,7 +68,7 @@ Companion to the HELD enhancements. Mirrors haminfo issue #350 / PR #401
 - **GREEN:** the follow section in `app.js`.
 - Commit: `feat(map): follow one station with camera lock and dim mode (#206)`
 
-### T2 — UI: chip, controls, live-log filter
+### Task 2 — UI: chip, controls, live-log filter
 - **RED:** source-asserts in the same file: a follow control exists in the
   existing controls rail, the chip element renders, the log filter hooks the
   existing log-row renderer, Escape unfollows.
@@ -76,7 +76,7 @@ Companion to the HELD enhancements. Mirrors haminfo issue #350 / PR #401
   `dw-*` keys.
 - Commit: `feat(map): follow chip, controls and per-station live log (#206)`
 
-### T3 — Theme-flip dimming guard
+### Task 3 — Theme-flip dimming guard
 - **RED:** node harness: `applyTheme('light')` (or `toggleTheme`) while
   following leaves the non-followed layers dimmed, not reset; the theme flip
   re-applies its own paint on top.

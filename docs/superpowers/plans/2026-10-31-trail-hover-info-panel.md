@@ -61,7 +61,7 @@ overlay opens), `b67ef60b` (a trail click opens the panel every time).
 
 ## Tasks (TDD, one commit each)
 
-### T1 — Stats maths (node harness)
+### Task 1 — Stats maths (node harness)
 - **RED:** `tests/test_trail_stats.py`: extract `compute`, `haversineKm`,
   `bearingDeg`, `normalise`, `median`, `mean`, `formatDistance` from `app.js`
   and assert the worked example (2.4 km / 9 min / 60 s median+mean / 16, 21, 22
@@ -72,7 +72,7 @@ overlay opens), `b67ef60b` (a trail click opens the panel every time).
 - **GREEN:** the stats section (port).
 - Commit: `feat(map): spec trail statistics from basemap-kit#65 (#207)`
 
-### T2 — Hover highlight (MapLibre layer + query)
+### Task 2 — Hover highlight (MapLibre layer + query)
 - **RED:** source-asserts in `tests/test_map_trail_panel.py` (the tolerance
   constant is 8 px, only `station-tracks-line` is queried, a
   `station-tracks-highlight` layer is added/removed, `move` cursor on hit);
@@ -81,7 +81,7 @@ overlay opens), `b67ef60b` (a trail click opens the panel every time).
   style reload the way `tx-arcs` is.
 - Commit: `feat(map): highlight a whole station trail on hover (#207)`
 
-### T3 — Info panel (DOM + placement)
+### Task 3 — Info panel (DOM + placement)
 - **RED:** node harness on the panel section: `buildRows` field order
   (distance, elapsed, beacon interval, speeds, heading, last heard, point
   count), `escapeHtml` applied to callsign/comment, missing values render
@@ -90,7 +90,7 @@ overlay opens), `b67ef60b` (a trail click opens the panel every time).
 - **GREEN:** panel section + Escape key close (mirrors the existing key handlers).
 - Commit: `feat(map): trail info panel beside the trail (#207)`
 
-### T4 — Click opens every time + overlay re-place
+### Task 4 — Click opens every time + overlay re-place
 - **RED:** source + node asserts that a click calls `show()` without requiring
   hover first, and that opening/closing the live-log or stats overlay re-places
   an open panel (`0e076fd6` analogue).

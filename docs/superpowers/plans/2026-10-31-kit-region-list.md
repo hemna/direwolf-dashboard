@@ -54,7 +54,7 @@ group. `schemaVersion`, `groups[].order`, `regions[].maxzoom` int,
 
 ## Tasks (TDD, one commit each)
 
-### T1 — Manifest loader (`basemap.py`)
+### Task 1 — Manifest loader (`basemap.py`)
 - **RED:** new `tests/test_basemap_manifest.py`, port of the reference asserts in
   `ad2e8262:…/tests/test_basemap.py`:
   `test_committed_manifest_is_a_complete_kit_list` (kit copy has
@@ -67,7 +67,7 @@ group. `schemaVersion`, `groups[].order`, `regions[].maxzoom` int,
   `REGION_MANIFEST_FILE = BASEMAP_DIR / "maps-manifest.json"`.
 - Commit: `feat(basemap): read the kit region manifest (#204)`
 
-### T2 — Manifest + archive routes (`routers.py`)
+### Task 2 — Manifest + archive routes (`routers.py`)
 - **RED:** extend `tests/test_basemap_manifest.py` with client-level asserts on the
   served body (`groups` verbatim, region ids exactly `['sample','world']`, every
   non-`url` field verbatim, `url == /basemap/regions/<id>.pmtiles`,
@@ -80,7 +80,7 @@ group. `schemaVersion`, `groups[].order`, `regions[].maxzoom` int,
   route assembly next to the existing basemap routes.
 - Commit: `feat(routers): serve the kit region list and per-region archives (#204)`
 
-### T3 — Region-by-id resolution (`basemap.py`)
+### Task 3 — Region-by-id resolution (`basemap.py`)
 - **RED:** `tests/test_basemap_region.py` additions: `resolve_region_archive("world", …)`
   → the vendored `world.pmtiles` path; `resolve_region_archive("atlantis", …)`
   → the sample path **and** a warning logged; `resolve_region_archive("basemap/regions/…path", …)`
@@ -90,7 +90,7 @@ group. `schemaVersion`, `groups[].order`, `regions[].maxzoom` int,
   already has one — if not, one `LOG = logging.getLogger(__name__)` line).
 - Commit: `feat(basemap): accept a kit region id in basemap.region_archive (#204)`
 
-### T4 — Client region list (`app.js` + `index.html`)
+### Task 4 — Client region list (`app.js` + `index.html`)
 - **RED:** `tests/test_maplibre_region_list.py` in the existing source-assert
   style (`test_maplibre_main_map.py`): `app.js` fetches `/basemap/maps-manifest.json`,
   caches per day under a `dw-region-list-*` localStorage key, renders id/name/bytes,
