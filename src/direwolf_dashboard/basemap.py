@@ -133,6 +133,11 @@ def resolve_region_archive(region_archive: str, data_dir: str, static_dir: str) 
     """Return the filesystem path of the region archive to serve.
 
     Priority:
+      0. ``region_archive`` is a kit region id (a bare slug, issue #204) and
+         ``<static_dir>/basemap/regions/<id>.pmtiles`` exists -> serve that; an
+         id naming no archive here (or an :data:`INTERNAL_REGION_IDS` one) falls
+         back to the default after a :meth:`LOG.warning`, so a typo never blanks
+         the map. The resolved id path then keeps rules 2-4 below.
       1. ``region_archive`` is an absolute path -> serve exactly that file.
       2. ``region_archive`` is the default and ``<data_dir>/basemap/region.pmtiles``
          (the ``basemap fetch`` output) exists -> serve that.
@@ -146,6 +151,15 @@ def resolve_region_archive(region_archive: str, data_dir: str, static_dir: str) 
     arc = (region_archive or DEFAULT_REGION_ARCHIVE).strip()
     if os.path.isabs(arc):
         return arc
+    # Kit region id (issue #204; the basemap-kit archive-route slug rule). A bare
+    # slug never collides with the path-shaped values below (those have / and .).
+    if re.fullmatch(r"[a-z0-9][a-z0-9-]*", arc):
+        id_arc = os.path.join(os.path.dirname(DEFAULT_REGION_ARCHIVE), f"{arc}.pmtiles")
+        if arc not in INTERNAL_REGION_IDS and os.path.isfile(os.path.join(static_dir, id_arc)):
+            arc = id_arc
+        else:
+            LOG.warning("unknown basemap region id %r; serving sample", arc)
+            arc = DEFAULT_REGION_ARCHIVE
     if arc == DEFAULT_REGION_ARCHIVE:
         fetched = os.path.join(data_dir, FETCHED_REGION_ARCHIVE)
         if os.path.isfile(fetched):

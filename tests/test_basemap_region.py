@@ -365,6 +365,65 @@ def test_resolve_region_archive_priority(tmp_path, monkeypatch):
     assert resolve_region_archive(DEFAULT_REGION_ARCHIVE, str(tmp_path / "empty"), str(STATIC)) == str(SAMPLE)
 
 
+# ---------------------------------------------------------------------------
+# Kit region ids in basemap.region_archive (issue #204)
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_region_archive_serves_a_kit_region_id(tmp_path):
+    """`basemap.region_archive: world` resolves to the vendored world.pmtiles."""
+    static = tmp_path / "static"
+    (static / "basemap" / "regions").mkdir(parents=True)
+    world = static / "basemap" / "regions" / "world.pmtiles"
+    world.write_bytes(b"W")
+    data = tmp_path / "data"
+    data.mkdir()
+    assert resolve_region_archive("world", str(data), str(static)) == str(world)
+
+
+def test_resolve_region_archive_unknown_id_falls_back_to_sample(tmp_path, caplog):
+    """A slug naming no archive here serves the sample and logs a warning."""
+    data = tmp_path / "data"
+    data.mkdir()
+    with caplog.at_level("WARNING", logger="direwolf_dashboard.basemap"):
+        got = resolve_region_archive("atlantis", str(data), str(STATIC))
+    assert got == str(SAMPLE)
+    assert "unknown basemap region id" in caplog.text
+    assert "'atlantis'" in caplog.text
+
+
+def test_resolve_region_archive_rejects_an_internal_region_id(tmp_path, caplog):
+    """INTERNAL_REGION_IDS (the z11 gap filler) are never a client choice."""
+    data = tmp_path / "data"
+    data.mkdir()
+    with caplog.at_level("WARNING", logger="direwolf_dashboard.basemap"):
+        got = resolve_region_archive("low-fallback", str(data), str(STATIC))
+    assert got == str(SAMPLE)
+    assert "unknown basemap region id" in caplog.text
+
+
+def test_resolve_region_archive_path_values_are_not_region_ids(tmp_path, caplog):
+    """Regression guard: paths/absolute paths resolve as before, and never warn."""
+    static = tmp_path / "static"
+    data = tmp_path / "data"
+    arc = "basemap/regions/va.pmtiles"
+    (data / arc).parent.mkdir(parents=True)
+    (data / arc).write_bytes(b"D")
+    (static / arc).parent.mkdir(parents=True)
+    (static / arc).write_bytes(b"S")
+    abs_arc = tmp_path / "abs.pmtiles"
+    abs_arc.write_bytes(b"A")
+    with caplog.at_level("WARNING", logger="direwolf_dashboard.basemap"):
+        # data-dir copy still wins
+        assert resolve_region_archive(arc, str(data), str(static)) == str(data / arc)
+        # absolute path still wins outright
+        assert resolve_region_archive(str(abs_arc), str(data), str(static)) == str(abs_arc)
+        # a missing path-shaped value still answers with the static path (callers 404)
+        missing = "basemap/regions/nope.pmtiles"
+        assert resolve_region_archive(missing, str(data), str(static)) == str(static / missing)
+    assert caplog.text == ""
+
+
 def test_region_archive_info(tmp_path):
     f = tmp_path / "region.pmtiles"
     f.write_bytes(b"12345")
