@@ -150,6 +150,14 @@
         'RELAY', 'ECHO', 'GATE', 'RFONLY', 'NOGATE', 'TCPIP', 'TCPXX', 'ARISS',
     ]);
 
+    // Packet-path animator state: declared before the first `await initMap()`
+    // so style.load handlers can run while these are already initialized.
+    let packetPathsData = {type: 'FeatureCollection', features: []};
+    let packetPathsRaf = null;
+    let packetPathChrome = 0;
+    let packetPathWidth = 0;
+    const packetPaths = createPacketPathAnimator(stationPositionCache, packetPathInternetPosition, packetPathInternetCurve);
+
     // --- Theme Support ---
     const _embedded = window.__dwEmbedded || false;
     let _currentTheme = window.__dwTheme || 'dark';
@@ -1212,6 +1220,8 @@
         // a structural theme swap; the paint-only path (#201) leaves them alone.
         map.on('style.load', addStationLayers);
         map.on('style.load', addOverlaySources);
+        map.on('style.load', addPacketPathLayers);
+        map.on('resize', measurePacketPathChrome);
 
         // Station click -> popup (same HTML the Leaflet popups used).
         map.on('click', 'stations-symbol-base', onStationLayerClick);
@@ -2431,6 +2441,468 @@
         }
     }
 
+    // --- Packet-path animation (issue #205) ---
+    const SOURCE_MAX_AGE = 2 * 3600000;
+    const HOP_MAX_AGE = 24 * 3600000;
+    const DUPE_WINDOW = 30000;
+    // Measured gold-standard GIF motion: rings overlap travel, rather than delaying it.
+    const SOURCE_PULSE = 900;
+    const HOP_MS = 630;
+    const HOP_PAUSE = 0;
+    const INTERNET_MS = 1080;
+    const NODE_PAUSE = 600;
+    const TX_PAUSE = 180;
+    const COLORS = {rf: '#32c8d7', aprsis: '#cf8bea', tx: '#ff6566'};
+
+    // One bounded journey tree, one clock, no map objects or timers (port of
+    // the plan's packet-path-animator.js; options become factory parameters).
+    function createPacketPathAnimator(positionCache, internetPosition, internetCurve) {
+        const cache = positionCache;
+        const active = new Map(), seen = new Map(), queue = [];
+        let maxConcurrent = 3, trailMs = 2000, dropped = 0, sequence = 0;
+
+        function validPosition(p, now, maxAge) {
+            return p && Number.isFinite(p.lat) && Number.isFinite(p.lng) &&
+                Math.abs(p.lat) <= 90 && Math.abs(p.lng) <= 180 &&
+                Number.isFinite(p.at) && p.at <= now && now - p.at <= maxAge;
+        }
+
+        function point(call, position) {
+            return {call: call, coordinates: [position.lng, position.lat]};
+        }
+
+        // Spherical interpolation takes the short path across the antimeridian.
+        function sampleRf(a, b) {
+            const rad = Math.PI / 180;
+            const angle = haversineKm(a[1], a[0], b[1], b[0]) / 6371;
+            if (angle < 1e-9) return [a, b];
+            const xyz = p => [Math.cos(p[1] * rad) * Math.cos(p[0] * rad),
+                Math.cos(p[1] * rad) * Math.sin(p[0] * rad), Math.sin(p[1] * rad)];
+            const x = xyz(a), y = xyz(b), samples = [];
+            for (let i = 0; i <= 32; i++) {
+                const t = i / 32;
+                // Antipodal points have no unique great circle; use a bounded linear fallback.
+                const s = Math.sin(angle);
+                if (Math.abs(s) < 1e-9) {
+                    const dlon = ((b[0] - a[0] + 540) % 360) - 180;
+                    samples.push([a[0] + dlon * t, a[1] + (b[1] - a[1]) * t]);
+                    continue;
+                }
+                const u = Math.sin((1 - t) * angle) / s, v = Math.sin(t * angle) / s;
+                const z = x.map((n, j) => u * n + v * y[j]);
+                let lon = Math.atan2(z[1], z[0]) / rad;
+                const previous = samples.length ? samples[samples.length - 1][0] : a[0];
+                while (lon - previous > 180) lon -= 360;
+                while (lon - previous < -180) lon += 360;
+                samples.push([lon, Math.atan2(z[2], Math.hypot(z[0], z[1])) / rad]);
+            }
+            return samples;
+        }
+
+        function partial(samples, progress) {
+            const index = progress * (samples.length - 1);
+            const whole = Math.min(Math.floor(index), samples.length - 2);
+            const t = index - whole;
+            const a = samples[whole], b = samples[whole + 1];
+            const dot = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+            return {line: samples.slice(0, whole + 1).concat([dot]), dot: dot};
+        }
+
+        function position(call, packet, now, source) {
+            if (source && packet.from_call === call && packet.latitude != null && packet.longitude != null) {
+                const p = {lat: Number(packet.latitude), lng: Number(packet.longitude),
+                    at: packet.timestamp * 1000};
+                if (validPosition(p, now, SOURCE_MAX_AGE)) return p;
+            }
+            const p = cache.get(call);
+            return validPosition(p, now, source ? SOURCE_MAX_AGE : HOP_MAX_AGE) ? p : null;
+        }
+
+        function resolve(packet, now) {
+            if (!packet || typeof packet.packet_id !== 'string' || !packet.source ||
+                !Array.isArray(packet.hops)) return null;
+            const src = position(packet.source, packet, now, true);
+            if (!src) return null;
+            const source = point(packet.source, src);
+            const calls = packet.no_rf_leg || packet.tx_igate ? [packet.source] : packet.hops.slice(0, 16);
+            const stops = [source];
+            for (const call of calls) {
+                if (call === stops[stops.length - 1].call) continue;
+                const p = position(call, packet, now, false);
+                if (p) stops.push(point(call, p));
+            }
+            const tx = [];
+            for (const call of (packet.no_rf_leg ? [] : packet.tx_hops || []).slice(0, 16)) {
+                const p = position(call, packet, now, false);
+                if (p && (!tx.length || tx[tx.length - 1].call !== call)) tx.push(point(call, p));
+            }
+            const dest = packet.addressee && position(packet.addressee, packet, now, false);
+            return {source: source, stops: stops, tx: tx,
+                rx: packet.rx_igate, dest: dest ? point(packet.addressee, dest) : null};
+        }
+
+        function pruneSeen(now) {
+            for (const [id, record] of seen) {
+                if (now - record.first < DUPE_WINDOW) break;
+                seen.delete(id);
+            }
+        }
+
+        function enqueue(item) {
+            if (active.size < maxConcurrent) {
+                start(item, item.now);
+            } else {
+                if (queue.length === maxConcurrent) { queue.shift(); dropped++; }
+                queue.push(item);
+            }
+        }
+
+        function start(item, now) {
+            const journey = {id: item.id, source: item.resolved.source, start: now,
+                edges: new Map(), stops: new Map(), endpointOnly: item.endpointOnly,
+                pendingTx: [], routes: [], internetNodes: new Map(),
+                color: sequence++ % 2 ? '#ffb36b' : COLORS.rf, until: now + SOURCE_PULSE};
+            active.set(item.id, journey);
+            for (const route of item.routes) addRoute(journey, route, now);
+        }
+
+        function addStop(journey, stop, at, kind, color) {
+            const previous = journey.stops.get(stop.call);
+            if (!previous || at < previous.at) journey.stops.set(stop.call,
+                {stop: stop, at: at, kind: kind, color: color || COLORS[kind]});
+        }
+
+        function addChain(journey, stops, now, prefix, kind, initialAt, color) {
+            let at = initialAt;
+            let key = prefix;
+            const count = stops.length - 1;
+            const duration = kind === 'rf' ? Math.min(HOP_MS, 3000 / Math.max(1, count)) : INTERNET_MS;
+            color = color || COLORS[kind];
+            addStop(journey, stops[0], at, kind, color);
+            for (let i = 1; i < stops.length && journey.edges.size < 32; i++) {
+                const from = stops[i - 1], to = stops[i];
+                key += '>' + to.call;
+                const shared = journey.edges.get(key);
+                if (shared) { at = shared.end + HOP_PAUSE; continue; }
+                at = Math.max(at, now);   // A late suffix must not start on its prefix's old clock.
+                const same = kind === 'rf' && Math.abs(from.coordinates[0] - to.coordinates[0]) < 1e-7 &&
+                    Math.abs(from.coordinates[1] - to.coordinates[1]) < 1e-7;
+                const end = at + (same ? 0 : duration);
+                if (!same) journey.edges.set(key, {from: from, to: to, kind: kind, color: color, start: at,
+                    end: end, samples: kind === 'rf' ? sampleRf(from.coordinates, to.coordinates) : null});
+                addStop(journey, to, end, kind, color);
+                at = end + HOP_PAUSE;
+                journey.until = Math.max(journey.until, end + trailMs);
+            }
+            return at - HOP_PAUSE;
+        }
+
+        function addInternet(journey, rx, txStops, dest, now, at) {
+            const app = dest ? {...dest, call: dest.call + ' app', app: true} : null;
+            const target = txStops.length ? txStops[0] : app;
+            if (!target || target.call === rx.call) return;
+            let node = journey.internetNodes.get(rx.call);
+            if (!node) {
+                node = {call: 'APRS-IS (internet)', coordinates: rx.coordinates,
+                    internet: {from: rx.coordinates, to: target.coordinates}};
+                journey.internetNodes.set(rx.call, node);
+            } else if (txStops.length) node.internet.to = target.coordinates;
+            if (app) app.node = node;
+            const nodeAt = addChain(journey, [rx, node], now,
+                rx.call + ':internet', 'aprsis', Math.max(at, now));
+            const branchAt = nodeAt + NODE_PAUSE;
+            const end = addChain(journey, [node, target], now,
+                rx.call + ':internet-out', 'aprsis', branchAt);
+            // Hold the shared inbound dashes until the internet branches have faded.
+            for (const edge of journey.edges.values()) {
+                if (edge.to === node) edge.holdUntil = Math.max(edge.holdUntil || 0, end + trailMs);
+            }
+            if (txStops.length) {
+                const rf = txStops.slice();
+                if (dest && rf[rf.length - 1].call !== dest.call) rf.push(dest);
+                addChain(journey, rf, now, target.call + ':tx', 'rf', end + TX_PAUSE, COLORS.tx);
+                if (dest) {
+                    addChain(journey, [node, app], now, rx.call + ':internet-out', 'aprsis',
+                        branchAt);
+                }
+            }
+        }
+
+        function addRoute(journey, route, now) {
+            if (journey.routes.length >= 8) { dropped++; return; }
+            journey.routes.push(route);
+            if (journey.endpointOnly) {
+                const end = route.tx.length ? route.dest || route.tx[route.tx.length - 1] :
+                    route.stops[route.stops.length - 1];
+                addStop(journey, end, now, route.tx.length ? 'aprsis' : 'rf');
+                journey.until = Math.max(journey.until, now + SOURCE_PULSE);
+                return;
+            }
+            const rfAt = addChain(journey, route.stops, now, journey.source.call, 'rf',
+                Math.max(journey.start, now), journey.routes.length === 1 ? journey.color : '#ef76c4');
+            const rx = route.rx && route.stops.find(s => s.call === route.rx);
+            if (rx) {
+                if (route.dest) addInternet(journey, rx, [], route.dest, now, rfAt + HOP_PAUSE);
+                for (const waiting of journey.pendingTx) {
+                    addInternet(journey, rx, waiting.tx, waiting.dest, now, rfAt + HOP_PAUSE);
+                }
+                journey.pendingTx = [];
+            }
+            if (route.tx.length) {
+                const knownRx = journey.routes.find(r => r.rx && r.stops.some(s => s.call === r.rx));
+                if (knownRx) {
+                    const stop = knownRx.stops.find(s => s.call === knownRx.rx);
+                    const rxStop = journey.stops.get(stop.call);
+                    addInternet(journey, stop, route.tx, route.dest, now, rxStop.at + HOP_PAUSE);
+                } else {
+                    // TX-only observations cannot invent the unknown RX IGate.
+                    addChain(journey, route.tx.concat(route.dest ? [route.dest] : []), now,
+                        route.tx[0].call + ':tx', 'rf', now, COLORS.tx);
+                    journey.pendingTx.push(route);
+                }
+            }
+        }
+
+        function offer(packet, now) {
+            pruneSeen(now);
+            const resolved = resolve(packet, now);
+            if (!resolved) return false;
+            const id = packet.packet_id;
+            const signature = resolved.stops.map(s => s.call).join('>') + '|' +
+                resolved.tx.map(s => s.call).join('>') + '|' + (resolved.dest ? resolved.dest.call : '');
+            let record = seen.get(id);
+            if (record && record.paths.has(signature)) return false;
+            if (!record) {
+                if (seen.size >= 1000) { dropped++; return false; }
+                record = {first: now, paths: new Set()};
+                seen.set(id, record);
+            }
+            if (record.paths.size >= 8) { dropped++; return false; }
+            record.paths.add(signature);
+            const playing = active.get(id);
+            if (playing) addRoute(playing, resolved, now);
+            else {
+                const waiting = queue.find(item => item.id === id);
+                if (waiting) waiting.routes.push(resolved);
+                else enqueue({id: id, resolved: resolved, routes: [resolved], now: now,
+                    endpointOnly: record.paths.size > 1});
+            }
+            return true;
+        }
+
+        function coordinates(stop) {
+            if (stop.app) return stop.coordinates;
+            return stop.internet && internetPosition ?
+                internetPosition(stop.internet.from, stop.internet.to) : stop.coordinates;
+        }
+
+        function feature(journey, geometry, props) {
+            return {type: 'Feature', geometry: geometry,
+                properties: {anim_id: journey.id, ...props}};
+        }
+
+        function frame(now) {
+            const output = [];
+            for (const [id, journey] of active) {
+                if (now >= journey.until) { active.delete(id); continue; }
+                if (!journey.endpointOnly) addStop(journey, journey.source, journey.start, 'rf', journey.color);
+                for (const {stop, at, kind, color} of journey.stops.values()) {
+                    const age = now - at;
+                    // Labels stay beside every stop while the journey is on screen.
+                    const pulse = age >= 0 && age < SOURCE_PULSE;
+                    output.push(feature(journey, {type: 'Point', coordinates: coordinates(stop)}, {
+                        feature: 'pulse', kind: kind, callsign: stop.call,
+                        color: color, radius: pulse && !stop.internet ? 8 + 28 * age / SOURCE_PULSE : 0,
+                        opacity: pulse ? 0.8 * (1 - age / SOURCE_PULSE) : 0,
+                        label: stop.call, internet: Boolean(stop.internet), app: Boolean(stop.app),
+                    }));
+                }
+                for (const edge of journey.edges.values()) {
+                    if (now < edge.start || now >= (edge.holdUntil || edge.end + trailMs)) continue;
+                    const progress = Math.min(1, (now - edge.start) / (edge.end - edge.start));
+                    const from = coordinates(edge.from), to = coordinates(edge.to);
+                    const samples = edge.samples || (internetCurve ?
+                        internetCurve(from, to, Boolean(edge.to.internet)) : [from, to]);
+                    const geometry = partial(samples, progress);
+                    const age = Math.max(0, now - edge.end);
+                    const props = {kind: edge.kind, from_call: edge.from.call, to_call: edge.to.call,
+                        color: edge.color, progress: progress, age_ms: age,
+                        opacity: edge.kind === 'aprsis' ? 0.85 : 0.85 * (1 - age / trailMs)};
+                    output.push(feature(journey, {type: 'LineString', coordinates: geometry.line},
+                        {...props, feature: 'segment'}));
+                    if (progress < 1) output.push(feature(journey, {type: 'Point', coordinates: geometry.dot},
+                        {...props, feature: 'dot', opacity: 1, radius: 4}));
+                }
+            }
+            while (queue.length && active.size < maxConcurrent) {
+                const item = queue.shift();
+                if (now - item.now < DUPE_WINDOW) start(item, now);
+                else dropped++;
+            }
+            pruneSeen(now);
+            return {type: 'FeatureCollection', features: output};
+        }
+
+        function clear() { active.clear(); queue.length = 0; seen.clear(); sequence = 0; }
+        function configure(settings) {
+            if ([1, 3, 5].includes(settings.maxConcurrent)) maxConcurrent = settings.maxConcurrent;
+            if ([1000, 2000, 4000].includes(settings.trailMs)) {
+                const change = settings.trailMs - trailMs;
+                trailMs = settings.trailMs;
+                for (const journey of active.values()) {
+                    if (journey.edges.size) journey.until += change;
+                    for (const edge of journey.edges.values()) {
+                        if (edge.holdUntil) edge.holdUntil += change;
+                    }
+                }
+            }
+            while (active.size > maxConcurrent) active.delete(active.keys().next().value);
+            while (queue.length > maxConcurrent) { queue.shift(); dropped++; }
+        }
+        return {offer: offer, frame: frame, clear: clear, configure: configure,
+            knownPosition: (call, packet, now) => position(call, packet, now, call === packet.source),
+            active: active, queue: queue, seen: seen,
+            get dropped() { return dropped; },
+            get hasWork() { return active.size > 0 || queue.length > 0; }};
+    }
+
+
+    // --- Packet-path map glue: one bounded source, style.reload re-adds,
+    // one setData per rendered frame (port of the plan's packet-path-overlay.js).
+    function measurePacketPathChrome() {
+        const top = map.getContainer().getBoundingClientRect().top;
+        packetPathWidth = map.getCanvas().clientWidth;
+        packetPathChrome = 0;
+        for (const element of document.querySelectorAll('.navbar, #map-controls, .maplibregl-ctrl-top-left, .maplibregl-ctrl-top-right')) {
+            packetPathChrome = Math.max(packetPathChrome, element.getBoundingClientRect().bottom - top);
+        }
+    }
+
+    function packetPathInternetPosition(from, to) {
+        const a = map.project(from), b = map.project(to);
+        const node = map.unproject({x: (a.x + b.x) / 2,
+            y: Math.max(packetPathChrome + 40, Math.min(a.y, b.y) - 150)});
+        return [node.lng, node.lat];
+    }
+
+    function packetPathInternetCurve(from, to, inbound) {
+        const a = map.project(from), b = map.project(to), points = [];
+        const c = inbound ? {x: a.x, y: b.y} : {x: a.x + (b.x - a.x) * 0.55, y: a.y - 16};
+        const d = inbound ? {x: a.x + (b.x - a.x) * 0.55, y: b.y} : {x: b.x, y: a.y - 16};
+        for (let i = 0; i <= 32; i++) {
+            const t = i / 32, u = 1 - t;
+            const p = map.unproject({x: u ** 3 * a.x + 3 * u ** 2 * t * c.x + 3 * u * t ** 2 * d.x + t ** 3 * b.x,
+                y: u ** 3 * a.y + 3 * u ** 2 * t * c.y + 3 * u * t ** 2 * d.y + t ** 3 * b.y});
+            points.push([p.lng, p.lat]);
+        }
+        return points;
+    }
+
+    function addPacketPathLayers() {
+        if (!mainMapIsMaplibre || !map) return;
+        if (!map.getSource('packet-paths')) {
+            map.addSource('packet-paths', {type: 'geojson', data: packetPathsData});
+        }
+        const get = key => ['get', key];
+        const filter = (feature, kind) => kind ? ['all', ['==', get('feature'), feature], ['==', get('kind'), kind]] :
+            ['==', get('feature'), feature];
+        const pulse = filter('pulse');
+        const node = ['all', pulse, ['==', get('internet'), true]];
+        const layers = [
+            // A slower-fading dark edge keeps late trails readable over light basemap tiles.
+            {id: 'packet-path-casing', type: 'line', filter: filter('segment', 'rf'),
+                paint: {'line-color': '#101820', 'line-width': 5, 'line-opacity': ['sqrt', get('opacity')]}},
+            {id: 'packet-path-glow', type: 'line', filter: filter('segment', 'rf'),
+                paint: {'line-color': get('color'), 'line-width': 12, 'line-blur': 6,
+                    'line-opacity': ['*', get('opacity'), 0.35]}},
+            {id: 'packet-path-line', type: 'line', filter: filter('segment', 'rf'),
+                paint: {'line-color': get('color'), 'line-width': 3, 'line-opacity': get('opacity')}},
+            {id: 'packet-path-internet', type: 'line', filter: filter('segment', 'aprsis'),
+                paint: {'line-color': get('color'), 'line-width': 2, 'line-dasharray': [5, 5], 'line-opacity': get('opacity')}},
+            {id: 'packet-path-dot-halo', type: 'circle', filter: filter('dot'),
+                paint: {'circle-color': get('color'), 'circle-radius': 8, 'circle-blur': 0.7, 'circle-opacity': 0.5}},
+            {id: 'packet-path-dot', type: 'circle', filter: filter('dot'),
+                paint: {'circle-color': '#ffffff', 'circle-radius': get('radius'), 'circle-opacity': get('opacity')}},
+            {id: 'packet-path-pulse', type: 'circle', filter: pulse,
+                paint: {'circle-radius': get('radius'), 'circle-opacity': 0, 'circle-stroke-color': get('color'),
+                    'circle-stroke-width': 2, 'circle-stroke-opacity': get('opacity')}},
+            {id: 'packet-path-label', type: 'symbol', filter: ['all', pulse, ['!=', get('internet'), true]],
+                layout: {'text-field': get('label'), 'text-font': ['NotoSansMedium'], 'text-size': 12,
+                    'text-anchor': get('label_anchor'),
+                    'text-offset': ['case', ['==', get('label_anchor'), 'right'], ['literal', [-1, 0]], ['literal', [1, 0]]],
+                    'text-allow-overlap': true, 'text-ignore-placement': true},
+                paint: {'text-color': '#e8eef8', 'text-halo-color': '#101820', 'text-halo-width': 2}},
+            {id: 'packet-path-node', type: 'circle', filter: node,
+                paint: {'circle-radius': 18, 'circle-color': '#403065', 'circle-stroke-width': 1, 'circle-stroke-color': get('color')}},
+            {id: 'packet-path-node-is', type: 'symbol', filter: node,
+                layout: {'text-field': 'IS', 'text-font': ['NotoSansMedium'], 'text-size': 12,
+                    'text-allow-overlap': true, 'text-ignore-placement': true}, paint: {'text-color': '#e8eef8'}},
+            {id: 'packet-path-app', type: 'circle', filter: ['all', pulse, ['==', get('app'), true]],
+                paint: {'circle-radius': 8, 'circle-color': '#101820', 'circle-stroke-color': get('color'), 'circle-stroke-width': 2}},
+            {id: 'packet-path-node-label', type: 'symbol', filter: node,
+                layout: {'text-field': get('label'), 'text-font': ['NotoSansMedium'], 'text-size': 12,
+                    'text-offset': [0, 2.7], 'text-allow-overlap': true, 'text-ignore-placement': true},
+                paint: {'text-color': get('color'), 'text-halo-color': '#101820', 'text-halo-width': 1.5}},
+        ];
+        const before = map.getLayer('stations-symbol-base') ? 'stations-symbol-base' : undefined;
+        for (const layer of layers) {
+            if (map.getLayer(layer.id)) continue;
+            layer.source = 'packet-paths';
+            // Dynamic properties must not ease between successive animation frames.
+            for (const key of Object.keys(layer.paint)) layer.paint[key + '-transition'] = {duration: 0, delay: 0};
+            map.addLayer(layer, before);
+        }
+        refreshPacketPathSource();
+        schedulePacketPaths();
+    }
+
+    function refreshPacketPathSource() {
+        if (!map || !map.getSource || !map.getSource('packet-paths')) return;
+        map.getSource('packet-paths').setData(packetPathsData);
+    }
+
+    function schedulePacketPaths() {
+        if (packetPathsRaf === null && !document.hidden && packetPaths.hasWork) {
+            packetPathsRaf = requestAnimationFrame(renderPacketPaths);
+        }
+    }
+
+    function renderPacketPaths() {
+        packetPathsRaf = null;
+        if (document.hidden) {
+            packetPaths.clear();
+            packetPathsData = {type: 'FeatureCollection', features: []};
+            refreshPacketPathSource();
+            return;
+        }
+        packetPathsData = packetPaths.frame(Date.now());
+        for (const feature of packetPathsData.features) {
+            if (feature.properties.feature === 'pulse' && !feature.properties.internet) {
+                const x = map.project(feature.geometry.coordinates).x;
+                // Reserve one text-size per glyph plus the one-em offset; never move RF coordinates.
+                feature.properties.label_anchor = x + 12 * (feature.properties.label.length + 1) > packetPathWidth ? 'right' : 'left';
+            }
+        }
+        refreshPacketPathSource();
+        schedulePacketPaths();
+    }
+
+    function offerPacketPath(packet) {
+        if (!mainMapIsMaplibre || !map) return false;
+        if (!packet || !packet.source || !Array.isArray(packet.hops)) return false;
+        const now = Date.now(), bounds = map.getBounds();
+        const calls = [packet.source].concat(packet.hops.slice(0, 16),
+            (packet.tx_hops || []).slice(0, 16));
+        const visible = calls.some(call => {
+            if (!call) return false;
+            const p = packetPaths.knownPosition(call, packet, now);
+            return p && bounds.contains([p.lng, p.lat]);
+        });
+        if (!visible || !packetPaths.offer(packet, now)) return false;
+        schedulePacketPaths();
+        return true;
+    }
+
     // --- WebSocket ---
     function connectWebSocket() {
         ws = new WebSocket(WS_URL);
@@ -2529,6 +3001,7 @@
         if (!isPlacePacket && packet.latitude != null && packet.longitude != null) {
             updatePositionCache(packet.from_call, packet.latitude, packet.longitude);
         }
+        if (!isPlacePacket) offerPacketPath(packet);
         if (!isPlacePacket && packet.latitude != null && packet.longitude != null) {
             if (waitingForPosition) {
                 dismissWaiting();
