@@ -213,6 +213,8 @@ def test_per_station_log_filter_hooks_log_row_renderer():
     assert "hidden-by-filter" in hook
     renderer = _fn("addLogRow")
     assert "applyFilterToRow(row);" in renderer  # new rows keep flowing through
+    starter = _fn("startFollowing")
+    assert "applyFilterToRow" in starter  # existing rows refilter when follow starts
 
 
 def test_escape_unfollows():

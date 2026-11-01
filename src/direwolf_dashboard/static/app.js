@@ -2815,6 +2815,8 @@
         }
         applyFollowDimming();
         renderFollowChip();
+        // Rows already on screen must re-run through the filter hook.
+        document.querySelectorAll('.log-row').forEach(function (row) { applyFilterToRow(row); });
         return true;
     }
 
