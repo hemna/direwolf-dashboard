@@ -6,6 +6,7 @@ All notable changes to this project are documented here.
 
 ### Added
 
+- **Animated packet paths from RF route hops (issue #205)** — packets carry shared path metadata (packet id, source, hops, rx/tx igate, no-RF-leg flag, tx hops, addressee) that's also persisted in the packet store, so a reload or reconnect replays the last 50 packets with their routes and the map animates them too, not just packets arriving live. A `dw-packet-paths` settings toggle turns it off (default only when the OS requests reduced motion).
 - **Weather-station map symbol is a full NWS surface-analysis station plot (issue #152)** — wind barb (half/full = 5/10 kt, pennant = 50 kt, calm ring), temperature, dewpoint, pressure and gust where the station reports them; missing fields are omitted. A new "Station plots" toggle (default on) switches WX stations between the plot and the plain APRS sprite, with a state-driven legend explaining the symbols and units. Also fixes wind extraction for `_` WX packets, which previously never stored wind direction or speed (the most common APRS weather format).
 - Shareable map URL (#150): the address bar tracks the view as `#zoom/lat/lon` (same format as haminfo `/map`; `/bearing/pitch` appended only when non-zero). Opening such a link restores the view and takes priority over the saved center and the waiting/auto-follow centering. A `z 12.0` readout under the zoom buttons shows the current zoom.
 

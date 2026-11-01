@@ -10,6 +10,7 @@ from starlette.testclient import TestClient
 
 from direwolf_dashboard.lifecycle import ServiceContainer
 from direwolf_dashboard.routers import create_api_routes, create_index_handler, create_ws_handler
+from direwolf_dashboard.storage import Storage
 
 
 class TestCreateApiRoutes:
@@ -475,19 +476,25 @@ class TestWxLegendEndpoint:
 
 
 class TestPacketPathPassthrough:
-    """/api/packets and the ws packet events pass the shared path fields through (#205)."""
+    """/api/packets and the ws packet events pass the shared path fields through
+    the real insert → query storage round trip, not a mock that pre-loads them (#205)."""
 
-    def _make_ws_services(self, packets):
-        """Services whose storage replay returns packets with the shared path fields.
+    def _make_ws_services(self, storage):
+        """Services whose storage replay returns packets from SQLite.
 
         agw_reader/log_tailer stay None so the trailing status event serializes."""
         services = mock.MagicMock()
-        storage = mock.MagicMock()
-        storage.query_packets = mock.AsyncMock(return_value=packets)
         services.storage = storage
         services.agw_reader = None
         services.log_tailer = None
         return services
+
+    async def _seeded_storage(self, tmp_path) -> Storage:
+        """Real storage with one path packet stored through insert_packet."""
+        storage = Storage(str(tmp_path / "test.db"))
+        await storage.init()
+        await storage.insert_packet(self._path_packet())
+        return storage
 
     def _path_packet(self):
         return {
@@ -510,34 +517,43 @@ class TestPacketPathPassthrough:
             "tx_igate": "K4TX",
             "no_rf_leg": False,
             "tx_hops": ["K4TX"],
+            "addressee": None,
         }
 
     def _path_fields(self):
-        return ("packet_id", "source", "hops", "rx_igate", "tx_igate", "no_rf_leg", "tx_hops")
+        return ("packet_id", "source", "hops", "rx_igate", "tx_igate", "no_rf_leg", "tx_hops", "addressee")
 
-    def test_api_packets_passes_path_fields_through(self):
-        """JSONResponse must not strip the new keys from stored packet dicts."""
+    async def test_api_packets_passes_path_fields_through(self, tmp_path):
+        """Fields survive a real store → query_packets → JSONResponse round trip."""
         pkt = self._path_packet()
-        container = ServiceContainer()
-        container.services = self._make_ws_services([pkt])
-        client = TestClient(_build_test_app(container), raise_server_exceptions=False)
-        resp = client.get("/api/packets")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert len(data) == 1
-        for name in self._path_fields():
-            assert name in data[0]
-            assert data[0][name] == pkt[name]
+        storage = await self._seeded_storage(tmp_path)
+        try:
+            container = ServiceContainer()
+            container.services = self._make_ws_services(storage)
+            client = TestClient(_build_test_app(container), raise_server_exceptions=False)
+            resp = client.get("/api/packets")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert len(data) == 1
+            for name in self._path_fields():
+                assert name in data[0]
+                assert data[0][name] == pkt[name]
+        finally:
+            await storage.close()
 
-    def test_ws_packet_events_carry_path_fields(self):
+    async def test_ws_packet_events_carry_path_fields(self, tmp_path):
         """The replayed {'event': 'packet', 'data': ...} ws message keeps them."""
         pkt = self._path_packet()
-        container = ServiceContainer()
-        container.services = self._make_ws_services([pkt])
-        app = Starlette(routes=[WebSocketRoute("/ws", create_ws_handler(container))])
-        with TestClient(app, raise_server_exceptions=False) as client:
-            with client.websocket_connect("/ws") as ws:
-                msg = ws.receive_json()
-                assert msg["event"] == "packet"
-                for name in self._path_fields():
-                    assert msg["data"][name] == pkt[name]
+        storage = await self._seeded_storage(tmp_path)
+        try:
+            container = ServiceContainer()
+            container.services = self._make_ws_services(storage)
+            app = Starlette(routes=[WebSocketRoute("/ws", create_ws_handler(container))])
+            with TestClient(app, raise_server_exceptions=False) as client:
+                with client.websocket_connect("/ws") as ws:
+                    msg = ws.receive_json()
+                    assert msg["event"] == "packet"
+                    for name in self._path_fields():
+                        assert msg["data"][name] == pkt[name]
+        finally:
+            await storage.close()

@@ -98,6 +98,42 @@ class TestPacketCRUD:
         results = await storage.query_packets(limit=10)
         assert results[0]["path"] == ["WIDE1-1", "WIDE2-1"]
 
+    async def test_path_meta_round_trip(self, storage):
+        """Shared packet-path fields survive insert_packet → query_packets (#205)."""
+        packet = _make_packet()
+        await storage.insert_packet({
+            **packet,
+            "packet_id": "a" * 40,
+            "source": "N0CALL",
+            "hops": ["N0CALL", "K4TX"],
+            "rx_igate": None,
+            "tx_igate": "K4TX",
+            "no_rf_leg": False,
+            "tx_hops": ["K4TX"],
+            "addressee": None,
+        })
+
+        results = await storage.query_packets(limit=10)
+        assert len(results) == 1
+        row = results[0]
+        assert row["packet_id"] == "a" * 40
+        assert row["source"] == "N0CALL"
+        assert row["hops"] == ["N0CALL", "K4TX"]
+        assert row["tx_igate"] == "K4TX"
+        assert row["tx_hops"] == ["K4TX"]
+        assert row["no_rf_leg"] is False
+        assert row["rx_igate"] is None
+        assert row["addressee"] is None
+
+    async def test_no_path_meta_without_parse(self, storage):
+        """Packets without a successful parse store no path_meta keys."""
+        await storage.insert_packet(_make_packet())
+
+        results = await storage.query_packets(limit=10)
+        assert "packet_id" not in results[0]
+        assert "source" not in results[0]
+        assert "hops" not in results[0]
+
     async def test_query_packets_by_time(self, storage):
         old_time = time.time() - 3600
         new_time = time.time()
