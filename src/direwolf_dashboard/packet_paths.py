@@ -115,4 +115,5 @@ def parse_packet_path(raw: str) -> dict | None:
         'tx_igate': outer[0] if third_party else None,
         'no_rf_leg': no_rf_leg,
         'tx_hops': _collapse([outer[0]] + used) if third_party and not no_rf_leg else [],
+        'addressee': addressee,
     }

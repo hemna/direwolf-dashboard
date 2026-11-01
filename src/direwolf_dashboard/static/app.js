@@ -1241,6 +1241,9 @@
         map.on('style.load', addOverlaySources);
         map.on('style.load', addPacketPathLayers);
         map.on('resize', measurePacketPathChrome);
+        // First paint needs real width/chrome; until now they stayed 0 until
+        // some resize fired (#209 review finding 2).
+        measurePacketPathChrome();
 
         // Station click -> popup (same HTML the Leaflet popups used).
         map.on('click', 'stations-symbol-base', onStationLayerClick);
@@ -1715,9 +1718,9 @@
         try {
             const resp = await fetch(API_BASE + '/stations/positions');
             const data = await resp.json();
-            const now = Date.now();
             for (const [callsign, pos] of Object.entries(data)) {
-                stationPositionCache.set(callsign, { lat: pos.lat, lng: pos.lng, at: now });
+                // Reuse the single-entry path so bulk loads refresh LRU order.
+                updatePositionCache(callsign, pos.lat, pos.lng);
             }
         } catch (e) {
             console.error('Failed to load station positions:', e);

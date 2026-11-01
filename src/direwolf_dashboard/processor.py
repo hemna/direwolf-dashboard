@@ -289,6 +289,7 @@ def packet_to_dict(
     packet["tx_igate"] = meta.get("tx_igate")
     packet["no_rf_leg"] = meta.get("no_rf_leg", False)
     packet["tx_hops"] = meta.get("tx_hops", [])
+    packet["addressee"] = meta.get("addressee")
 
     if parsed:
         packet["type"] = _classify_packet_type(parsed)

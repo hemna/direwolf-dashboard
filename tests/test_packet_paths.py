@@ -21,6 +21,7 @@ FIELDS = {
     "tx_igate",
     "no_rf_leg",
     "tx_hops",
+    "addressee",
 }
 
 
@@ -114,3 +115,9 @@ def test_internet_only_outer_frames_do_not_emit_tx_rf_hops(construct):
 )
 def test_malformed_or_unbounded_raw_has_no_identity(raw):
     assert parse(raw) is None
+
+
+def test_addressee_surfaces_message_recipient():
+    """#209 review finding 1: the endpoint animation reads packet.addressee."""
+    assert parse("N0CALL>APDW13,WIDE1-1::W1AW     :hello")["addressee"] == "W1AW"
+    assert parse("N0CALL>APRS,K4DIG*,WIDE2-1,qAR,K4ABC:hello")["addressee"] is None
