@@ -32,6 +32,9 @@ APP_JS = Path(direwolf_dashboard.__file__).parent / "static" / "app.js"
 HARNESS_PRELUDE = r"""
 const document = { hidden: false };
 global.window = globalThis;
+// Task 5's state line reads the setting at load; no saved choice + no matchMedia
+// stub (guard falls to null) keeps the animator enabled as before.
+global.localStorage = { getItem: (key) => null, setItem: (key, value) => {} };
 let rafQueue = [];
 global.requestAnimationFrame = (fn) => { rafQueue.push(fn); return rafQueue.length; };
 global.cancelAnimationFrame = () => {};
@@ -63,10 +66,12 @@ EXTRACTIONS = [
     (r"let packetPathsRaf = null;", "let"),
     (r"let packetPathChrome = 0;", "let"),
     (r"let packetPathWidth = 0;", "let"),
+    (r"let packetPathsEnabled = [^;]*;", "let"),
     (r"const packetPaths = createPacketPathAnimator\([^;]*;", "const"),
     ("haversineKm", "fn"),
     ("updatePositionCache", "fn"),
     ("createPacketPathAnimator", "fn"),
+    ("packetPathInitialEnabled", "fn"),
     ("packetPathInternetPosition", "fn"),
     ("packetPathInternetCurve", "fn"),
     ("measurePacketPathChrome", "fn"),

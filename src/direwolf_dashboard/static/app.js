@@ -156,6 +156,10 @@
     let packetPathsRaf = null;
     let packetPathChrome = 0;
     let packetPathWidth = 0;
+    // #205: explicit saved choice (dw-packet-paths '1'/'0') overrides the OS
+    // default; default on unless prefers-reduced-motion: reduce (decision
+    // 2026-10-28). The settings toggle can flip either way and persists it.
+    let packetPathsEnabled = packetPathInitialEnabled(localStorage.getItem('dw-packet-paths'));
     const packetPaths = createPacketPathAnimator(stationPositionCache, packetPathInternetPosition, packetPathInternetCurve);
 
     // --- Theme Support ---
@@ -632,6 +636,12 @@
                     (localStorage.getItem('dw-station-model') !== '0' ? 'checked ' : '') +
                     '/>' +
             '</div>' +
+            '<div class="filter-overlay-row">' +
+                '<label class="filter-overlay-label" for="filter-packet-paths">Packet paths</label>' +
+                '<input type="checkbox" id="filter-packet-paths" ' +
+                    (packetPathsEnabled ? 'checked ' : '') +
+                    '/>' +
+            '</div>' +
             '</div>';
         var filterHeader = container.querySelector('.filter-overlay-header');
         var filterIcon = container.querySelector('.filter-collapse-icon');
@@ -653,6 +663,15 @@
                 localStorage.setItem('dw-station-model', this.checked ? '1' : '0');
                 refreshStations();
                 setWxLegendVisible(wxStationEnabled());
+            });
+        }
+        // Packet paths toggle (#205): an explicit choice persists ('1'/'0') and
+        // overrides the reduced-motion default on later loads.
+        const packetPathsToggle = container.querySelector('#filter-packet-paths');
+        if (packetPathsToggle) {
+            packetPathsToggle.addEventListener('change', function () {
+                localStorage.setItem('dw-packet-paths', this.checked ? '1' : '0');
+                setPacketPathsEnabled(this.checked);
             });
         }
         map.addControl(mlControl(function () { return container; }, 'top-right'));
@@ -2861,18 +2880,43 @@
         map.getSource('packet-paths').setData(packetPathsData);
     }
 
+    // Initial setting (#205): a saved '1'/'0' wins; otherwise on unless the OS
+    // asks for reduced motion, matching the reference overlay's semantics.
+    function packetPathInitialEnabled(saved) {
+        if (saved === '1' || saved === '0') return saved === '1';
+        const motion = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+        return !(motion && motion.matches);
+    }
+
+    // Shared hidden/disable clear; reuses the render path minus the rAF bookkeeping
+    // (a pending callback early-returns while hidden, so no cancel plumbing).
+    function clearPacketPaths() {
+        packetPaths.clear();
+        packetPathsData = {type: 'FeatureCollection', features: []};
+        refreshPacketPathSource();
+    }
+
+    function setPacketPathsEnabled(value) {
+        packetPathsEnabled = value;
+        if (!value) clearPacketPaths();
+    }
+
+    // Pause when the tab goes hidden: a day-open tab must not queue journeys
+    // or frames (#205 day-open-tab criterion).
+    document.addEventListener('visibilitychange', function () {
+        if (document.hidden) clearPacketPaths();
+    });
+
     function schedulePacketPaths() {
-        if (packetPathsRaf === null && !document.hidden && packetPaths.hasWork) {
+        if (packetPathsRaf === null && packetPathsEnabled && !document.hidden && packetPaths.hasWork) {
             packetPathsRaf = requestAnimationFrame(renderPacketPaths);
         }
     }
 
     function renderPacketPaths() {
         packetPathsRaf = null;
-        if (document.hidden) {
-            packetPaths.clear();
-            packetPathsData = {type: 'FeatureCollection', features: []};
-            refreshPacketPathSource();
+        if (!packetPathsEnabled || document.hidden) {
+            clearPacketPaths();
             return;
         }
         packetPathsData = packetPaths.frame(Date.now());
@@ -2888,6 +2932,7 @@
     }
 
     function offerPacketPath(packet) {
+        if (!packetPathsEnabled || document.hidden) return false;
         if (!mainMapIsMaplibre || !map) return false;
         if (!packet || !packet.source || !Array.isArray(packet.hops)) return false;
         const now = Date.now(), bounds = map.getBounds();
