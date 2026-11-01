@@ -3251,7 +3251,7 @@
 
 
     // --- Station overlay: path lines, distance, log highlight ---
-    // haversineKm lives in the trail-statistics section below (spec radius).
+    // haversineKm lives in the trail-statistics section above (spec radius).
 
     var _selectedCallsign = null;
     var _hopHoverBound = false;
