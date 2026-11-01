@@ -2850,7 +2850,10 @@
         if (packet.from_call !== cs && packet.to_call !== cs) return;
         var now = Date.now();
         followLastHeardAt = now;
-        if (packet.from_call === cs && packet.latitude != null && packet.longitude != null) {
+        // Object/item packets locate a named object, not the reporting station
+        // (issue #170 rule, same isPlacePacket test as the WS hook below).
+        var isPlacePacket = packet.type === 'ObjectPacket' || packet.type === 'ItemPacket';
+        if (!isPlacePacket && packet.from_call === cs && packet.latitude != null && packet.longitude != null) {
             var pos = followPage.state().position;
             if (!pos || pos.lat !== packet.latitude || pos.lng !== packet.longitude) {
                 handleFollowDecision(followPage.setPosition(
@@ -2920,8 +2923,17 @@
             followChipResume.addEventListener('click', function () { resumeFollowing(); });
         }
         if (!map) return;
-        // A hand pan or zoom pauses following; the resume button restarts it.
-        map.on('dragstart', function () { if (!followSelfMove) suspendFollowing(); });
+        // Pans/zooms from a real gesture (originalEvent present) pause
+        // following and completing the move resumes it; a feature's
+        // programmatic move stays ignored, and marker drags only fire
+        // drag events, so they never suspend.
+        map.on('movestart', function (ev) {
+            if (followSelfMove || !ev || !ev.originalEvent) return;
+            suspendFollowing();
+        });
+        map.on('moveend', function () {
+            if (followPage && followPage.state().suspended) resumeFollowing();
+        });
         map.on('zoomstart', function () { if (!followSelfMove) suspendFollowing(); });
     }
 
