@@ -230,3 +230,170 @@ def test_follow_callsign_persisted_like_other_dw_keys():
     init = _fn("initFollowStation")
     assert "localStorage.getItem('dw-follow-callsign')" in init
     assert "startFollowing(" in init  # restore-follow-on-load
+
+
+# --- Task 3: a theme flip must not lose follow dimming (issue #206) ---
+# applyThemeStyle's structural path calls map.setStyle (app.js:204, the #201
+# seam): the vendored maplibre rebuilds the page-added station layers at
+# default paint and re-fires 'style.load', so follow dimming — page paint,
+# not kit paint — must be re-applied in the style.load handlers, exactly
+# like haminfo fix 2bf716bd pinned its whole re-apply list. The behaviour
+# harness stubs a maplibre-shaped map: setStyle drops paint and fires the
+# 'style.load' listeners in registration order (the vendored Evented class
+# keeps _listeners[type] as an array — on() pushes, fire() iterates a
+# slice copy — so later registrations land on top), then flips the theme
+# while following and asserts the dim paint survives.
+
+NODE_SCRIPT_THEME_FLIP = r"""
+var fs = require('fs');
+var app = fs.readFileSync(process.argv[2], 'utf8');
+var STATE = '// --- Follow a station (issue #206) ---';
+var WIRING = '// --- Follow a station: page wiring (issue #206) ---';
+if (app.indexOf(STATE) < 0 || app.indexOf(WIRING) < 0) {
+    console.log(JSON.stringify({ error: 'follow sections missing from app.js (#206 not implemented)' }));
+    process.exit(3);
+}
+function braceFn(src, mark) {
+    var i = src.indexOf(mark);
+    if (i < 0) throw new Error('missing ' + mark);
+    if (mark.indexOf('function') === 0) {
+        var open = src.indexOf('{', i), depth = 0;
+        for (var j = open; j < src.length; j++) {
+            if (src[j] === '{') depth++;
+            else if (src[j] === '}') { depth--; if (depth === 0) return src.slice(i, j + 1); }
+        }
+    }
+    var close = src.indexOf(']);', i); // multi-line Set literal
+    return src.slice(i, close + 3);
+}
+var b = app.indexOf(STATE);
+var w = app.indexOf(WIRING);
+var e = app.indexOf('\n    // --- ', w + 60); // next section banner
+var helpers = braceFn(app, 'const GENERIC_PATH_ALIASES = new Set([')
+    + '\n' + braceFn(app, 'function parsePath(')
+    + '\n' + braceFn(app, 'function haversineKm(');
+// Stub environment for the page-wiring section. The new Function body below
+// resolves free identifiers through the GLOBAL chain only, so the stubs go
+// on globalThis, not the node module scope.
+globalThis.document = { getElementById: function () { return null; }, querySelectorAll: function () { return []; } };
+globalThis.window = { matchMedia: function () { return { matches: false }; } };
+globalThis.localStorage = { setItem: function () {}, getItem: function () { return null; }, removeItem: function () {} };
+globalThis.getStationPosition = function (cs) { return null; };
+var listeners = {};
+var paintStore = {};
+var map = {
+    on: function (type, fn) { if (!listeners[type]) listeners[type] = []; listeners[type].push(fn); },
+    setStyle: function () {
+        paintStore = {}; // maplibre rebuild: every layer back at default paint
+        var ls = listeners['style.load'] || [];
+        for (var i = 0; i < ls.length; i += 1) ls[i]({ type: 'style.load' });
+    },
+    getLayer: function (id) { return true; },
+    setPaintProperty: function (id, key, value) { paintStore[id + '|' + key] = JSON.stringify(value); },
+    getPaintProperty: function (id, key) { return paintStore[id + '|' + key]; }
+};
+globalThis.map = map;
+// Mirror initMap's re-add registration (app.js 1225): a style.load re-add
+// of the station layers, arriving with default paint. It is registered
+// BEFORE wireFollowStation runs — initFollowStation boots after initMap.
+function addStationLayers() {
+    paintStore['stations-symbol-base|icon-opacity'] = null;
+    paintStore['stations-symbol-overlay|icon-opacity'] = null;
+    paintStore['stations-label|text-opacity'] = null;
+}
+map.on('style.load', addStationLayers);
+
+var DRIVER =
+    'var R = {};\n' +
+    'var FAILS = [];\n' +
+    'function chk(name, ok) { if (!ok) FAILS.push(name); }\n' +
+    'wireFollowStation();\n' +
+    'if (startFollowing("K1ABC") === false) FAILS.push("start-refused");\n' +
+    'R.dimmed = map.getPaintProperty("stations-symbol-base", "icon-opacity");\n' +
+    'R.dimmedOverlay = map.getPaintProperty("stations-symbol-overlay", "icon-opacity");\n' +
+    'R.dimmedLabel = map.getPaintProperty("stations-label", "text-opacity");\n' +
+    'chk("dimmed", R.dimmed === "[\\"case\\",[\\"==\\",[\\"get\\",\\"callsign\\"],\\"K1ABC\\"],1,0.3]" &&' +
+    '    R.dimmedOverlay === R.dimmed && R.dimmedLabel === R.dimmed);\n' +
+    'map.setStyle(); // the structural applyThemeStyle path (app.js:204): theme flip\n' +
+    'R.afterFlip = map.getPaintProperty("stations-symbol-base", "icon-opacity");\n' +
+    'R.afterFlipLabel = map.getPaintProperty("stations-label", "text-opacity");\n' +
+    'chk("flip-keeps-dim", R.afterFlip === R.dimmed && R.afterFlipLabel === R.dimmed);\n' +
+    'if (followPage) followPage.setMode("hide");\n' +
+    'map.setStyle();\n' +
+    'R.afterFlipHide = map.getPaintProperty("stations-symbol-base", "icon-opacity");\n' +
+    'chk("flip-keeps-hide", R.afterFlipHide === "[\\"case\\",[\\"==\\",[\\"get\\",\\"callsign\\"],\\"K1ABC\\"],1,0]");\n' +
+    'stopFollowing();\n' +
+    'map.setStyle();\n' +
+    'R.afterFlipStopped = map.getPaintProperty("stations-symbol-base", "icon-opacity");\n' +
+    'chk("flip-unfollowed-full", R.afterFlipStopped === "1");\n' +
+    'console.log(JSON.stringify({ fail: FAILS, results: R }));';
+var src = helpers + '\n' + app.slice(b, w) + '\n' + app.slice(w, e) + '\n' + DRIVER;
+try { new Function(src)(); } catch (err) {
+    console.log(JSON.stringify({ error: 'sections threw: ' + err.message }));
+    process.exit(4);
+}
+"""
+
+
+def test_theme_flip_reapplies_follow_dimming() -> None:
+    """A structural theme flip (map.setStyle) while following re-applies the
+    follow dimming; the flip's own paint (layer re-adds) runs underneath."""
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node executable not found")
+    tmp = Path(tempfile.mkdtemp(prefix="theme-flip-harness-"))
+    script = tmp / "harness.js"
+    script.write_text(NODE_SCRIPT_THEME_FLIP, encoding="utf-8")
+    proc = subprocess.run(
+        [node, str(script), str(APP_JS)],
+        capture_output=True,
+        text=True,
+    )
+    out = (proc.stdout or "").strip()
+    try:
+        data = json.loads(out)
+    except Exception:
+        raise AssertionError("harness produced no JSON: " + (out or proc.stderr)[:300])
+    if "error" in data:
+        msg = data["error"]
+        if "not implemented" in msg:
+            raise AssertionError("follow sections missing from app.js (#206 not implemented)")
+        raise AssertionError(f"harness error: {msg[:300]}")
+    assert data["fail"] == [], "failed theme-flip checks: " + ", ".join(data["fail"])
+
+
+# The pinned re-apply list (haminfo 2bf716bd pattern: its
+# test_theme_reload_reapplies_every_paint_state parametrized over every
+# overlay state the style.load handler must re-apply). direwolf has no
+# single handler, so the pins are the map.on('style.load', ...)
+# registrations themselves; a page paint state missing from this list
+# silently loses its paint on a theme flip.
+STYLE_LOAD_REAPPLY = [
+    "map.on('style.load', addGpxLayers);",
+    "map.on('style.load', addStationLayers);",
+    "map.on('style.load', addOverlaySources);",
+    "map.on('style.load', applyFollowDimming);",  # #206 task 3
+]
+
+
+@pytest.mark.parametrize("call", STYLE_LOAD_REAPPLY)
+def test_theme_reload_reapplies_every_paint_state(call):
+    """Every page paint state is re-registered on style.load (#206)."""
+    assert call in JS_SRC
+
+
+def test_dimming_reapplied_after_layer_readds():
+    """The dimming registration comes after the station-layer re-adds.
+
+    The vendored maplibre Evented (vendor/maplibre-gl.js, class bt) keeps
+    _listeners[type] as an array: on() appends via mt() (`n[t].push(e)`),
+    fire() iterates `this._listeners[i].slice()` in array order — same-event
+    listeners fire in registration order, so last-registered wins the paint
+    stack. initFollowStation (hence wireFollowStation) boots after `await
+    initMap()` in the DOMContentLoaded handler, so registering here lands
+    after app.js's addStationLayers/addOverlaySources registrations.
+    """
+    for reg in STYLE_LOAD_REAPPLY:
+        assert reg in JS_SRC
+    positions = [JS_SRC.index(reg) for reg in STYLE_LOAD_REAPPLY]
+    assert positions == sorted(positions)

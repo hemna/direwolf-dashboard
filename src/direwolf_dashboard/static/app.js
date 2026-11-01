@@ -2935,6 +2935,14 @@
             if (followPage && followPage.state().suspended) resumeFollowing();
         });
         map.on('zoomstart', function () { if (!followSelfMove) suspendFollowing(); });
+        // #201 seam: applyThemeStyle's structural path calls map.setStyle, and
+        // the vendored maplibre rebuilds page-added layers at default paint,
+        // then re-fires 'style.load'. Follow dimming is page paint, so re-apply
+        // it here. The vendored Evented keeps _listeners[type] as an array and
+        // fire() iterates registration order; initFollowStation boots after
+        // initMap, so this lands above the layer re-adds (as haminfo fix
+        // 2bf716bd pinned its re-apply list).
+        map.on('style.load', applyFollowDimming);
     }
 
     function initFollowStation() {
