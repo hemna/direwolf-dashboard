@@ -19,10 +19,16 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from direwolf_dashboard import __version__
 from direwolf_dashboard.basemap import (
+    CORS_HEADERS,
+    INTERNAL_REGION_IDS,
     PROXY_RANGE_MAX_BYTES,
+    REGION_ARCHIVE_ROUTE,
+    REGION_MANIFEST_ROUTE,
+    REGIONS_DIR,
     UPSTREAM_PROXY_URL,
     BasemapSourceError,
     UpstreamRangeError,
+    kit_region_manifest,
     proxy_fetch_range,
     region_archive_info,
     render_style,
@@ -719,3 +725,71 @@ def create_basemap_tiles_route(container: ServiceContainer):
         })
 
     return Route(UPSTREAM_PROXY_URL, get_basemap_tiles, name="basemap_tiles")
+
+
+def create_basemap_manifest_route(container: ServiceContainer):
+    """Return the Route serving the kit region list (issue #204).
+
+    ``GET /basemap/maps-manifest.json`` returns the kit's published list
+    (hemna/basemap-kit, docs/CLIENTS.md §2): ``groups`` verbatim, regions
+    filtered to the ids this host can actually serve (an archive must
+    exist under :data:`REGIONS_DIR`) with every field verbatim and only
+    ``url`` rewritten to this host's own same-origin archive route —
+    the kit's production host URL is never emitted, a client downloads
+    from the host it fetched the list from. A manifest that fails
+    validation is a 503 with the reason logged, never a partly-filled
+    list (mirrors the haminfo reference kit).
+    """
+
+    async def get_basemap_manifest(request: Request):
+        try:
+            doc = kit_region_manifest()
+        except BasemapSourceError as e:
+            LOG.error("basemap region manifest: %s", e)
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "error": "basemap region list unavailable",
+                    "detail": str(e),
+                },
+            )
+        servable = [
+            {**r, "url": f"/basemap/regions/{r['id']}.pmtiles"}
+            for r in doc["regions"]
+            if (REGIONS_DIR / f"{r['id']}.pmtiles").is_file()
+        ]
+        return JSONResponse(
+            {**doc, "regions": servable},
+            headers={**CORS_HEADERS, "Cache-Control": "no-cache"},
+        )
+
+    return Route(REGION_MANIFEST_ROUTE, get_basemap_manifest, name="basemap_manifest")
+
+
+def create_basemap_region_archive_route(container: ServiceContainer):
+    """Return the Route serving one kit region archive (issue #204).
+
+    ``GET /basemap/regions/<id>.pmtiles`` serves a vendored archive with
+    HTTP Range support (starlette FileResponse — the same mechanism
+    ``/basemap/region.pmtiles`` already proves 206 + Content-Range),
+    CORS for cross-origin pmtiles:// downloaders and no-cache (a rolling
+    deploy swaps archives without a URL change). The name must be a
+    plain region slug — unknown ids, internal ids (:data:`INTERNAL_REGION_IDS`)
+    and anything else are 404s, so the name can never escape
+    :data:`REGIONS_DIR`.
+    """
+
+    async def get_basemap_region(request: Request):
+        name = request.path_params["name"]
+        if name in INTERNAL_REGION_IDS or not re.fullmatch(r"[a-z0-9][a-z0-9-]*", name):
+            raise HTTPException(status_code=404, detail=f"unknown basemap region: {name!r}")
+        path = REGIONS_DIR / f"{name}.pmtiles"
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail=f"unknown basemap region: {name!r}")
+        return FileResponse(
+            path,
+            media_type="application/vnd.pmtiles",
+            headers={**CORS_HEADERS, "Cache-Control": "no-cache"},
+        )
+
+    return Route(REGION_ARCHIVE_ROUTE, get_basemap_region, name="basemap_region_archive")

@@ -133,6 +133,11 @@ def resolve_region_archive(region_archive: str, data_dir: str, static_dir: str) 
     """Return the filesystem path of the region archive to serve.
 
     Priority:
+      0. ``region_archive`` is a kit region id (a bare slug, issue #204) and
+         ``<static_dir>/basemap/regions/<id>.pmtiles`` exists -> serve that; an
+         id naming no archive here (or an :data:`INTERNAL_REGION_IDS` one) falls
+         back to the default after a :meth:`LOG.warning`, so a typo never blanks
+         the map. The resolved id path then keeps rules 2-4 below.
       1. ``region_archive`` is an absolute path -> serve exactly that file.
       2. ``region_archive`` is the default and ``<data_dir>/basemap/region.pmtiles``
          (the ``basemap fetch`` output) exists -> serve that.
@@ -146,6 +151,15 @@ def resolve_region_archive(region_archive: str, data_dir: str, static_dir: str) 
     arc = (region_archive or DEFAULT_REGION_ARCHIVE).strip()
     if os.path.isabs(arc):
         return arc
+    # Kit region id (issue #204; the basemap-kit archive-route slug rule). A bare
+    # slug never collides with the path-shaped values below (those have / and .).
+    if re.fullmatch(r"[a-z0-9][a-z0-9-]*", arc):
+        id_arc = os.path.join(os.path.dirname(DEFAULT_REGION_ARCHIVE), f"{arc}.pmtiles")
+        if arc not in INTERNAL_REGION_IDS and os.path.isfile(os.path.join(static_dir, id_arc)):
+            arc = id_arc
+        else:
+            LOG.warning("unknown basemap region id %r; serving sample", arc)
+            arc = DEFAULT_REGION_ARCHIVE
     if arc == DEFAULT_REGION_ARCHIVE:
         fetched = os.path.join(data_dir, FETCHED_REGION_ARCHIVE)
         if os.path.isfile(fetched):
@@ -255,6 +269,32 @@ BASEMAP_DIR = Path(__file__).resolve().parent / "static" / "basemap"
 #: browser-style URL here would send every range to httpx and 502 (issue #171).
 DEFAULT_TILE_ARCHIVE_PATH = str(BASEMAP_DIR / "regions" / "sample.pmtiles")
 
+#: Directory holding region archives a client may download (issue #204).
+REGIONS_DIR = BASEMAP_DIR / "regions"
+
+#: The kit's published region list (hemna/basemap-kit builds and owns
+#: ``maps-manifest.json``); this host serves it as published so ids, names,
+#: groups, sizes, digests, maxzoom and bounds cannot drift (issue #204).
+REGION_MANIFEST_FILE = BASEMAP_DIR / "maps-manifest.json"
+
+#: Served URLs for the client-facing region list and per-region archives
+#: (issue #204; same values as hemna/basemap-kit's nginx config).
+REGION_MANIFEST_ROUTE = "/basemap/maps-manifest.json"
+REGION_ARCHIVE_ROUTE = "/basemap/regions/{name}.pmtiles"
+
+#: Same values as the kit's published CORS block (docker/basemap-kit/cors.conf);
+#: pmtiles:// downloaders range-request the archives cross-origin.
+CORS_HEADERS = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+    "Access-Control-Allow-Headers": "Range, If-Match, If-None-Match, If-Modified-Since",
+    "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges, ETag",
+}
+
+#: Internal zoom-11 gap filler, not a region an app may choose. The loader
+#: never lets these through into the list clients read.
+INTERNAL_REGION_IDS = frozenset({"low-fallback"})
+
 #: Vector PMTiles v3 header is a fixed 127-byte struct (pmtiles spec v3).
 _PMTILES_MAGIC = b"PMTiles"
 _PMTILES_HEADER_SIZE = 127
@@ -273,6 +313,63 @@ class UpstreamRangeError(RuntimeError):
     def __init__(self, total: int):
         super().__init__(f"upstream range unsatisfiable (total {total})")
         self.total = total
+
+
+def kit_region_manifest(path: Path | None = None) -> dict:
+    """The kit's published region list, read exactly as published.
+
+    Raises :class:`BasemapSourceError` with a message a log reader can act on
+    when the file is missing, is not the shape clients read, or lists a region
+    under a group the list does not define. Serving a differently-named or
+    partly-filled list would be worse than an error. Regions named in
+    :data:`INTERNAL_REGION_IDS` never appear in the returned ``regions`` list.
+    """
+    p = Path(path) if path is not None else REGION_MANIFEST_FILE
+    try:
+        doc = json.loads(p.read_text(encoding="utf-8"))
+    except OSError as e:
+        raise BasemapSourceError(f"region list unreadable at {p}: {e}") from e
+    except ValueError as e:
+        raise BasemapSourceError(f"region list is not valid JSON at {p}: {e}") from e
+    try:
+        regions, groups = doc["regions"], doc["groups"]
+        if not regions or not groups:
+            raise KeyError("a non-empty regions and groups array")
+        if type(doc["schemaVersion"]) is not int:
+            raise BasemapSourceError(
+                f"region list at {p}: schemaVersion is not an int")
+        for key in ("tileSchema", "buildDate"):
+            if key not in doc:
+                raise KeyError(key)
+        for g in groups:
+            if not isinstance(g, dict):
+                raise BasemapSourceError(
+                    f"region list at {p}: groups entry is not an object: {g!r}")
+            for key in ("id", "name", "order"):
+                if key not in g:
+                    raise KeyError(f"group {g.get('id')!r}: {key}")
+            if type(g["order"]) is not int:
+                raise BasemapSourceError(
+                    f"region list at {p}: group {g['id']!r} order is not an int")
+        for r in regions:
+            if not isinstance(r, dict):
+                raise BasemapSourceError(
+                    f"region list at {p}: regions entry is not an object: {r!r}")
+            for key in ("id", "name", "group", "url", "bytes", "sha256",
+                        "maxzoom", "bounds"):
+                if key not in r:
+                    raise KeyError(f"region {r.get('id')!r}: {key}")
+            if type(r["maxzoom"]) is not int:
+                raise BasemapSourceError(
+                    f"region list at {p}: region {r['id']!r} maxzoom is not an int")
+        declared = {g["id"] for g in groups}
+        unknown = sorted({r["group"] for r in regions if r["group"] not in declared})
+        if unknown:
+            raise KeyError(f"a groups entry for {unknown}")
+    except (KeyError, TypeError) as e:
+        raise BasemapSourceError(f"region list at {p} is missing {e}") from e
+    visible = [r for r in regions if r["id"] not in INTERNAL_REGION_IDS]
+    return {**doc, "regions": visible}
 
 
 def parse_pmtiles_header(raw: bytes) -> dict:
