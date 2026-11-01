@@ -12,6 +12,7 @@ Run: cd direwolf-dashboard && uv run pytest tests/test_map_follow_station.py -v
 """
 
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -164,3 +165,68 @@ def test_follow_station_behaviour() -> None:
             )
         raise AssertionError(f"harness error: {msg[:300]}")
     assert data["fail"] == [], "failed reference checks: " + ", ".join(data["fail"])
+
+
+# --- Task 2: UI wiring source-asserts (issue #206) ---
+# The page wiring (chip, controls rail entries, log-filter hook, Escape
+# unfollow, dw-follow-callsign persistence) lives in app.js; these asserts
+# pin that each piece mounts at its direwolf seam, not how it renders.
+
+JS_SRC = APP_JS.read_text(encoding="utf-8")
+
+
+def _fn(name: str) -> str:
+    """Slice one top-level IIFE-indented function out of app.js."""
+    m = re.search(r"function " + name + r"\(.*?\n    \}\n", JS_SRC, re.S)
+    assert m, name
+    return m.group(0)
+
+
+def test_follow_controls_exist_in_existing_filter_rail():
+    """A follow control row exists inside the existing controls rail."""
+    body = _fn("initFilterOverlay")
+    assert '<div class="filter-overlay-row">' in body  # the rail itself is kept
+    assert 'for="filter-follow-callsign"' in body
+    assert 'id="filter-follow-callsign"' in body
+    assert 'for="filter-follow-mode"' in body
+    assert 'id="filter-follow-mode"' in body
+
+
+def test_follow_chip_element_renders():
+    """The chip element is created and re-rendered from the follow state."""
+    init = _fn("initFollowStation")
+    assert "mlCreate('follow-chip')" in init
+    assert 'id="follow-chip-text"' in init
+    assert 'id="follow-stop-btn"' in init
+    assert 'aria-live="polite"' in init
+    render = _fn("renderFollowChip")
+    assert "followPage.chipText(" in render
+    assert "textContent" in render
+    assert "setAttribute('aria-label'" in render
+    assert "'is-silent'" in render
+
+
+def test_per_station_log_filter_hooks_log_row_renderer():
+    """The per-station filter runs in the existing log-row filter hook."""
+    hook = _fn("applyFilterToRow")
+    assert "followLogCallsign()" in hook
+    assert "hidden-by-filter" in hook
+    renderer = _fn("addLogRow")
+    assert "applyFilterToRow(row);" in renderer  # new rows keep flowing through
+
+
+def test_escape_unfollows():
+    """Escape unfollows while following (and only then)."""
+    body = _fn("initFollowStation")
+    assert "e.key === 'Escape'" in body
+    assert "stopFollowing()" in body
+
+
+def test_follow_callsign_persisted_like_other_dw_keys():
+    """dw-follow-callsign round-trips like the other dw-* keys."""
+    assert "'dw-follow-callsign'" in JS_SRC
+    assert "localStorage.setItem('dw-follow-callsign'" in _fn("startFollowing")
+    assert "localStorage.removeItem('dw-follow-callsign')" in _fn("stopFollowing")
+    init = _fn("initFollowStation")
+    assert "localStorage.getItem('dw-follow-callsign')" in init
+    assert "startFollowing(" in init  # restore-follow-on-load

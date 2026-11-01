@@ -637,10 +637,21 @@
                     '/>' +
             '</div>' +
             '<div class="filter-overlay-row">' +
-                '<label class="filter-overlay-label" for="filter-packet-paths">Packet paths</label>' +
+'<label class="filter-overlay-label" for="filter-packet-paths">Packet paths</label>' +
                 '<input type="checkbox" id="filter-packet-paths" ' +
                     (packetPathsEnabled ? 'checked ' : '') +
                     '/>' +
+            '</div>' +
+            '<div class="filter-overlay-row">' +
+                '<label class="filter-overlay-label" for="filter-follow-callsign">Follow</label>' +
+                '<input type="text" id="filter-follow-callsign" placeholder="Follow callsign..." />' +
+            '</div>' +
+            '<div class="filter-overlay-row">' +
+                '<label class="filter-overlay-label" for="filter-follow-mode">Follow mode</label>' +
+                '<select id="filter-follow-mode" title="Dim or hide the other stations while following">' +
+                    '<option value="dim" selected>Dim</option>' +
+                    '<option value="hide">Hide</option>' +
+                '</select>' +
             '</div>' +
             '</div>';
         var filterHeader = container.querySelector('.filter-overlay-header');
@@ -1140,6 +1151,7 @@
         fetch(API_BASE + '/stats').then(function (r) { return r.json(); }).then(updateStatsOverlay).catch(function () {});
         connectWebSocket();
         initFilters();
+        initFollowStation();
         initSettings();
         initConfirmWipeModal();
         initClearDataFab();
@@ -2646,6 +2658,305 @@
     })();
 
 
+    // --- Follow a station: page wiring (issue #206) ---
+    // The state machine above owns every decision (camera when, what the chip
+    // says, which packets are log rows); this section mounts the chip + rail
+    // controls, feeds the machine from the WS packet flow, applies its
+    // results to the map and persists dw-follow-callsign like the other dw-*
+    // keys. The harness test slices only the section above, so this code may
+    // use the DOM, map and localStorage freely.
+    var followPage = null;
+    var followChip = null, followChipText = null, followChipDot = null, followChipResume = null;
+    var followLastHeardAt = null;
+    var followFarTimer = null, followPendingTimer = null, followInputTimer = null;
+    var followSelfMove = false; // set around our own camera calls
+
+    function followLogCallsign() {
+        if (!followPage) return null;
+        var st = followPage.state();
+        return st.following ? st.callsign : null;
+    }
+
+    function followModeFromRail() {
+        var sel = document.getElementById('filter-follow-mode');
+        return sel && sel.value === 'hide' ? 'hide' : 'dim';
+    }
+
+    function followView() {
+        if (!map) return null;
+        var c = map.getCenter();
+        var el = map.getContainer();
+        return {
+            center: { lat: c.lat, lng: c.lng },
+            zoom: map.getZoom(),
+            viewportKmWidth: followShared.viewportWidthKm(
+                function (p) { return map.unproject(p); },
+                el.clientWidth, el.clientHeight)
+        };
+    }
+
+    function clearFollowTimers() {
+        [followFarTimer, followPendingTimer, followInputTimer].forEach(function (t) {
+            if (t) clearTimeout(t);
+        });
+        followFarTimer = null;
+        followPendingTimer = null;
+        followInputTimer = null;
+    }
+
+    function followCamera(move) {
+        if (!map || !move || !move.to) return;
+        followSelfMove = true;
+        var opts = { center: [move.to.lng, move.to.lat] };
+        if (move.zoom != null) opts.zoom = move.zoom;
+        if (move.motion === 'jump') {
+            map.jumpTo(opts);
+        } else {
+            opts.duration = move.duration || followShared.DEFAULTS.easeMs;
+            map.easeTo(opts);
+        }
+        followSelfMove = false;
+    }
+
+    function followFar(far) {
+        if (!map || !far || !far.points) return;
+        clearFollowTimers();
+        followSelfMove = true;
+        var lngs = [far.points[0].lng, far.points[1].lng];
+        var lats = [far.points[0].lat, far.points[1].lat];
+        // The wide view fits both the station and the far packet (N4 web rule).
+        map.fitBounds([[Math.min.apply(null, lngs), Math.min.apply(null, lats)],
+            [Math.max.apply(null, lngs), Math.max.apply(null, lats)]],
+            { padding: 80, maxZoom: 14, duration: far.motion === 'jump' ? 0 : 600 });
+        followSelfMove = false;
+        // The machine owns the hold; the timer only asks it when it is due.
+        followFarTimer = setTimeout(function () {
+            followFarTimer = null;
+            handleFollowDecision(followPage.farDue(Date.now()));
+        }, far.holdMs);
+    }
+
+    function schedulePendingCamera(retryInMs) {
+        if (followPendingTimer) clearTimeout(followPendingTimer);
+        followPendingTimer = setTimeout(function () {
+            followPendingTimer = null;
+            handleFollowDecision(followPage.flushPending(Date.now(), followView()));
+        }, retryInMs);
+    }
+
+    function handleFollowDecision(res) {
+        if (!res) return;
+        if (res.type === 'move') {
+            followCamera(res);
+        } else if (res.type === 'far-return') {
+            followCamera({ to: followPage.state().position, zoom: null, motion: res.motion,
+                duration: followShared.DEFAULTS.farReturnMs });
+        } else if (res.type === 'far') {
+            followFar(res);
+        } else if (res.type === 'packet' && res.far) {
+            followFar(res.far);
+        } else if (res.type === 'pending') {
+            schedulePendingCamera(res.retryInMs);
+        }
+    }
+
+    function applyFollowDimming() {
+        if (!map) return;
+        var st = followPage ? followPage.state() : null;
+        var cs = st && st.following ? st.callsign : null;
+        var opacity = st && st.mode === 'hide' ? 0 : 0.3;
+        var pair = [['stations-symbol-base', 'icon-opacity'],
+                    ['stations-symbol-overlay', 'icon-opacity'],
+                    ['stations-label', 'text-opacity']];
+        for (var i = 0; i < pair.length; i += 1) {
+            if (!map.getLayer(pair[i][0])) continue;
+            map.setPaintProperty(pair[i][0], pair[i][1],
+                cs ? ['case', ['==', ['get', 'callsign'], cs], 1, opacity] : 1);
+        }
+    }
+
+    function renderFollowChip() {
+        if (!followChip || !followChipText) return;
+        var st = followPage ? followPage.state() : null;
+        if (!st || !st.following) {
+            followChip.style.display = 'none';
+            return;
+        }
+        var c = followPage.chipText(Date.now());
+        followChipText.textContent = c.text;
+        followChip.setAttribute('aria-label', c.label);
+        // The dot colour alone is not accessible feedback; the chip text
+        // says "silent" too (WCAG 1.4.1), same as the reference.
+        followChipDot.style.background = c.silent ? '#e8695b' : '#57cd8f';
+        followChipResume.style.display = st.suspended ? '' : 'none';
+        followChip.classList.toggle('is-silent', c.silent);
+        followChip.classList.toggle('is-paused', st.suspended);
+        followChip.style.display = '';
+    }
+
+    function startFollowing(raw) {
+        var norm = followShared.normalizeCallsign(raw);
+        if (!norm) return false;
+        if (!followPage) {
+            followPage = followShared.create({
+                mode: followModeFromRail(),
+                // #205 rule: OS reduced-motion suppresses camera moves at init.
+                reduceMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+            });
+        }
+        var r = followPage.follow(norm);
+        if (r.type === 'error') return false;
+        localStorage.setItem('dw-follow-callsign', norm);
+        followLastHeardAt = Date.now();
+        var pos = getStationPosition(norm);
+        if (pos) {
+            handleFollowDecision(followPage.setPosition({ lat: pos.lat, lng: pos.lng },
+                Date.now(), followView()));
+        }
+        applyFollowDimming();
+        renderFollowChip();
+        return true;
+    }
+
+    function stopFollowing() {
+        if (!followPage || !followPage.state().following) return;
+        localStorage.removeItem('dw-follow-callsign');
+        clearFollowTimers();
+        followPage.unfollow();
+        followLastHeardAt = null;
+        applyFollowDimming();
+        renderFollowChip();
+        // Rows already on screen must re-run through the filter hook.
+        document.querySelectorAll('.log-row').forEach(function (row) { applyFilterToRow(row); });
+    }
+
+    function suspendFollowing() {
+        if (!followPage) return;
+        followPage.suspend();
+        renderFollowChip();
+    }
+
+    function resumeFollowing() {
+        if (!followPage) return;
+        var r = followPage.resume(Date.now());
+        if (r.move) followCamera(r.move);
+        renderFollowChip();
+    }
+
+    function followFeedPacket(packet) {
+        if (!followPage || !packet) return;
+        var cs = followLogCallsign();
+        if (!cs) return;
+        if (packet.from_call !== cs && packet.to_call !== cs) return;
+        var now = Date.now();
+        followLastHeardAt = now;
+        if (packet.from_call === cs && packet.latitude != null && packet.longitude != null) {
+            var pos = followPage.state().position;
+            if (!pos || pos.lat !== packet.latitude || pos.lng !== packet.longitude) {
+                handleFollowDecision(followPage.setPosition(
+                    { lat: packet.latitude, lng: packet.longitude }, now, followView()));
+            }
+        }
+        handleFollowDecision(followPage.onPacket({
+            packet_id: packet.id,
+            received_at: packet.timestamp ? new Date(packet.timestamp * 1000).toISOString()
+                : new Date(now).toISOString(),
+            direction: packet.from_call === cs ? 'from' : 'to',
+            from_call: packet.from_call,
+            addressee: packet.to_call,
+            packet_type: packet.type,
+            comment: packet.comment || '',
+            raw: packet.raw_packet || '',
+            path: packet.path,
+            latitude: packet.latitude,
+            longitude: packet.longitude
+        }, now, followView()));
+        renderFollowChip();
+    }
+
+    function followSilenceTick() {
+        if (!followPage) return;
+        var st = followPage.state();
+        if (!st.following || st.suspended) return;
+        if (!followLastHeardAt) return;
+        var elapsed = (Date.now() - followLastHeardAt) / 1000;
+        // The direwolf WS has no callsign-silence event, so the page times it
+        // from the last packet involving the followed station.
+        if (elapsed >= followPage.config.silentSeconds) followPage.onSilence(elapsed);
+        renderFollowChip();
+    }
+
+    function applyRailFollowInput() {
+        followInputTimer = null;
+        var railInput = document.getElementById('filter-follow-callsign');
+        if (!railInput) return;
+        var raw = railInput.value.trim();
+        if (!raw) { stopFollowing(); return; }
+        var norm = followShared.normalizeCallsign(raw);
+        if (norm && (!followPage || followPage.state().callsign !== norm)) startFollowing(norm);
+    }
+
+    function wireFollowStation() {
+        var railInput = document.getElementById('filter-follow-callsign');
+        if (railInput) {
+            railInput.addEventListener('input', function () {
+                if (followInputTimer) clearTimeout(followInputTimer);
+                // Debounce so a half-typed "W1" (valid form) does not churn
+                // follow state mid-keystroke.
+                followInputTimer = setTimeout(applyRailFollowInput, 400);
+            });
+        }
+        var modeSelect = document.getElementById('filter-follow-mode');
+        if (modeSelect) {
+            modeSelect.addEventListener('change', function () {
+                if (followPage) followPage.setMode(modeSelect.value);
+                applyFollowDimming();
+            });
+        }
+        if (followChip) {
+            followChip.querySelector('#follow-stop-btn').addEventListener('click', function () {
+                stopFollowing();
+            });
+            followChipResume.addEventListener('click', function () { resumeFollowing(); });
+        }
+        if (!map) return;
+        // A hand pan or zoom pauses following; the resume button restarts it.
+        map.on('dragstart', function () { if (!followSelfMove) suspendFollowing(); });
+        map.on('zoomstart', function () { if (!followSelfMove) suspendFollowing(); });
+    }
+
+    function initFollowStation() {
+        if (!map) return;
+        followChip = mlCreate('follow-chip');
+        followChip.innerHTML =
+            '<span class="follow-chip-dot" aria-hidden="true"></span>' +
+            '<span id="follow-chip-text" aria-live="polite"></span>' +
+            '<button id="follow-stop-btn" title="Stop following">\u2715</button>' +
+            '<button id="follow-resume-btn" title="Resume following">\u25B6</button>';
+        followChipText = followChip.querySelector('#follow-chip-text');
+        followChipDot = followChip.querySelector('.follow-chip-dot');
+        followChipResume = followChip.querySelector('#follow-resume-btn');
+        followChip.style.background = 'var(--overlay-bg)';
+        followChip.style.border = '1px solid var(--overlay-border)';
+        followChip.style.color = 'var(--overlay-text)';
+        followChip.style.padding = '4px 8px';
+        followChip.style.fontSize = '11px';
+        followChipDot.style.width = '10px';
+        followChipDot.style.height = '10px';
+        followChipDot.style.display = 'inline-block';
+        followChip.style.display = 'none';
+        map.addControl(mlControl(function () { return followChip; }, 'top-left'));
+        // dw-* persistence: restore follow-on-load like other overlays.
+        var saved = localStorage.getItem('dw-follow-callsign');
+        if (saved) startFollowing(saved);
+        setInterval(followSilenceTick, 5000);
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && followPage && followPage.state().following) stopFollowing();
+        });
+        wireFollowStation();
+    }
+
+
     // --- Station overlay: path lines, distance, log highlight ---
     function haversineKm(lat1, lon1, lat2, lon2) {
         const R = 6371;
@@ -3540,6 +3851,9 @@
             updatePositionCache(packet.from_call, packet.latitude, packet.longitude);
         }
         if (!isPlacePacket) offerPacketPath(packet);
+        // Follow-a-station (#206): feed the machine; it decides log, silence
+        // and camera (see the page-wiring section below).
+        followFeedPacket(packet);
         if (!isPlacePacket && packet.latitude != null && packet.longitude != null) {
             if (waitingForPosition) {
                 dismissWaiting();
@@ -3896,6 +4210,11 @@
         }
 
         let visible = true;
+        // Follow-a-station (#206): while following, the live log shows only
+        // that station's packets (sender or addressee — search carries raw).
+        const followCs = followLogCallsign();
+        if (followCs && row.dataset.callsign !== followCs &&
+            (row.dataset.search || '').indexOf(followCs.toLowerCase()) === -1) visible = false;
         if (callsign && !row.dataset.callsign.includes(callsign)) visible = false;
         if (type && row.dataset.type !== type) visible = false;
         if (txrx && row.dataset.tx !== txrx) visible = false;
