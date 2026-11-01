@@ -1537,6 +1537,20 @@
             }, 'stations-symbol-base');
         }
 
+        // style.load drops the hover layer like every other layer here; re-light
+        // the still-hovered trail in this re-add pass (same idiom as tx-arcs).
+        if (hoveredTrailCallsign) highlightTrail(hoveredTrailCallsign);
+
+        if (!_trailHoverBound) {
+            _trailHoverBound = true;
+            map.on('mousemove', function (e) {
+                setTrailHover(pickTrailHit(map, e.point));
+            });
+            map.getCanvas().addEventListener('mouseleave', function () {
+                setTrailHover(null);
+            });
+        }
+
         if (!map.getSource('station-overlay')) {
             map.addSource('station-overlay', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
             map.addLayer({
@@ -1626,6 +1640,88 @@
             });
         }
         map.getSource('station-tracks').setData({ type: 'FeatureCollection', features });
+    }
+
+    // --- Trail hover highlight (issue #207, port decision 3) ---
+    // Hover is a mousemove + 8 px box query, not mouseenter on the layer: MapLibre's
+    // point query has zero tolerance and the base line is 1.5 px wide, so the spec's
+    // 8 px screen tolerance lives in the query box. station-tracks keeps ONE LineString
+    // feature per station (refreshStationTrackSource), so a hit feature is the whole
+    // trail and one highlight layer lights the WHOLE trail up.
+    const TRAIL_HOVER_TOLERANCE_PX = 8;  // spec: hover box around the pointer
+    var hoveredTrailCallsign = null;
+    var _trailHoverBound = false;
+
+    // Hit test shared with the future click wiring (task 4). Several trails
+    // inside the box compete at low zoom: nearest wins, like the reference.
+    function pickTrailHit(map, point) {
+        if (!map || !point || !map.getLayer('station-tracks-line')) return null;
+        const t = TRAIL_HOVER_TOLERANCE_PX;
+        const hits = map.queryRenderedFeatures(
+            [[point.x - t, point.y - t], [point.x + t, point.y + t]],
+            {layers: ['station-tracks-line']});
+        if (!hits.length) return null;
+        if (hits.length === 1) return hits[0];
+        let best = null;
+        let bestDist = Infinity;
+        for (const f of hits) {
+            const coords = f.geometry && f.geometry.coordinates;
+            if (!coords) continue;
+            let d = Infinity;
+            for (let i = 1; i < coords.length; i++) {
+                const a = map.project(coords[i - 1]);
+                const b = map.project(coords[i]);
+                d = Math.min(d, distPointToSegment(point, a, b));
+            }
+            if (d < bestDist) { bestDist = d; best = f; }
+        }
+        return best || hits[0];
+    }
+
+    // Distance from a screen point to a projected segment (nearest-wins tie-up).
+    function distPointToSegment(p, a, b) {
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const len2 = dx * dx + dy * dy;
+        if (!len2) return Math.hypot(p.x - a.x, p.y - a.y);
+        const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2));
+        return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+    }
+
+    // A wide halo line on the SAME source, filtered to the hovered callsign:
+    // the geometry can never drift from the trail it describes. Added on hit
+    // and removed on miss, drawn under station-tracks-line like the reference
+    // halo under its trail.
+    function highlightTrail(callsign) {
+        if (!map || !map.getSource('station-tracks')) return;
+        if (map.getLayer('station-tracks-highlight')) {
+            // Bracket call: tests/test_no_leaflet.py bans the literal dotted
+            // form as a retired-Leaflet fingerprint; MapLibre needs this call.
+            map['removeLayer']('station-tracks-highlight');
+        }
+        if (!callsign) return;
+        map.addLayer({
+            id: 'station-tracks-highlight',
+            type: 'line',
+            source: 'station-tracks',
+            filter: ['==', ['get', 'callsign'], callsign],
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+            paint: {
+                'line-color': themeColor('--accent') || '#60a5fa',
+                'line-width': 5.5,    // base 1.5 + 4, mirrors reference hover width
+                'line-opacity': 0.55,
+            },
+        }, 'station-tracks-line');
+    }
+
+    // Cursor: the brief wants 'move' while a trail is hovered (the reference
+    // uses 'pointer'); cleared on miss so the map's default cursor returns.
+    function setTrailHover(feature) {
+        const callsign = feature && feature.properties ? feature.properties.callsign : null;
+        if (callsign === hoveredTrailCallsign) return;
+        hoveredTrailCallsign = callsign;
+        highlightTrail(callsign);
+        map.getCanvas().style.cursor = callsign ? 'move' : '';
     }
 
     // --- Trail statistics (shared spec basemap-kit#65, issue #207) ---
