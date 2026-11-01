@@ -140,14 +140,14 @@
     }
 
     // --- Animation state ---
-    const stationPositionCache = {};
-    const POSITION_CACHE_MAX = 1000;
+    const stationPositionCache = new Map(); // insertion order = LRU (#205)
+    const POSITION_CACHE_MAX = 512;
     const animationThrottle = {};
     const ANIMATION_COOLDOWN_MS = 3000;
     const activeAnimationElements = [];
+    // Shared alias set from packet_paths.py (#205); WIDE/TRACE forms match by regex.
     const GENERIC_PATH_ALIASES = new Set([
-        'WIDE', 'WIDE1', 'WIDE2', 'WIDE3', 'WIDE1-1', 'WIDE2-1', 'WIDE2-2', 'WIDE3-3',
-        'RELAY', 'TRACE', 'TCPIP', 'CQ', 'QST', 'APRS', 'RFONLY', 'NOGATE',
+        'RELAY', 'ECHO', 'GATE', 'RFONLY', 'NOGATE', 'TCPIP', 'TCPXX', 'ARISS',
     ]);
 
     // --- Theme Support ---
@@ -1688,7 +1688,7 @@
             const data = await resp.json();
             const now = Date.now();
             for (const [callsign, pos] of Object.entries(data)) {
-                stationPositionCache[callsign] = { lat: pos.lat, lng: pos.lng, updatedAt: now };
+                stationPositionCache.set(callsign, { lat: pos.lat, lng: pos.lng, at: now });
             }
         } catch (e) {
             console.error('Failed to load station positions:', e);
@@ -2089,22 +2089,34 @@
         refreshStationTrackSource();
     }
 
-    // --- APRS Path Parsing ---
+    // --- APRS Path Parsing --- (mirrors packet_paths.py _route(), issue #205:
+    // used hops are every call up to the last '*' before the first qA construct;
+    // igate only from qAR/qAO/qAS; isTcpip mirrors no_rf_leg. Shape unchanged.)
+    function isPathAlias(call) {
+        return GENERIC_PATH_ALIASES.has(call) ||
+            /^(?:WIDE|TRACE)(?:[0-9]+(?:-[0-9]+)?)?$/.test(call);
+    }
     function parsePath(pathArray) {
         const result = { digipeaters: [], igate: null, isTcpip: false };
-        if (!pathArray || !Array.isArray(pathArray) || pathArray.length === 0) return result;
-        if (pathArray.some(p => p === 'TCPIP' || p === 'TCPIP*')) result.isTcpip = true;
-        if (pathArray.some(p => p === 'qAC' || p === 'qAU')) result.isTcpip = true;
-        for (let i = 0; i < pathArray.length; i++) {
-            const part = pathArray[i];
-            if (part.startsWith('qA') && i + 1 < pathArray.length) {
-                result.igate = pathArray[i + 1];
-                break;
+        if (!Array.isArray(pathArray) || pathArray.length === 0) return result;
+        const qIndex = pathArray.findIndex(p => /^qA[A-Za-z]$/.test(p));
+        const rf = qIndex < 0 ? pathArray : pathArray.slice(0, qIndex);
+        const qConstruct = qIndex < 0 ? null : pathArray[qIndex];
+        const stripped = rf.map(p => p.endsWith('*') ? p.slice(0, -1) : p);
+        result.isTcpip = ['qAC', 'qAX', 'qAU'].includes(qConstruct) || stripped.includes('TCPIP');
+        if (!result.isTcpip) {
+            let lastStar = -1;
+            for (let i = 0; i < rf.length; i++) if (rf[i].endsWith('*')) lastStar = i;
+            const used = [];
+            for (let i = 0; i <= lastStar; i++) {
+                if (!isPathAlias(stripped[i])) used.push(stripped[i]);
             }
-            if (part.endsWith('*')) {
-                const callsign = part.slice(0, -1);
-                if (!GENERIC_PATH_ALIASES.has(callsign) && !GENERIC_PATH_ALIASES.has(callsign.replace(/-\d+$/, ''))) {
-                    result.digipeaters.push(callsign);
+            // Collapse like the shared _collapse() so repeats don't double-draw.
+            result.digipeaters = used.filter((c, i) => i === 0 || c !== used[i - 1]);
+            if (['qAR', 'qAO', 'qAS'].includes(qConstruct) && qIndex + 1 < pathArray.length) {
+                const call = pathArray[qIndex + 1].replace(/\*$/, '');
+                if (/^[A-Z0-9]{1,6}(?:-(?:[0-9]|1[0-5]))?$/.test(call) && !isPathAlias(call)) {
+                    result.igate = call;
                 }
             }
         }
@@ -2243,24 +2255,18 @@
         if (s && s.data && s.data.latitude != null && s.data.longitude != null) {
             return { lat: s.data.latitude, lng: s.data.longitude };
         }
-        const cached = stationPositionCache[callsign];
+        const cached = stationPositionCache.get(callsign);
         if (cached) return { lat: cached.lat, lng: cached.lng };
         return null;
     }
 
     function updatePositionCache(callsign, lat, lng) {
-        stationPositionCache[callsign] = { lat, lng, updatedAt: Date.now() };
-        const keys = Object.keys(stationPositionCache);
-        if (keys.length > POSITION_CACHE_MAX) {
-            let oldestKey = keys[0];
-            let oldestTime = stationPositionCache[oldestKey].updatedAt;
-            for (const key of keys) {
-                if (stationPositionCache[key].updatedAt < oldestTime) {
-                    oldestKey = key;
-                    oldestTime = stationPositionCache[key].updatedAt;
-                }
-            }
-            delete stationPositionCache[oldestKey];
+        if (lat == null || lng == null) return;
+        // Map insertion order is the LRU order: rewrite refreshes the slot.
+        if (stationPositionCache.has(callsign)) stationPositionCache.delete(callsign);
+        stationPositionCache.set(callsign, { lat, lng, at: Date.now() });
+        if (stationPositionCache.size > POSITION_CACHE_MAX) {
+            stationPositionCache.delete(stationPositionCache.keys().next().value);
         }
     }
 
@@ -3151,9 +3157,7 @@
         refreshOverlaySource();
         refreshArcSource();
         // Clear position cache
-        Object.keys(stationPositionCache).forEach(function (k) {
-            delete stationPositionCache[k];
-        });
+        stationPositionCache.clear();
         // Re-apply my position marker (uses saved coords from config as fallback)
         updateMyPositionMarker();
     }
