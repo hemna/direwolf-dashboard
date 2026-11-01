@@ -5,7 +5,7 @@ import unittest.mock as mock
 
 import pytest
 from starlette.applications import Starlette
-from starlette.routing import Mount
+from starlette.routing import Mount, WebSocketRoute
 from starlette.testclient import TestClient
 
 from direwolf_dashboard.lifecycle import ServiceContainer
@@ -472,3 +472,72 @@ class TestWxLegendEndpoint:
         assert sample["temp_color"] is not None
         assert sample["pressure_hpa"] == 1013
         assert sample["wind_color"] is not None
+
+
+class TestPacketPathPassthrough:
+    """/api/packets and the ws packet events pass the shared path fields through (#205)."""
+
+    def _make_ws_services(self, packets):
+        """Services whose storage replay returns packets with the shared path fields.
+
+        agw_reader/log_tailer stay None so the trailing status event serializes."""
+        services = mock.MagicMock()
+        storage = mock.MagicMock()
+        storage.query_packets = mock.AsyncMock(return_value=packets)
+        services.storage = storage
+        services.agw_reader = None
+        services.log_tailer = None
+        return services
+
+    def _path_packet(self):
+        return {
+            "timestamp": 1700000000.0,
+            "type": "StatusPacket",
+            "tx": False,
+            "from_call": "K4TX",
+            "to_call": "APRS",
+            "path": ["WIDE1-1"],
+            "msg_no": "",
+            "comment": "",
+            "human_info": "online",
+            "audio_level": None,
+            "compact_log": None,
+            "raw_packet": "K4TX>APRS,WIDE1-1:}N0CALL>APRS,TCPIP,K4TX*:>online",
+            "packet_id": "a" * 40,
+            "source": "N0CALL",
+            "hops": ["N0CALL"],
+            "rx_igate": None,
+            "tx_igate": "K4TX",
+            "no_rf_leg": False,
+            "tx_hops": ["K4TX"],
+        }
+
+    def _path_fields(self):
+        return ("packet_id", "source", "hops", "rx_igate", "tx_igate", "no_rf_leg", "tx_hops")
+
+    def test_api_packets_passes_path_fields_through(self):
+        """JSONResponse must not strip the new keys from stored packet dicts."""
+        pkt = self._path_packet()
+        container = ServiceContainer()
+        container.services = self._make_ws_services([pkt])
+        client = TestClient(_build_test_app(container), raise_server_exceptions=False)
+        resp = client.get("/api/packets")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        for name in self._path_fields():
+            assert name in data[0]
+            assert data[0][name] == pkt[name]
+
+    def test_ws_packet_events_carry_path_fields(self):
+        """The replayed {'event': 'packet', 'data': ...} ws message keeps them."""
+        pkt = self._path_packet()
+        container = ServiceContainer()
+        container.services = self._make_ws_services([pkt])
+        app = Starlette(routes=[WebSocketRoute("/ws", create_ws_handler(container))])
+        with TestClient(app, raise_server_exceptions=False) as client:
+            with client.websocket_connect("/ws") as ws:
+                msg = ws.receive_json()
+                assert msg["event"] == "packet"
+                for name in self._path_fields():
+                    assert msg["data"][name] == pkt[name]

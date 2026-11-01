@@ -10,6 +10,8 @@ from typing import Optional
 
 import aprslib
 
+from direwolf_dashboard.packet_paths import parse_packet_path
+
 LOG = logging.getLogger(__name__)
 
 
@@ -213,6 +215,20 @@ def _extract_aprs_for_parsing(
     return f"{call_from}>{call_to}:{payload}"
 
 
+def _frame_for_path_parser(
+    payload: str, call_from: str, call_to: str, via_path: Optional[str] = None
+) -> str:
+    """Rebuild the full TNC2 frame (third-party '}' kept) for parse_packet_path.
+
+    _extract_aprs_for_parsing unwraps the outer header for aprslib, which loses
+    the observing station the shared parser needs for tx_igate/tx_hops (#205).
+    """
+    if payload.startswith("}"):
+        via = f",{via_path}" if via_path else ""
+        return f"{call_from}>{call_to}{via}:{payload}"
+    return _extract_aprs_for_parsing(payload, call_from, call_to, via_path)
+
+
 def packet_to_dict(
     raw_aprs_string: str,
     tx: bool,
@@ -259,6 +275,20 @@ def packet_to_dict(
 
     if is_third_party:
         packet["via"] = call_from  # The station that relayed the third-party packet
+
+    # Shared packet-path metadata for the map animator (#205).  The parser gets
+    # the full frame (never the truncated DB path); malformed frames keep the
+    # empty-list/None defaults below.
+    meta = parse_packet_path(
+        _frame_for_path_parser(payload, call_from, call_to, via_path).rstrip("\r\n\x00")
+    ) or {}
+    packet["packet_id"] = meta.get("packet_id")
+    packet["source"] = meta.get("source")
+    packet["hops"] = meta.get("hops", [])
+    packet["rx_igate"] = meta.get("rx_igate")
+    packet["tx_igate"] = meta.get("tx_igate")
+    packet["no_rf_leg"] = meta.get("no_rf_leg", False)
+    packet["tx_hops"] = meta.get("tx_hops", [])
 
     if parsed:
         packet["type"] = _classify_packet_type(parsed)
