@@ -1628,6 +1628,277 @@
         map.getSource('station-tracks').setData({ type: 'FeatureCollection', features });
     }
 
+    // --- Trail statistics (shared spec basemap-kit#65, issue #207) ---
+    /* Engine-agnostic stats maths (no map, no DOM), ported one-for-one from
+     * the reference map-shared/trail-stats.js. The maths is the canonical
+     * spec, not a local approximation: it must reproduce the spec's worked
+     * example exactly (tests/test_trail_stats.py mirrors the reference
+     * trail-stats test). Input rows are the trail-endpoint shape, oldest
+     * first: [longitude, latitude, timestamp, speed, course], with speed in
+     * km/h and course in degrees; either may be null. This app's track rows
+     * carry neither, so the derived branches below are the common case. */
+    const EARTH_RADIUS_KM = 6371.0088;   // spec rule 4
+    const SAME_POSITION_DEG = 0.00001;   // spec rule 2
+    const GAP_MIN_SECONDS = 300;         // spec rule 11
+    const GAP_MEDIAN_FACTOR = 3;         // spec rule 11
+    const BAD_FIX_KMH = 1000;            // spec rule 12 (bad fixes)
+    const KM_PER_MILE = 1.609344;
+
+    function toRad(deg) {
+        return deg * Math.PI / 180;
+    }
+
+    // Great-circle distance in km, haversine, Earth radius 6371.0088 km.
+    function haversineKm(lat1, lon1, lat2, lon2) {
+        const dLat = toRad(lat2 - lat1);
+        const dLon = toRad(lon2 - lon1);
+        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        return EARTH_RADIUS_KM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    // Initial bearing in whole-ish degrees, 0-360, north = 0.
+    function bearingDeg(lat1, lon1, lat2, lon2) {
+        const dLon = toRad(lon2 - lon1);
+        const y = Math.sin(dLon) * Math.cos(toRad(lat2));
+        const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
+            Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLon);
+        return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+    }
+
+    function numberOf(value) {
+        return typeof value === 'number' && isFinite(value) ? value : null;
+    }
+
+    function timeMs(timestamp) {
+        const t = new Date(timestamp).getTime();
+        return isFinite(t) ? t : null;
+    }
+
+    /**
+     * Rules 1-3: keep only usable positions, merge duplicate hears, correct
+     * same-timestamp disagreements, and sort by time.
+     */
+    function normalise(points) {
+        const usable = [];
+        (points || []).forEach(function (p) {
+            if (!p) return;
+            const lon = numberOf(p[0]);
+            const lat = numberOf(p[1]);
+            const t = timeMs(p[2]);
+            if (lon === null || lat === null || t === null) return;
+            usable.push({
+                lon: lon,
+                lat: lat,
+                t: t,
+                timestamp: p[2],
+                speed: numberOf(p[3]),
+                course: numberOf(p[4]),
+            });
+        });
+        usable.sort(function (a, b) { return a.t - b.t; });
+
+        const out = [];
+        usable.forEach(function (p) {
+            const prev = out[out.length - 1];
+            if (prev && prev.t === p.t) {
+                const samePlace =
+                    Math.abs(prev.lat - p.lat) <= SAME_POSITION_DEG &&
+                    Math.abs(prev.lon - p.lon) <= SAME_POSITION_DEG;
+                if (samePlace) return;      // one hear, keep the earliest
+                out[out.length - 1] = p;    // a correction, keep the last heard
+                return;
+            }
+            out.push(p);
+        });
+        return out;
+    }
+
+    function median(values) {
+        if (!values.length) return null;
+        const sorted = values.slice().sort(function (a, b) { return a - b; });
+        const mid = Math.floor(sorted.length / 2);
+        return sorted.length % 2
+            ? sorted[mid]
+            : (sorted[mid - 1] + sorted[mid]) / 2;
+    }
+
+    function mean(values) {
+        if (!values.length) return null;
+        return values.reduce(function (a, b) { return a + b; }, 0) / values.length;
+    }
+
+    /**
+     * Compute the panel's numbers. Returns raw values (km, km/h, seconds,
+     * degrees); formatting is a separate concern so display rounding can
+     * never leak into the maths.
+     */
+    function compute(points, options) {
+        const opts = options || {};
+        const rows = normalise(points);
+        const result = {
+            points: rows.length,
+            hasTrail: rows.length >= 2,
+            firstTime: rows.length ? rows[0].timestamp : null,
+            lastTime: rows.length ? rows[rows.length - 1].timestamp : null,
+            elapsedSeconds: null,
+            distanceKm: null,
+            averageKph: null,
+            currentKph: null,
+            currentReported: false,
+            maxKph: null,
+            maxReported: false,
+            headingDeg: null,
+            headingReported: false,
+            beacon: { medianSeconds: null, meanSeconds: null, intervals: 0 },
+            badFixes: 0,
+            truncated: !!opts.truncated,
+            returnedPoints: opts.returnedPoints || rows.length,
+            windowHours: opts.windowHours || null,
+        };
+        if (!rows.length) return result;
+
+        // Rule 14: fewer than two points is not a trail, so nothing else is
+        // computed and the panel shows only the callsign and last heard.
+        if (!result.hasTrail) return result;
+
+        const segments = [];
+        for (let i = 1; i < rows.length; i++) {
+            const a = rows[i - 1];
+            const b = rows[i];
+            const distKm = haversineKm(a.lat, a.lon, b.lat, b.lon);
+            const seconds = (b.t - a.t) / 1000;
+            segments.push({
+                distKm: distKm,
+                seconds: seconds,
+                derivedKph: seconds > 0 ? distKm / (seconds / 3600) : null,
+                bad: seconds > 0 && (distKm / (seconds / 3600)) > BAD_FIX_KMH,
+                gap: false,     // filled in below, once the median is known
+            });
+        }
+
+        // Rule 11: a gap is longer than the larger of three times the median
+        // interval and 300 seconds. The boundary is included: the spec's
+        // worked example calls its 300 s interval a gap and expects 4
+        // beacon intervals.
+        const intervals = segments.map(function (s) { return s.seconds; });
+        const medInterval = median(intervals);
+        const gapThreshold = Math.max(GAP_MEDIAN_FACTOR * (medInterval || 0), GAP_MIN_SECONDS);
+        segments.forEach(function (s) {
+            s.gap = s.seconds >= gapThreshold;
+        });
+
+        // Rule 12: a bad fix is excluded from distance and from maximum
+        // speed and is reported, never silently dropped.
+        result.badFixes = segments.filter(function (s) { return s.bad; }).length;
+
+        result.elapsedSeconds = (rows[rows.length - 1].t - rows[0].t) / 1000;
+        result.distanceKm = segments.reduce(function (sum, s) {
+            return sum + (s.bad ? 0 : s.distKm);
+        }, 0);
+        result.averageKph = result.elapsedSeconds > 0
+            ? result.distanceKm / (result.elapsedSeconds / 3600)
+            : null;
+
+        // Rule 8: reported speed on the newest point, else the last
+        // segment's derived speed, never a number from a gap or a bad fix.
+        const newest = rows[rows.length - 1];
+        const lastSegment = segments[segments.length - 1];
+        if (newest.speed !== null) {
+            result.currentKph = newest.speed;
+            result.currentReported = true;
+        } else if (!lastSegment.gap && !lastSegment.bad) {
+            result.currentKph = lastSegment.derivedKph;
+        }
+
+        // Rule 9: highest reported speed when any point reports one, else
+        // the highest derived segment speed outside gaps and bad fixes.
+        const reported = rows.map(function (r) { return r.speed; })
+            .filter(function (s) { return s !== null; });
+        if (reported.length) {
+            result.maxKph = Math.max.apply(null, reported);
+            result.maxReported = true;
+        } else {
+            const derived = segments.filter(function (s) {
+                return !s.gap && !s.bad && s.derivedKph !== null;
+            }).map(function (s) { return s.derivedKph; });
+            result.maxKph = derived.length ? Math.max.apply(null, derived) : null;
+        }
+
+        // Rule 10: beacon frequency over the intervals that are not gaps.
+        const beaconIntervals = segments.filter(function (s) { return !s.gap; })
+            .map(function (s) { return s.seconds; });
+        result.beacon = {
+            medianSeconds: median(beaconIntervals),
+            meanSeconds: mean(beaconIntervals),
+            intervals: beaconIntervals.length,
+        };
+
+        // Rule 13: reported course at the newest point, else the bearing
+        // from the second-newest point (the derived branch is this app's
+        // common case: track rows carry no course).
+        if (newest.course !== null) {
+            result.headingDeg = newest.course;
+            result.headingReported = true;
+        } else {
+            const prev = rows[rows.length - 2];
+            result.headingDeg = bearingDeg(prev.lat, prev.lon, newest.lat, newest.lon);
+        }
+
+        return result;
+    }
+
+    // ---- display helpers (spec rounding, never used in the maths) ----
+
+    function isMetric(units) {
+        return units !== 'imperial';
+    }
+
+    // Distances: one decimal below 10, whole above (spec "Rounding").
+    function formatDistance(km, units) {
+        if (km === null || km === undefined || !isFinite(km)) return '-';
+        const value = isMetric(units) ? km : km / KM_PER_MILE;
+        const shown = value < 10 ? value.toFixed(1) : Math.round(value).toString();
+        return shown + ' ' + (isMetric(units) ? 'km' : 'mi');
+    }
+
+    // Speeds: whole units.
+    function formatSpeed(kph, units) {
+        if (kph === null || kph === undefined || !isFinite(kph)) return '-';
+        const value = isMetric(units) ? kph : kph / KM_PER_MILE;
+        return Math.round(value) + ' ' + (isMetric(units) ? 'km/h' : 'mph');
+    }
+
+    function formatElapsed(seconds) {
+        if (seconds === null || seconds === undefined || !isFinite(seconds)) return '-';
+        if (seconds < 60) return Math.round(seconds) + ' s';
+        if (seconds < 7200) return Math.round(seconds / 60) + ' min';
+        const h = Math.floor(seconds / 3600);
+        const m = Math.round((seconds - h * 3600) / 60);
+        if (m === 60) { h += 1; m = 0; }
+        return h + ' h ' + m + ' min';
+    }
+
+    function formatInterval(seconds) {
+        if (seconds === null || seconds === undefined || !isFinite(seconds)) return '-';
+        return Math.round(seconds) + ' s';
+    }
+
+    function formatHeading(deg) {
+        if (deg === null || deg === undefined || !isFinite(deg)) return '-';
+        return (Math.round(deg) % 360) + '°';
+    }
+
+    // Local time (the user's own time zone), 24-hour, no date: "10:09".
+    function formatClock(timestamp) {
+        const t = timeMs(timestamp);
+        if (t === null) return '-';
+        const d = new Date(t);
+        return String(d.getHours()).padStart(2, '0') + ':' +
+            String(d.getMinutes()).padStart(2, '0');
+    }
+
     function refreshOverlaySource() {
         if (!map || !map.getSource || !map.getSource('station-overlay')) return;
         map.getSource('station-overlay').setData(_overlayFC || { type: 'FeatureCollection', features: [] });
@@ -2980,14 +3251,7 @@
 
 
     // --- Station overlay: path lines, distance, log highlight ---
-    function haversineKm(lat1, lon1, lat2, lon2) {
-        const R = 6371;
-        const dLat = (lat2 - lat1) * Math.PI / 180;
-        const dLon = (lon2 - lon1) * Math.PI / 180;
-        const a = Math.sin(dLat / 2) ** 2 +
-            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
-        return R * 2 * Math.asin(Math.sqrt(a));
-    }
+    // haversineKm lives in the trail-statistics section below (spec radius).
 
     var _selectedCallsign = null;
     var _hopHoverBound = false;
