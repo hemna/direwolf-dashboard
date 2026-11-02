@@ -50,6 +50,7 @@ var b = app.indexOf('// --- Follow a station (issue #206) ---');
 var e = app.indexOf('\n    // --- ', b + 41);
 var follow = app.slice(b, e);
 var helpers = braceFn(app, 'const GENERIC_PATH_ALIASES = new Set([')
+    + '\n' + braceFn(app, 'function isPathAlias(')
     + '\n' + braceFn(app, 'function parsePath(')
     + '\n' + braceFn(app, 'function haversineKm(');
 
@@ -272,6 +273,7 @@ var b = app.indexOf(STATE);
 var w = app.indexOf(WIRING);
 var e = app.indexOf('\n    // --- ', w + 60); // next section banner
 var helpers = braceFn(app, 'const GENERIC_PATH_ALIASES = new Set([')
+    + '\n' + braceFn(app, 'function isPathAlias(')
     + '\n' + braceFn(app, 'function parsePath(')
     + '\n' + braceFn(app, 'function haversineKm(');
 // Stub environment for the page-wiring section. The new Function body below
