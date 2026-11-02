@@ -31,7 +31,8 @@ CREATE TABLE IF NOT EXISTS packets (
     comment     TEXT,
     audio_level INTEGER,
     compact_log TEXT,
-    raw_packet  TEXT
+    raw_packet  TEXT,
+    path_meta   TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_packets_timestamp ON packets(timestamp);
@@ -75,6 +76,19 @@ CREATE TABLE IF NOT EXISTS weather_reports (
 CREATE INDEX IF NOT EXISTS idx_weather_callsign_ts ON weather_reports(callsign, timestamp);
 """
 
+# Shared packet-path fields produced by parse_packet_path (#205). Persisted as
+# a JSON blob under packets.path_meta so reload/reconnect replays can animate.
+PATH_META_KEYS = (
+    "packet_id",
+    "source",
+    "hops",
+    "rx_igate",
+    "tx_igate",
+    "no_rf_leg",
+    "tx_hops",
+    "addressee",
+)
+
 
 class Storage:
     """Async SQLite storage for packets and stations."""
@@ -111,12 +125,13 @@ class Storage:
         "duplicate column name" error and ignore only that case — genuine
         failures (disk full, locked DB) must propagate. (issue #82)
         """
-        try:
-            await self._db.execute("ALTER TABLE stations ADD COLUMN last_path TEXT")
-            await self._db.commit()
-        except sqlite3.OperationalError as e:
-            if "duplicate column name" not in str(e).lower():
-                raise
+        for table, column in (("stations", "last_path"), ("packets", "path_meta")):
+            try:
+                await self._db.execute(f"ALTER TABLE {table} ADD COLUMN {column} TEXT")
+                await self._db.commit()
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" not in str(e).lower():
+                    raise
 
     async def close(self) -> None:
         """Close the database connection."""
@@ -174,14 +189,19 @@ class Storage:
         """Insert a packet record. Returns the inserted row id."""
         # Serialize list fields to JSON strings
         path = json.dumps(packet.get("path")) if packet.get("path") else None
+        # Persist the shared packet-path fields (#205) so replays of stored
+        # packets can animate them too; a packet_id only exists on a real parse.
+        path_meta = None
+        if packet.get("packet_id"):
+            path_meta = json.dumps({key: packet.get(key) for key in PATH_META_KEYS})
 
         async with self._write_transaction():
             cursor = await self._db.execute(
                 """INSERT INTO packets
                 (timestamp, type, tx, from_call, to_call, path, msg_no,
                  latitude, longitude, symbol, symbol_table, human_info,
-                 comment, audio_level, compact_log, raw_packet)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 comment, audio_level, compact_log, raw_packet, path_meta)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     packet.get("timestamp", time.time()),
                     packet.get("type", "Unknown"),
@@ -199,6 +219,7 @@ class Storage:
                     packet.get("audio_level"),
                     packet.get("compact_log"),
                     packet.get("raw_packet"),
+                    path_meta,
                 ),
             )
         return cursor.lastrowid
@@ -603,5 +624,13 @@ class Storage:
                 d["path"] = json.loads(d["path"])
             except (json.JSONDecodeError, TypeError):
                 d["path"] = []
+
+        # Restore the shared packet-path fields stored under path_meta (#205).
+        if d.get("path_meta"):
+            try:
+                d.update(json.loads(d["path_meta"]))
+            except (json.JSONDecodeError, TypeError):
+                pass
+        d.pop("path_meta", None)
 
         return d
