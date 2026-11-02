@@ -637,10 +637,21 @@
                     '/>' +
             '</div>' +
             '<div class="filter-overlay-row">' +
-                '<label class="filter-overlay-label" for="filter-packet-paths">Packet paths</label>' +
+'<label class="filter-overlay-label" for="filter-packet-paths">Packet paths</label>' +
                 '<input type="checkbox" id="filter-packet-paths" ' +
                     (packetPathsEnabled ? 'checked ' : '') +
                     '/>' +
+            '</div>' +
+            '<div class="filter-overlay-row">' +
+                '<label class="filter-overlay-label" for="filter-follow-callsign">Follow</label>' +
+                '<input type="text" id="filter-follow-callsign" placeholder="Follow callsign..." />' +
+            '</div>' +
+            '<div class="filter-overlay-row">' +
+                '<label class="filter-overlay-label" for="filter-follow-mode">Follow mode</label>' +
+                '<select id="filter-follow-mode" title="Dim or hide the other stations while following">' +
+                    '<option value="dim" selected>Dim</option>' +
+                    '<option value="hide">Hide</option>' +
+                '</select>' +
             '</div>' +
             '</div>';
         var filterHeader = container.querySelector('.filter-overlay-header');
@@ -1140,6 +1151,7 @@
         fetch(API_BASE + '/stats').then(function (r) { return r.json(); }).then(updateStatsOverlay).catch(function () {});
         connectWebSocket();
         initFilters();
+        initFollowStation();
         initSettings();
         initConfirmWipeModal();
         initClearDataFab();
@@ -2244,6 +2256,729 @@
         return result;
     }
 
+    // --- Follow a station (issue #206) ---
+    // Ported one-for-one from haminfo map-shared/follow-station.js (issue
+    // basemap-kit #64). Two deliberate differences from the reference:
+    //   * no parsePath/GENERIC_PATH_ALIASES copy: app.js has its own parser
+    //     (issue #188/#197, path arrays) and this page is the consumer, so
+    //     readPath falls back to it instead of the module's private copy;
+    //   * no window.MapShared: app.js is a single IIFE, so the module value
+    //     lands in the IIFE-scope `followShared` var the map code reads.
+    var followShared;
+    (function () {
+        'use strict';
+
+        var DEFAULTS = {
+            deadZoneRatio: 0.2,       // share of the viewport kept still around centre
+            minMoveIntervalMs: 1200,  // no camera move closer together than this
+            easeMs: 600,
+            farKm: 50,                // a packet this far from the station is far
+            farViewportRatio: 0.35,   // ...or this share of the viewport width
+            farHoldMs: 2500,          // how long the wide view is held
+            farReturnMs: 700,
+            silentSeconds: 60,        // matches the feed's CALLSIGN_SILENCE_SECONDS
+            logLimit: 50
+        };
+
+        // Same callsign form the feed accepts (haminfo #348), so the page does not
+        // subscribe to something the server will reject.
+        var CALLSIGN_RE = /^[A-Z0-9]{1,6}(?:-[0-9]{1,2})?$/;
+
+        function normalizeCallsign(value) {
+            if (typeof value !== 'string') return null;
+            var callsign = value.trim().toUpperCase();
+            if (!CALLSIGN_RE.test(callsign)) return null;
+            if (callsign.indexOf('-') !== -1 && parseInt(callsign.split('-')[1], 10) > 15) {
+                return null;
+            }
+            return callsign;
+        }
+
+        function distanceKm(a, b) {
+            if (!a || !b) return 0;
+            var R = 6371;
+            var dLat = (b.lat - a.lat) * Math.PI / 180;
+            var dLon = (b.lng - a.lng) * Math.PI / 180;
+            var s = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(a.lat * Math.PI / 180) * Math.cos(b.lat * Math.PI / 180) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
+        }
+
+        // How many kilometres the viewport spans. MapLibre v5 dropped
+        // Map#distance(), and a width of 0 made the dead zone and the far
+        // threshold unreachable, so the page passes its own projection in.
+        function viewportWidthKm(unproject, width, height) {
+            if (typeof unproject !== 'function' || !(width > 0)) return 0;
+            var midRow = (height || 0) / 2;
+            var west;
+            var east;
+            try {
+                west = unproject([0, midRow]);
+                east = unproject([width, midRow]);
+            } catch (e) {
+                return 0;
+            }
+            if (!west || !east) return 0;
+            return distanceKm(
+                { lat: west.lat, lng: west.lng },
+                { lat: east.lat, lng: east.lng }
+            );
+        }
+
+        function formatClock(iso, now) {
+            var d = iso ? new Date(iso) : new Date(now || Date.now());
+            if (isNaN(d.getTime())) return '--:--:--';
+            var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+            return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+        }
+
+        // Fallback identity when a payload arrives without the server's packet_id:
+        // the same rule as callsign_feed.packet_identity (frame with the path out).
+        function fallbackIdentity(packet) {
+            var raw = (packet.raw || '').trim();
+            var header = raw.split(',')[0] || '';
+            var source = (packet.from_call || '').toUpperCase();
+            var destination = (packet.addressee || packet.to_call || '').toUpperCase();
+            if (raw.indexOf(':') !== -1) {
+                var info = raw.slice(raw.indexOf(':') + 1);
+                return source + '>' + destination + ':' + info;
+            }
+            return source + '>' + destination + ':' + (packet.comment || '');
+        }
+
+        function createFollower(options) {
+            options = options || {};
+            var cfg = {};
+            Object.keys(DEFAULTS).forEach(function (key) {
+                cfg[key] = options.config && options.config[key] !== undefined
+                    ? options.config[key] : DEFAULTS[key];
+            });
+            // app.js's parsePath plays the role of the reference's private copy
+            // (it takes feed path arrays, issue #188/#197).
+            var readPath = options.parsePath || parsePath;
+            var reduceMotion = !!options.reduceMotion;
+
+            var state = {
+                callsign: null,
+                following: false,
+                suspended: false,
+                mode: options.mode === 'hide' ? 'hide' : 'dim',
+                position: null,
+                lastMoveAt: 0,
+                pending: false,
+                lastHeardAt: null,
+                silentSeconds: null,
+                far: null,          // { points, until }
+                seen: {},           // packet identity -> log row
+                log: []
+            };
+
+            function motion() {
+                return reduceMotion ? 'jump' : 'ease';
+            }
+
+            function resetLog() {
+                state.seen = {};
+                state.log = [];
+            }
+
+            function follow(callsign) {
+                var normalized = normalizeCallsign(callsign);
+                if (!normalized) return { type: 'error', reason: 'invalid_callsign' };
+                if (state.callsign !== normalized) resetLog();
+                state.callsign = normalized;
+                state.following = true;
+                state.suspended = false;
+                state.pending = false;
+                state.silentSeconds = null;
+                state.far = null;
+                state.lastHeardAt = null;
+                // Every per-station field resets: following B after A must not
+                // keep A's coordinates, silence clock or move clock.
+                state.position = null;
+                state.lastMoveAt = 0;
+                return { type: 'following', callsign: normalized };
+            }
+
+            function unfollow() {
+                var was = state.callsign;
+                state.following = false;
+                state.suspended = false;
+                state.pending = false;
+                state.far = null;
+                state.callsign = null;
+                state.position = null;
+                state.lastHeardAt = null;
+                state.silentSeconds = null;
+                return { type: 'stopped', callsign: was };
+            }
+
+            // A hand pan or zoom: following pauses and the page shows resume.
+            function suspend() {
+                if (!state.following || state.suspended) return { type: 'unchanged' };
+                state.suspended = true;
+                state.pending = false;
+                state.far = null;
+                return { type: 'suspended', callsign: state.callsign };
+            }
+
+            function resume(now) {
+                if (!state.following) return { type: 'unchanged' };
+                state.suspended = false;
+                state.lastMoveAt = 0;
+                return {
+                    type: 'resumed',
+                    callsign: state.callsign,
+                    // Resume returns to the station at once, as #350 asks.
+                    move: state.position ? { to: state.position, zoom: null, motion: motion() } : null
+                };
+            }
+
+            function cameraMove(pos, view, now, reason) {
+                state.lastMoveAt = now;
+                state.pending = false;
+                return {
+                    type: 'move',
+                    to: pos,
+                    zoom: view && view.zoom !== undefined ? view.zoom : null,
+                    motion: motion(),
+                    reason: reason
+                };
+            }
+
+            function tooSoon(now) {
+                return now - state.lastMoveAt < cfg.minMoveIntervalMs;
+            }
+
+            function farThreshold(view) {
+                var width = (view && view.viewportKmWidth) || 0;
+                return Math.max(cfg.farKm, width * cfg.farViewportRatio);
+            }
+
+            // A position report for the followed station.
+            function setPosition(pos, now, view) {
+                if (!pos || typeof pos.lat !== 'number' || typeof pos.lng !== 'number') {
+                    return { type: 'none' };
+                }
+                var previous = state.position;
+                state.position = { lat: pos.lat, lng: pos.lng };
+                state.lastHeardAt = now;
+                state.silentSeconds = null;
+                if (!state.following || state.suspended) return { type: 'none' };
+                if (previous) {
+                    var jump = distanceKm(previous, state.position);
+                    if (jump > farThreshold(view)) {
+                        state.lastHeardAt = now;
+                        return {
+                            type: 'far',
+                            points: [previous, state.position],
+                            holdMs: cfg.farHoldMs,
+                            motion: motion()
+                        };
+                    }
+                }
+                if (!view || !view.center) return cameraMove(state.position, view, now, 'first-position');
+                if (distanceKm(view.center, state.position) * 2 <=
+                    (view.viewportKmWidth || 0) * cfg.deadZoneRatio) {
+                    return { type: 'none', reason: 'dead-zone' };
+                }
+                if (tooSoon(now)) {
+                    state.pending = true;
+                    return { type: 'pending', retryInMs: cfg.minMoveIntervalMs - (now - state.lastMoveAt) };
+                }
+                return cameraMove(state.position, view, now, 'left-dead-zone');
+            }
+
+            // A deferred move that the page asks for once the floor has passed.
+            function flushPending(now, view) {
+                if (!state.pending || !state.following || state.suspended) return { type: 'none' };
+                if (tooSoon(now)) return { type: 'none' };
+                if (!view || !view.center) return { type: 'none' };
+                return cameraMove(state.position, view, now, 'deferred');
+            }
+
+            function mergePath(row, packet) {
+                if (!packet.path) return;
+                if (!row.paths) row.paths = [row.path];
+                if (row.paths.indexOf(packet.path) === -1) {
+                    row.paths.push(packet.path);
+                    row.path = row.paths.join(' / ');
+                    row.path_count = row.paths.length;
+                }
+            }
+
+            function addRow(packet) {
+                var path = packet.path || '';
+                var parsed = readPath(path);
+                var row = {
+                    id: packet.packet_id || fallbackIdentity(packet),
+                    time: formatClock(packet.received_at),
+                    received_at: packet.received_at || null,
+                    direction: packet.direction === 'to' ? 'to' : 'from',
+                    callsign: state.callsign,
+                    other: packet.direction === 'to'
+                        ? (packet.from_call || '')
+                        : (packet.addressee || packet.to_call || ''),
+                    packet_type: packet.packet_type || 'unknown',
+                    path: path,
+                    hop_count: (parsed.digipeaters || []).length,
+                    via: (parsed.digipeaters || []).join('>') || (parsed.isTcpip ? 'APRS-IS' : 'direct'),
+                    comment: packet.comment || packet.human_info || ''
+                };
+                state.log.unshift(row);
+                if (state.log.length > cfg.logLimit) {
+                    var dropped = state.log.splice(cfg.logLimit);
+                    dropped.forEach(function (old) { delete state.seen[old.id]; });
+                }
+                state.seen[row.id] = row;
+                return row;
+            }
+
+            // A packet the feed says concerns the followed station, in one or both
+            // directions. Duplicate receptions share a row (identity, not count).
+            function onPacket(packet, now, view) {
+                if (!state.following || !packet) return { type: 'none' };
+                var identity = packet.packet_id || fallbackIdentity(packet);
+                var existing = state.seen[identity];
+                if (existing) {
+                    mergePath(existing, packet);
+                    return { type: 'duplicate', row: existing };
+                }
+                var row = addRow(packet);
+                state.lastHeardAt = now;
+                state.silentSeconds = null;
+                var result = { type: 'packet', row: row, duplicate: false };
+                var lat = packet.latitude;
+                var lng = packet.longitude;
+                if (state.position && typeof lat === 'number' && typeof lng === 'number') {
+                    var target = { lat: lat, lng: lng };
+                    if (distanceKm(state.position, target) > farThreshold(view)) {
+                        // A far packet replaces any wide view still on screen, so
+                        // two in a row widen once instead of fighting (acceptance 3).
+                        state.far = { points: [state.position, target], until: now + cfg.farHoldMs };
+                        result.far = {
+                            points: state.far.points,
+                            holdMs: cfg.farHoldMs,
+                            returnMs: cfg.farReturnMs,
+                            motion: motion()
+                        };
+                    }
+                }
+                return result;
+            }
+
+            function farDue(now) {
+                if (!state.far) return null;
+                if (now < state.far.until) return null;
+                var points = state.far.points;
+                state.far = null;
+                return { type: 'far-return', points: points, motion: motion() };
+            }
+
+            function onSilence(seconds) {
+                state.silentSeconds = typeof seconds === 'number' ? seconds : cfg.silentSeconds;
+                return { type: 'silent', text: chipText().label, silent: true };
+            }
+
+            function chipText(now) {
+                if (!state.following) return { text: '', label: '', silent: false };
+                var name = state.callsign;
+                if (!state.position) {
+                    return { text: 'Following ' + name, label: 'Following ' + name + ', no position yet', silent: false };
+                }
+                if (state.silentSeconds !== null) {
+                    var mins = Math.max(1, Math.round(state.silentSeconds / 60));
+                    // The dot alone would be colour-only feedback, so the chip text
+                    // says it too (WCAG 1.4.1) and the label spells out the minutes.
+                    return {
+                        text: 'Following ' + name + ' \u00b7 silent ' + mins + 'm',
+                        label: 'Following ' + name + ', nothing heard for ' + mins + ' minute' +
+                            (mins === 1 ? '' : 's'),
+                        silent: true
+                    };
+                }
+                if (state.suspended) {
+                    return { text: 'Following ' + name + ' \u2014 paused', label: 'Following ' + name + ', paused', silent: false };
+                }
+                return { text: 'Following ' + name, label: 'Following ' + name, silent: false };
+            }
+
+            function setMode(mode) {
+                state.mode = mode === 'hide' ? 'hide' : 'dim';
+                return state.mode;
+            }
+
+            function setReduceMotion(value) {
+                reduceMotion = !!value;
+                return reduceMotion;
+            }
+
+            return {
+                config: cfg,
+                follow: follow,
+                unfollow: unfollow,
+                suspend: suspend,
+                resume: resume,
+                setPosition: setPosition,
+                flushPending: flushPending,
+                onPacket: onPacket,
+                farDue: farDue,
+                onSilence: onSilence,
+                chipText: chipText,
+                log: function () { return state.log.slice(); },
+                setMode: setMode,
+                setReduceMotion: setReduceMotion,
+                state: function () {
+                    return {
+                        callsign: state.callsign,
+                        following: state.following,
+                        suspended: state.suspended,
+                        mode: state.mode,
+                        hasPosition: !!state.position,
+                        position: state.position,
+                        silent: state.silentSeconds !== null
+                    };
+                }
+            };
+        }
+
+        // The reference ends with window.MapShared.followStation = {...}; the
+        // same keys land in the IIFE-scope var instead (no global namespace in
+        // app.js). Keys kept one-for-one.
+        followShared = {
+            DEFAULTS: DEFAULTS,
+            create: createFollower,
+            normalizeCallsign: normalizeCallsign,
+            distanceKm: distanceKm,
+            viewportWidthKm: viewportWidthKm,
+            formatClock: formatClock,
+            fallbackIdentity: fallbackIdentity
+        };
+    })();
+
+
+    // --- Follow a station: page wiring (issue #206) ---
+    // The state machine above owns every decision (camera when, what the chip
+    // says, which packets are log rows); this section mounts the chip + rail
+    // controls, feeds the machine from the WS packet flow, applies its
+    // results to the map and persists dw-follow-callsign like the other dw-*
+    // keys. The harness test slices only the section above, so this code may
+    // use the DOM, map and localStorage freely.
+    var followPage = null;
+    var followChip = null, followChipText = null, followChipDot = null, followChipResume = null;
+    var followLastHeardAt = null;
+    var followFarTimer = null, followPendingTimer = null, followInputTimer = null;
+    var followSelfMove = false; // set around our own camera calls
+
+    function followLogCallsign() {
+        if (!followPage) return null;
+        var st = followPage.state();
+        return st.following ? st.callsign : null;
+    }
+
+    function followModeFromRail() {
+        var sel = document.getElementById('filter-follow-mode');
+        return sel && sel.value === 'hide' ? 'hide' : 'dim';
+    }
+
+    function followView() {
+        if (!map) return null;
+        var c = map.getCenter();
+        var el = map.getContainer();
+        return {
+            center: { lat: c.lat, lng: c.lng },
+            zoom: map.getZoom(),
+            viewportKmWidth: followShared.viewportWidthKm(
+                function (p) { return map.unproject(p); },
+                el.clientWidth, el.clientHeight)
+        };
+    }
+
+    function clearFollowTimers() {
+        [followFarTimer, followPendingTimer, followInputTimer].forEach(function (t) {
+            if (t) clearTimeout(t);
+        });
+        followFarTimer = null;
+        followPendingTimer = null;
+        followInputTimer = null;
+    }
+
+    function followCamera(move) {
+        if (!map || !move || !move.to) return;
+        followSelfMove = true;
+        var opts = { center: [move.to.lng, move.to.lat] };
+        if (move.zoom != null) opts.zoom = move.zoom;
+        if (move.motion === 'jump') {
+            map.jumpTo(opts);
+        } else {
+            opts.duration = move.duration || followShared.DEFAULTS.easeMs;
+            map.easeTo(opts);
+        }
+        followSelfMove = false;
+    }
+
+    function followFar(far) {
+        if (!map || !far || !far.points) return;
+        clearFollowTimers();
+        followSelfMove = true;
+        var lngs = [far.points[0].lng, far.points[1].lng];
+        var lats = [far.points[0].lat, far.points[1].lat];
+        // The wide view fits both the station and the far packet (N4 web rule).
+        map.fitBounds([[Math.min.apply(null, lngs), Math.min.apply(null, lats)],
+            [Math.max.apply(null, lngs), Math.max.apply(null, lats)]],
+            { padding: 80, maxZoom: 14, duration: far.motion === 'jump' ? 0 : 600 });
+        followSelfMove = false;
+        // The machine owns the hold; the timer only asks it when it is due.
+        followFarTimer = setTimeout(function () {
+            followFarTimer = null;
+            handleFollowDecision(followPage.farDue(Date.now()));
+        }, far.holdMs);
+    }
+
+    function schedulePendingCamera(retryInMs) {
+        if (followPendingTimer) clearTimeout(followPendingTimer);
+        followPendingTimer = setTimeout(function () {
+            followPendingTimer = null;
+            handleFollowDecision(followPage.flushPending(Date.now(), followView()));
+        }, retryInMs);
+    }
+
+    function handleFollowDecision(res) {
+        if (!res) return;
+        if (res.type === 'move') {
+            followCamera(res);
+        } else if (res.type === 'far-return') {
+            followCamera({ to: followPage.state().position, zoom: null, motion: res.motion,
+                duration: followShared.DEFAULTS.farReturnMs });
+        } else if (res.type === 'far') {
+            followFar(res);
+        } else if (res.type === 'packet' && res.far) {
+            followFar(res.far);
+        } else if (res.type === 'pending') {
+            schedulePendingCamera(res.retryInMs);
+        }
+    }
+
+    function applyFollowDimming() {
+        if (!map) return;
+        var st = followPage ? followPage.state() : null;
+        var cs = st && st.following ? st.callsign : null;
+        var opacity = st && st.mode === 'hide' ? 0 : 0.3;
+        var pair = [['stations-symbol-base', 'icon-opacity'],
+                    ['stations-symbol-overlay', 'icon-opacity'],
+                    ['stations-label', 'text-opacity']];
+        for (var i = 0; i < pair.length; i += 1) {
+            if (!map.getLayer(pair[i][0])) continue;
+            map.setPaintProperty(pair[i][0], pair[i][1],
+                cs ? ['case', ['==', ['get', 'callsign'], cs], 1, opacity] : 1);
+        }
+    }
+
+    function renderFollowChip() {
+        if (!followChip || !followChipText) return;
+        var st = followPage ? followPage.state() : null;
+        if (!st || !st.following) {
+            followChip.style.display = 'none';
+            return;
+        }
+        var c = followPage.chipText(Date.now());
+        followChipText.textContent = c.text;
+        followChip.setAttribute('aria-label', c.label);
+        // The dot colour alone is not accessible feedback; the chip text
+        // says "silent" too (WCAG 1.4.1), same as the reference.
+        followChipDot.style.background = c.silent ? '#e8695b' : '#57cd8f';
+        followChipResume.style.display = st.suspended ? '' : 'none';
+        followChip.classList.toggle('is-silent', c.silent);
+        followChip.classList.toggle('is-paused', st.suspended);
+        followChip.style.display = '';
+    }
+
+    function startFollowing(raw) {
+        var norm = followShared.normalizeCallsign(raw);
+        if (!norm) return false;
+        if (!followPage) {
+            followPage = followShared.create({
+                mode: followModeFromRail(),
+                // #205 rule: OS reduced-motion suppresses camera moves at init.
+                reduceMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+            });
+        }
+        var r = followPage.follow(norm);
+        if (r.type === 'error') return false;
+        localStorage.setItem('dw-follow-callsign', norm);
+        followLastHeardAt = Date.now();
+        var pos = getStationPosition(norm);
+        if (pos) {
+            handleFollowDecision(followPage.setPosition({ lat: pos.lat, lng: pos.lng },
+                Date.now(), followView()));
+        }
+        applyFollowDimming();
+        renderFollowChip();
+        // Rows already on screen must re-run through the filter hook.
+        document.querySelectorAll('.log-row').forEach(function (row) { applyFilterToRow(row); });
+        return true;
+    }
+
+    function stopFollowing() {
+        if (!followPage || !followPage.state().following) return;
+        localStorage.removeItem('dw-follow-callsign');
+        clearFollowTimers();
+        followPage.unfollow();
+        followLastHeardAt = null;
+        applyFollowDimming();
+        renderFollowChip();
+        // Rows already on screen must re-run through the filter hook.
+        document.querySelectorAll('.log-row').forEach(function (row) { applyFilterToRow(row); });
+    }
+
+    function suspendFollowing() {
+        if (!followPage) return;
+        followPage.suspend();
+        renderFollowChip();
+    }
+
+    function resumeFollowing() {
+        if (!followPage) return;
+        var r = followPage.resume(Date.now());
+        if (r.move) followCamera(r.move);
+        renderFollowChip();
+    }
+
+    function followFeedPacket(packet) {
+        if (!followPage || !packet) return;
+        var cs = followLogCallsign();
+        if (!cs) return;
+        if (packet.from_call !== cs && packet.to_call !== cs) return;
+        var now = Date.now();
+        followLastHeardAt = now;
+        // Object/item packets locate a named object, not the reporting station
+        // (issue #170 rule, same isPlacePacket test as the WS hook below).
+        var isPlacePacket = packet.type === 'ObjectPacket' || packet.type === 'ItemPacket';
+        if (!isPlacePacket && packet.from_call === cs && packet.latitude != null && packet.longitude != null) {
+            var pos = followPage.state().position;
+            if (!pos || pos.lat !== packet.latitude || pos.lng !== packet.longitude) {
+                handleFollowDecision(followPage.setPosition(
+                    { lat: packet.latitude, lng: packet.longitude }, now, followView()));
+            }
+        }
+        handleFollowDecision(followPage.onPacket({
+            packet_id: packet.id,
+            received_at: packet.timestamp ? new Date(packet.timestamp * 1000).toISOString()
+                : new Date(now).toISOString(),
+            direction: packet.from_call === cs ? 'from' : 'to',
+            from_call: packet.from_call,
+            addressee: packet.to_call,
+            packet_type: packet.type,
+            comment: packet.comment || '',
+            raw: packet.raw_packet || '',
+            path: packet.path,
+            latitude: packet.latitude,
+            longitude: packet.longitude
+        }, now, followView()));
+        renderFollowChip();
+    }
+
+    function followSilenceTick() {
+        if (!followPage) return;
+        var st = followPage.state();
+        if (!st.following || st.suspended) return;
+        if (!followLastHeardAt) return;
+        var elapsed = (Date.now() - followLastHeardAt) / 1000;
+        // The direwolf WS has no callsign-silence event, so the page times it
+        // from the last packet involving the followed station.
+        if (elapsed >= followPage.config.silentSeconds) followPage.onSilence(elapsed);
+        renderFollowChip();
+    }
+
+    function applyRailFollowInput() {
+        followInputTimer = null;
+        var railInput = document.getElementById('filter-follow-callsign');
+        if (!railInput) return;
+        var raw = railInput.value.trim();
+        if (!raw) { stopFollowing(); return; }
+        var norm = followShared.normalizeCallsign(raw);
+        if (norm && (!followPage || followPage.state().callsign !== norm)) startFollowing(norm);
+    }
+
+    function wireFollowStation() {
+        var railInput = document.getElementById('filter-follow-callsign');
+        if (railInput) {
+            railInput.addEventListener('input', function () {
+                if (followInputTimer) clearTimeout(followInputTimer);
+                // Debounce so a half-typed "W1" (valid form) does not churn
+                // follow state mid-keystroke.
+                followInputTimer = setTimeout(applyRailFollowInput, 400);
+            });
+        }
+        var modeSelect = document.getElementById('filter-follow-mode');
+        if (modeSelect) {
+            modeSelect.addEventListener('change', function () {
+                if (followPage) followPage.setMode(modeSelect.value);
+                applyFollowDimming();
+            });
+        }
+        if (followChip) {
+            followChip.querySelector('#follow-stop-btn').addEventListener('click', function () {
+                stopFollowing();
+            });
+            followChipResume.addEventListener('click', function () { resumeFollowing(); });
+        }
+        if (!map) return;
+        // Pans/zooms from a real gesture (originalEvent present) pause
+        // following and completing the move resumes it; a feature's
+        // programmatic move stays ignored, and marker drags only fire
+        // drag events, so they never suspend.
+        map.on('movestart', function (ev) {
+            if (followSelfMove || !ev || !ev.originalEvent) return;
+            suspendFollowing();
+        });
+        map.on('moveend', function () {
+            if (followPage && followPage.state().suspended) resumeFollowing();
+        });
+        map.on('zoomstart', function () { if (!followSelfMove) suspendFollowing(); });
+        // #201 seam: applyThemeStyle's structural path calls map.setStyle, and
+        // the vendored maplibre rebuilds page-added layers at default paint,
+        // then re-fires 'style.load'. Follow dimming is page paint, so re-apply
+        // it here. The vendored Evented keeps _listeners[type] as an array and
+        // fire() iterates registration order; initFollowStation boots after
+        // initMap, so this lands above the layer re-adds (as haminfo fix
+        // 2bf716bd pinned its re-apply list).
+        map.on('style.load', applyFollowDimming);
+    }
+
+    function initFollowStation() {
+        if (!map) return;
+        followChip = mlCreate('follow-chip');
+        followChip.innerHTML =
+            '<span class="follow-chip-dot" aria-hidden="true"></span>' +
+            '<span id="follow-chip-text" aria-live="polite"></span>' +
+            '<button id="follow-stop-btn" title="Stop following">\u2715</button>' +
+            '<button id="follow-resume-btn" title="Resume following">\u25B6</button>';
+        followChipText = followChip.querySelector('#follow-chip-text');
+        followChipDot = followChip.querySelector('.follow-chip-dot');
+        followChipResume = followChip.querySelector('#follow-resume-btn');
+        followChip.style.background = 'var(--overlay-bg)';
+        followChip.style.border = '1px solid var(--overlay-border)';
+        followChip.style.color = 'var(--overlay-text)';
+        followChip.style.padding = '4px 8px';
+        followChip.style.fontSize = '11px';
+        followChipDot.style.width = '10px';
+        followChipDot.style.height = '10px';
+        followChipDot.style.display = 'inline-block';
+        followChip.style.display = 'none';
+        map.addControl(mlControl(function () { return followChip; }, 'top-left'));
+        // dw-* persistence: restore follow-on-load like other overlays.
+        var saved = localStorage.getItem('dw-follow-callsign');
+        if (saved) startFollowing(saved);
+        setInterval(followSilenceTick, 5000);
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && followPage && followPage.state().following) stopFollowing();
+        });
+        wireFollowStation();
+    }
+
+
     // --- Station overlay: path lines, distance, log highlight ---
     function haversineKm(lat1, lon1, lat2, lon2) {
         const R = 6371;
@@ -3138,6 +3873,9 @@
             updatePositionCache(packet.from_call, packet.latitude, packet.longitude);
         }
         if (!isPlacePacket) offerPacketPath(packet);
+        // Follow-a-station (#206): feed the machine; it decides log, silence
+        // and camera (see the page-wiring section below).
+        followFeedPacket(packet);
         if (!isPlacePacket && packet.latitude != null && packet.longitude != null) {
             if (waitingForPosition) {
                 dismissWaiting();
@@ -3494,6 +4232,11 @@
         }
 
         let visible = true;
+        // Follow-a-station (#206): while following, the live log shows only
+        // that station's packets (sender or addressee — search carries raw).
+        const followCs = followLogCallsign();
+        if (followCs && row.dataset.callsign !== followCs &&
+            (row.dataset.search || '').indexOf(followCs.toLowerCase()) === -1) visible = false;
         if (callsign && !row.dataset.callsign.includes(callsign)) visible = false;
         if (type && row.dataset.type !== type) visible = false;
         if (txrx && row.dataset.tx !== txrx) visible = false;
