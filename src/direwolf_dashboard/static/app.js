@@ -478,6 +478,8 @@
             const isCollapsed = container.classList.contains('collapsed');
             legendIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
             localStorage.setItem('dw-legend-collapsed', isCollapsed ? '1' : '0');
+            // The chrome box just changed size: keep an open trail panel clear.
+            placeTrailPanel();
         });
         if (localStorage.getItem('dw-legend-collapsed') === '1') {
             container.classList.add('collapsed');
@@ -550,6 +552,7 @@
             var isCollapsed = container.classList.contains('collapsed');
             statsIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
             localStorage.setItem('dw-stats-collapsed', isCollapsed ? '1' : '0');
+            placeTrailPanel();
         });
         if (localStorage.getItem('dw-stats-collapsed') === '1') {
             container.classList.add('collapsed');
@@ -661,6 +664,7 @@
             var isCollapsed = container.classList.contains('collapsed');
             filterIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
             localStorage.setItem('dw-filter-collapsed', isCollapsed ? '1' : '0');
+            placeTrailPanel();
         });
         if (localStorage.getItem('dw-filter-collapsed') === '1') {
             container.classList.add('collapsed');
@@ -726,6 +730,7 @@
             var isCollapsed = container.classList.contains('collapsed');
             myLocIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
             localStorage.setItem('dw-myloc-collapsed', isCollapsed ? '1' : '0');
+            placeTrailPanel();
         });
         if (localStorage.getItem('dw-myloc-collapsed') === '1') {
             container.classList.add('collapsed');
@@ -1537,6 +1542,42 @@
             }, 'stations-symbol-base');
         }
 
+        // style.load drops the hover layer like every other layer here; re-light
+        // the still-hovered trail in this re-add pass (same idiom as tx-arcs).
+        if (hoveredTrailCallsign) highlightTrail(hoveredTrailCallsign);
+
+        if (!_trailHoverBound) {
+            _trailHoverBound = true;
+            map.on('mousemove', function (e) {
+                setTrailHover(pickTrailHit(map, e.point));
+            });
+            map.getCanvas().addEventListener('mouseleave', function () {
+                setTrailHover(null);
+            });
+            // Click opens the panel through the SAME 8 px hit test the hover
+            // uses, so no prior hover state is needed (port decision 5).
+            map.on('click', function (e) {
+                // A station marker owns its own click (it opens the station
+                // popup); a station usually sits at the end of its own trail,
+                // inside the trail's 8 px band.
+                if (map.getLayer('stations-symbol-base') &&
+                    map.queryRenderedFeatures(e.point, {
+                        layers: ['stations-symbol-base', 'stations-symbol-overlay'],
+                    }).length) return;
+                const hit = pickTrailHit(map, e.point);
+                if (hit && hit.properties && hit.properties.callsign) {
+                    openTrailPanel(hit.properties.callsign);
+                    return;
+                }
+                // A click on bare map closes the panel (spec rule 5), decided
+                // by the same hit test so a trail click is never bare.
+                closeTrailPanel();
+            });
+            // The map itself resizes (log panel, window, splitter), so a panel
+            // anchored to a trail has to move with it.
+            map.on('resize', placeTrailPanel);
+        }
+
         if (!map.getSource('station-overlay')) {
             map.addSource('station-overlay', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
             map.addLayer({
@@ -1626,6 +1667,648 @@
             });
         }
         map.getSource('station-tracks').setData({ type: 'FeatureCollection', features });
+    }
+
+    // --- Trail hover highlight (issue #207, port decision 3) ---
+    // Hover is a mousemove + 8 px box query, not mouseenter on the layer: MapLibre's
+    // point query has zero tolerance and the base line is 1.5 px wide, so the spec's
+    // 8 px screen tolerance lives in the query box. station-tracks keeps ONE LineString
+    // feature per station (refreshStationTrackSource), so a hit feature is the whole
+    // trail and one highlight layer lights the WHOLE trail up.
+    const TRAIL_HOVER_TOLERANCE_PX = 8;  // spec: hover box around the pointer
+    var hoveredTrailCallsign = null;
+    var _trailHoverBound = false;
+
+    // Hit test shared with the future click wiring (task 4). Several trails
+    // inside the box compete at low zoom: nearest wins, like the reference.
+    function pickTrailHit(map, point) {
+        if (!map || !point || !map.getLayer('station-tracks-line')) return null;
+        const t = TRAIL_HOVER_TOLERANCE_PX;
+        const hits = map.queryRenderedFeatures(
+            [[point.x - t, point.y - t], [point.x + t, point.y + t]],
+            {layers: ['station-tracks-line']});
+        if (!hits.length) return null;
+        if (hits.length === 1) return hits[0];
+        let best = null;
+        let bestDist = Infinity;
+        for (const f of hits) {
+            const coords = f.geometry && f.geometry.coordinates;
+            if (!coords) continue;
+            let d = Infinity;
+            for (let i = 1; i < coords.length; i++) {
+                const a = map.project(coords[i - 1]);
+                const b = map.project(coords[i]);
+                d = Math.min(d, distPointToSegment(point, a, b));
+            }
+            if (d < bestDist) { bestDist = d; best = f; }
+        }
+        return best || hits[0];
+    }
+
+    // Distance from a screen point to a projected segment (nearest-wins tie-up).
+    function distPointToSegment(p, a, b) {
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const len2 = dx * dx + dy * dy;
+        if (!len2) return Math.hypot(p.x - a.x, p.y - a.y);
+        const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2));
+        return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+    }
+
+    // A wide halo line on the SAME source, filtered to the hovered callsign:
+    // the geometry can never drift from the trail it describes. Added on hit
+    // and removed on miss, drawn under station-tracks-line like the reference
+    // halo under its trail.
+    function highlightTrail(callsign) {
+        if (!map || !map.getSource('station-tracks')) return;
+        if (map.getLayer('station-tracks-highlight')) {
+            // Bracket call: tests/test_no_leaflet.py bans the literal dotted
+            // form as a retired-Leaflet fingerprint; MapLibre needs this call.
+            map['removeLayer']('station-tracks-highlight');
+        }
+        if (!callsign) return;
+        map.addLayer({
+            id: 'station-tracks-highlight',
+            type: 'line',
+            source: 'station-tracks',
+            filter: ['==', ['get', 'callsign'], callsign],
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+            paint: {
+                'line-color': themeColor('--accent') || '#60a5fa',
+                'line-width': 5.5,    // base 1.5 + 4, mirrors reference hover width
+                'line-opacity': 0.55,
+            },
+        }, 'station-tracks-line');
+    }
+
+    // Cursor: the brief wants 'move' while a trail is hovered (the reference
+    // uses 'pointer'); cleared on miss so the map's default cursor returns.
+    function setTrailHover(feature) {
+        const callsign = feature && feature.properties ? feature.properties.callsign : null;
+        if (callsign === hoveredTrailCallsign) return;
+        hoveredTrailCallsign = callsign;
+        highlightTrail(callsign);
+        map.getCanvas().style.cursor = callsign ? 'move' : '';
+    }
+
+    // --- Trail statistics (shared spec basemap-kit#65, issue #207) ---
+    /* Engine-agnostic stats maths (no map, no DOM), ported one-for-one from
+     * the reference map-shared/trail-stats.js. The maths is the canonical
+     * spec, not a local approximation: it must reproduce the spec's worked
+     * example exactly (tests/test_trail_stats.py mirrors the reference
+     * trail-stats test). Input rows are the trail-endpoint shape, oldest
+     * first: [longitude, latitude, timestamp, speed, course], with speed in
+     * km/h and course in degrees; either may be null. This app's track rows
+     * carry neither, so the derived branches below are the common case. */
+    const EARTH_RADIUS_KM = 6371.0088;   // spec rule 4
+    const SAME_POSITION_DEG = 0.00001;   // spec rule 2
+    const GAP_MIN_SECONDS = 300;         // spec rule 11
+    const GAP_MEDIAN_FACTOR = 3;         // spec rule 11
+    const BAD_FIX_KMH = 1000;            // spec rule 12 (bad fixes)
+    const KM_PER_MILE = 1.609344;
+
+    function toRad(deg) {
+        return deg * Math.PI / 180;
+    }
+
+    // Great-circle distance in km, haversine (spec radius 6371.0088, atan2).
+    // Self-contained on purpose: the node harnesses extract this function in
+    // isolation, so no toRad/EARTH_RADIUS_KM references may leak in.
+    function haversineKm(lat1, lon1, lat2, lon2) {
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        return 6371.0088 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    // Initial bearing in whole-ish degrees, 0-360, north = 0.
+    function bearingDeg(lat1, lon1, lat2, lon2) {
+        const dLon = toRad(lon2 - lon1);
+        const y = Math.sin(dLon) * Math.cos(toRad(lat2));
+        const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
+            Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLon);
+        return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+    }
+
+    function numberOf(value) {
+        return typeof value === 'number' && isFinite(value) ? value : null;
+    }
+
+    function timeMs(timestamp) {
+        // Track rows carry epoch SECONDS (the app reads them * 1000 elsewhere);
+        // the spec's own fixtures are ISO strings, which Date parses directly.
+        const value = typeof timestamp === 'number' ? timestamp * 1000 : timestamp;
+        const t = new Date(value).getTime();
+        return isFinite(t) ? t : null;
+    }
+
+    /**
+     * Rules 1-3: keep only usable positions, merge duplicate hears, correct
+     * same-timestamp disagreements, and sort by time.
+     */
+    function normalise(points) {
+        const usable = [];
+        (points || []).forEach(function (p) {
+            if (!p) return;
+            const lon = numberOf(p[0]);
+            const lat = numberOf(p[1]);
+            const t = timeMs(p[2]);
+            if (lon === null || lat === null || t === null) return;
+            usable.push({
+                lon: lon,
+                lat: lat,
+                t: t,
+                timestamp: p[2],
+                speed: numberOf(p[3]),
+                course: numberOf(p[4]),
+            });
+        });
+        usable.sort(function (a, b) { return a.t - b.t; });
+
+        const out = [];
+        usable.forEach(function (p) {
+            const prev = out[out.length - 1];
+            if (prev && prev.t === p.t) {
+                const samePlace =
+                    Math.abs(prev.lat - p.lat) <= SAME_POSITION_DEG &&
+                    Math.abs(prev.lon - p.lon) <= SAME_POSITION_DEG;
+                if (samePlace) return;      // one hear, keep the earliest
+                out[out.length - 1] = p;    // a correction, keep the last heard
+                return;
+            }
+            out.push(p);
+        });
+        return out;
+    }
+
+    function median(values) {
+        if (!values.length) return null;
+        const sorted = values.slice().sort(function (a, b) { return a - b; });
+        const mid = Math.floor(sorted.length / 2);
+        return sorted.length % 2
+            ? sorted[mid]
+            : (sorted[mid - 1] + sorted[mid]) / 2;
+    }
+
+    function mean(values) {
+        if (!values.length) return null;
+        return values.reduce(function (a, b) { return a + b; }, 0) / values.length;
+    }
+
+    /**
+     * Compute the panel's numbers. Returns raw values (km, km/h, seconds,
+     * degrees); formatting is a separate concern so display rounding can
+     * never leak into the maths.
+     */
+    function compute(points, options) {
+        const opts = options || {};
+        const rows = normalise(points);
+        const result = {
+            points: rows.length,
+            hasTrail: rows.length >= 2,
+            firstTime: rows.length ? rows[0].timestamp : null,
+            lastTime: rows.length ? rows[rows.length - 1].timestamp : null,
+            elapsedSeconds: null,
+            distanceKm: null,
+            averageKph: null,
+            currentKph: null,
+            currentReported: false,
+            maxKph: null,
+            maxReported: false,
+            headingDeg: null,
+            headingReported: false,
+            beacon: { medianSeconds: null, meanSeconds: null, intervals: 0 },
+            badFixes: 0,
+            truncated: !!opts.truncated,
+            returnedPoints: opts.returnedPoints || rows.length,
+            windowHours: opts.windowHours || null,
+        };
+        if (!rows.length) return result;
+
+        // Rule 14: fewer than two points is not a trail, so nothing else is
+        // computed and the panel shows only the callsign and last heard.
+        if (!result.hasTrail) return result;
+
+        const segments = [];
+        for (let i = 1; i < rows.length; i++) {
+            const a = rows[i - 1];
+            const b = rows[i];
+            const distKm = haversineKm(a.lat, a.lon, b.lat, b.lon);
+            const seconds = (b.t - a.t) / 1000;
+            segments.push({
+                distKm: distKm,
+                seconds: seconds,
+                derivedKph: seconds > 0 ? distKm / (seconds / 3600) : null,
+                bad: seconds > 0 && (distKm / (seconds / 3600)) > BAD_FIX_KMH,
+                gap: false,     // filled in below, once the median is known
+            });
+        }
+
+        // Rule 11: a gap is longer than the larger of three times the median
+        // interval and 300 seconds. The boundary is included: the spec's
+        // worked example calls its 300 s interval a gap and expects 4
+        // beacon intervals.
+        const intervals = segments.map(function (s) { return s.seconds; });
+        const medInterval = median(intervals);
+        const gapThreshold = Math.max(GAP_MEDIAN_FACTOR * (medInterval || 0), GAP_MIN_SECONDS);
+        segments.forEach(function (s) {
+            s.gap = s.seconds >= gapThreshold;
+        });
+
+        // Rule 12: a bad fix is excluded from distance and from maximum
+        // speed and is reported, never silently dropped.
+        result.badFixes = segments.filter(function (s) { return s.bad; }).length;
+
+        result.elapsedSeconds = (rows[rows.length - 1].t - rows[0].t) / 1000;
+        result.distanceKm = segments.reduce(function (sum, s) {
+            return sum + (s.bad ? 0 : s.distKm);
+        }, 0);
+        result.averageKph = result.elapsedSeconds > 0
+            ? result.distanceKm / (result.elapsedSeconds / 3600)
+            : null;
+
+        // Rule 8: reported speed on the newest point, else the last
+        // segment's derived speed, never a number from a gap or a bad fix.
+        const newest = rows[rows.length - 1];
+        const lastSegment = segments[segments.length - 1];
+        if (newest.speed !== null) {
+            result.currentKph = newest.speed;
+            result.currentReported = true;
+        } else if (!lastSegment.gap && !lastSegment.bad) {
+            result.currentKph = lastSegment.derivedKph;
+        }
+
+        // Rule 9: highest reported speed when any point reports one, else
+        // the highest derived segment speed outside gaps and bad fixes.
+        const reported = rows.map(function (r) { return r.speed; })
+            .filter(function (s) { return s !== null; });
+        if (reported.length) {
+            result.maxKph = Math.max.apply(null, reported);
+            result.maxReported = true;
+        } else {
+            const derived = segments.filter(function (s) {
+                return !s.gap && !s.bad && s.derivedKph !== null;
+            }).map(function (s) { return s.derivedKph; });
+            result.maxKph = derived.length ? Math.max.apply(null, derived) : null;
+        }
+
+        // Rule 10: beacon frequency over the intervals that are not gaps.
+        const beaconIntervals = segments.filter(function (s) { return !s.gap; })
+            .map(function (s) { return s.seconds; });
+        result.beacon = {
+            medianSeconds: median(beaconIntervals),
+            meanSeconds: mean(beaconIntervals),
+            intervals: beaconIntervals.length,
+        };
+
+        // Rule 13: reported course at the newest point, else the bearing
+        // from the second-newest point (the derived branch is this app's
+        // common case: track rows carry no course).
+        if (newest.course !== null) {
+            result.headingDeg = newest.course;
+            result.headingReported = true;
+        } else {
+            const prev = rows[rows.length - 2];
+            result.headingDeg = bearingDeg(prev.lat, prev.lon, newest.lat, newest.lon);
+        }
+
+        return result;
+    }
+
+    // ---- display helpers (spec rounding, never used in the maths) ----
+
+    function isMetric(units) {
+        return units !== 'imperial';
+    }
+
+    // Distances: one decimal below 10, whole above (spec "Rounding").
+    function formatDistance(km, units) {
+        if (km === null || km === undefined || !isFinite(km)) return '-';
+        const value = isMetric(units) ? km : km / KM_PER_MILE;
+        const shown = value < 10 ? value.toFixed(1) : Math.round(value).toString();
+        return shown + ' ' + (isMetric(units) ? 'km' : 'mi');
+    }
+
+    // Speeds: whole units.
+    function formatSpeed(kph, units) {
+        if (kph === null || kph === undefined || !isFinite(kph)) return '-';
+        const value = isMetric(units) ? kph : kph / KM_PER_MILE;
+        return Math.round(value) + ' ' + (isMetric(units) ? 'km/h' : 'mph');
+    }
+
+    function formatElapsed(seconds) {
+        if (seconds === null || seconds === undefined || !isFinite(seconds)) return '-';
+        if (seconds < 60) return Math.round(seconds) + ' s';
+        if (seconds < 7200) return Math.round(seconds / 60) + ' min';
+        // let, not const: the minutes below round up into the next hour.
+        let h = Math.floor(seconds / 3600);
+        let m = Math.round((seconds - h * 3600) / 60);
+        if (m === 60) { h += 1; m = 0; }
+        return h + ' h ' + m + ' min';
+    }
+
+    function formatInterval(seconds) {
+        if (seconds === null || seconds === undefined || !isFinite(seconds)) return '-';
+        return Math.round(seconds) + ' s';
+    }
+
+    function formatHeading(deg) {
+        if (deg === null || deg === undefined || !isFinite(deg)) return '-';
+        return (Math.round(deg) % 360) + '°';
+    }
+
+    // Local time (the user's own time zone), 24-hour, no date: "10:09".
+    function formatClock(timestamp) {
+        const t = timeMs(timestamp);
+        if (t === null) return '-';
+        const d = new Date(t);
+        return String(d.getHours()).padStart(2, '0') + ':' +
+            String(d.getMinutes()).padStart(2, '0');
+    }
+
+    // --- Trail info panel (issue #207, plan tasks 3-4) ---
+    /* The DOM half of the shared spec (basemap-kit#65), ported from the
+     * reference map-shared/trail-panel.js: the spec's field order, "-" where a
+     * value is unknown, and placement beside the trail that never covers the
+     * map's own chrome. The numbers come from compute() above; this section
+     * only formats and places them. */
+    const TRAIL_PLACEMENT_GAP = 12;
+    const TRAIL_PLACEMENT_MARGIN = 10;
+
+    var trailPanelEl = null;
+    var trailPanelOpen = false;
+    var trailPanelCallsign = null;
+    var trailPanelLastFocus = null;
+    var _trailPanelKeyBound = false;
+
+    function escapeHtml(text) {
+        return String(text === null || text === undefined ? '' : text)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    // APRS symbol sprite: the same technique the station popup uses, so a
+    // station reads the same in both places.
+    function trailSymbolHtml(props) {
+        if (!props || !props.symbol) return '';
+        const sprite = parseSymbolTable(props.symbol_table);
+        const pos = getSymbolSpritePosition(props.symbol);
+        return '<span class="trail-panel-symbol" aria-hidden="true" style="' +
+            'display:inline-block;width:' + SYMBOL_SIZE + 'px;height:' + SYMBOL_SIZE + 'px;' +
+            "background-image:url('" + sprite.spriteUrl + "');" +
+            'background-position:' + pos.x + 'px ' + pos.y + 'px;' +
+            'background-size:' + (SPRITE_COLS * SYMBOL_SIZE) + 'px ' +
+            (6 * SYMBOL_SIZE) + 'px;' +
+            'background-repeat:no-repeat;"></span>';
+    }
+
+    function trailWindowLabel(hours) {
+        if (hours === null || hours === undefined) return '-';
+        if (hours < 1) return 'last ' + Math.round(hours * 60) + ' minutes';
+        if (hours === 1) return 'last 1 hour';
+        if (hours < 24) return 'last ' + hours + ' hours';
+        const days = hours / 24;
+        return 'last ' + (days === Math.round(days) ? days : days.toFixed(1)) + ' days';
+    }
+
+    function trailSpeedRow(label, kph, reported, units) {
+        if (kph === null || kph === undefined) return { label: label, value: '-' };
+        return {
+            label: label,
+            value: formatSpeed(kph, units) + (reported ? ' (reported)' : ' (computed)'),
+        };
+    }
+
+    // The spec's field order, every field present, "-" where unknown.
+    function buildTrailRows(result, units, windowHours) {
+        return [
+            { label: 'Trail start', value: formatClock(result.firstTime) },
+            { label: 'Elapsed travel time', value: formatElapsed(result.elapsedSeconds) },
+            { label: 'Total distance', value: formatDistance(result.distanceKm, units) },
+            {
+                label: 'Beacon frequency',
+                value: result.beacon.intervals
+                    ? formatInterval(result.beacon.medianSeconds) + ' median \u00B7 ' +
+                      formatInterval(result.beacon.meanSeconds) + ' mean (' +
+                      result.beacon.intervals + ' intervals)'
+                    : '-',
+            },
+            trailSpeedRow('Current speed', result.currentKph, result.currentReported, units),
+            { label: 'Average speed', value: formatSpeed(result.averageKph, units) },
+            trailSpeedRow('Maximum speed', result.maxKph, result.maxReported, units),
+            { label: 'Heading', value: formatHeading(result.headingDeg) },
+            { label: 'Last heard', value: formatClock(result.lastTime) },
+            { label: 'Points', value: String(result.points) },
+            { label: 'Data window', value: trailWindowLabel(windowHours) },
+        ];
+    }
+
+    function rectsOverlap(a, b) {
+        return a.left < b.right && a.right > b.left &&
+            a.top < b.bottom && a.bottom > b.top;
+    }
+
+    // Pure placement geometry (spec rule 9): the panel sits BESIDE the trail,
+    // one gap from its nearest edge, flipping to the other side only when the
+    // first has no room, then clamped inside the map viewport and slid clear of
+    // the chrome. All boxes are in map pixels.
+    function computeTrailPlacement(trail, size, viewport, chrome) {
+        const width = size.width;
+        const height = size.height;
+        const vw = viewport.width;
+        const vh = viewport.height;
+        const gap = TRAIL_PLACEMENT_GAP;
+        const margin = TRAIL_PLACEMENT_MARGIN;
+
+        const minLeft = margin;
+        const maxLeft = Math.max(minLeft, vw - width - margin);
+        let left = trail.maxX + gap;
+        if (left > maxLeft) left = trail.minX - gap - width;
+        left = Math.max(minLeft, Math.min(left, maxLeft));
+
+        const minTop = ((chrome && chrome.top) || 0) + margin;
+        const maxTop = Math.max(minTop, vh - height - margin);
+        let top = Math.max(
+            minTop,
+            Math.min((trail.minY + trail.maxY) / 2 - height / 2, maxTop));
+
+        // Slide clear of the map's own controls rather than covering them.
+        const obstacles = (chrome && chrome.obstacles) || [];
+        let blocked = null;
+        for (const box of obstacles) {
+            if (rectsOverlap({ left: left, right: left + width, top: top, bottom: top + height }, box)) {
+                blocked = box;
+                break;
+            }
+        }
+        if (blocked) {
+            const candidates = [blocked.top - gap - height, blocked.bottom + gap];
+            for (const candidate of candidates) {
+                const shifted = Math.max(minTop, Math.min(candidate, maxTop));
+                const fits = !obstacles.some(function (box) {
+                    return rectsOverlap({
+                        left: left, right: left + width,
+                        top: shifted, bottom: shifted + height,
+                    }, box);
+                });
+                if (fits) { top = shifted; break; }
+            }
+        }
+        return { left: left, top: top };
+    }
+
+    function ensureTrailPanel() {
+        if (trailPanelEl) return trailPanelEl;
+        const root = document.getElementById('map-container');
+        if (!root) return null;
+        const el = document.createElement('section');
+        el.id = 'trail-panel';
+        el.className = 'trail-panel';
+        el.setAttribute('role', 'dialog');
+        el.setAttribute('aria-labelledby', 'trail-panel-title');
+        el.setAttribute('tabindex', '-1');
+        el.hidden = true;
+        root.appendChild(el);
+        trailPanelEl = el;
+        return el;
+    }
+
+    function closeTrailPanel() {
+        if (!trailPanelEl || !trailPanelOpen) return;
+        trailPanelOpen = false;
+        trailPanelCallsign = null;
+        trailPanelEl.hidden = true;
+        // preventScroll: focusing must not scroll the page under the pointer.
+        if (trailPanelLastFocus && typeof trailPanelLastFocus.focus === 'function') {
+            trailPanelLastFocus.focus({ preventScroll: true });
+        }
+        trailPanelLastFocus = null;
+    }
+
+    // The trail as drawn, in map pixels, for the placement maths.
+    function trailScreenBounds(callsign) {
+        const points = stationTracks[callsign];
+        if (!map || !points || !points.length) return null;
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const p of points) {
+            const s = map.project([p[1], p[0]]);
+            minX = Math.min(minX, s.x);
+            maxX = Math.max(maxX, s.x);
+            minY = Math.min(minY, s.y);
+            maxY = Math.max(maxY, s.y);
+        }
+        return { minX: minX, minY: minY, maxX: maxX, maxY: maxY };
+    }
+
+    // The map's own controls (legend, stats, filters, my location, zoom, the
+    // follow chip) as boxes relative to the map canvas, so place() can dodge
+    // them instead of covering them.
+    function mapChromeObstacles(canvasRect) {
+        const boxes = [];
+        const all = document.querySelectorAll(
+            '#map-container .maplibregl-ctrl, #map-container .fab-center, ' +
+            '#map-container .fab-clear');
+        for (const el of all) {
+            const r = el.getBoundingClientRect();
+            if (!r.width || !r.height) continue;
+            boxes.push({
+                left: r.left - canvasRect.left,
+                top: r.top - canvasRect.top,
+                right: r.right - canvasRect.left,
+                bottom: r.bottom - canvasRect.top,
+            });
+        }
+        return boxes;
+    }
+
+    function placeTrailPanel() {
+        if (!trailPanelEl || !trailPanelOpen || !map) return null;
+        const canvas = map.getCanvas();
+        const canvasRect = canvas.getBoundingClientRect();
+        const width = canvas.clientWidth;
+        const height = canvas.clientHeight;
+        const spot = computeTrailPlacement(
+            trailScreenBounds(trailPanelCallsign) || {
+                minX: width / 2, minY: height / 2, maxX: width / 2, maxY: height / 2,
+            },
+            {
+                width: trailPanelEl.offsetWidth || 260,
+                height: trailPanelEl.offsetHeight || 240,
+            },
+            { width: width, height: height },
+            { top: 0, obstacles: mapChromeObstacles(canvasRect) });
+        // The panel is absolutely positioned in #map-container; the canvas may
+        // sit a few pixels in from it, so shift into the panel's own frame.
+        const container = trailPanelEl.parentNode.getBoundingClientRect();
+        const dx = canvasRect.left - container.left;
+        const dy = canvasRect.top - container.top;
+        trailPanelEl.style.left = (spot.left + dx) + 'px';
+        trailPanelEl.style.right = '';
+        trailPanelEl.style.top = (spot.top + dy) + 'px';
+        return spot;
+    }
+
+    function openTrailPanel(callsign) {
+        const el = ensureTrailPanel();
+        if (!el) return;
+        // Track rows are [lat, lon, epoch seconds]; the stats take the spec's
+        // [lon, lat, timestamp] with speed and course always absent here.
+        const points = (stationTracks[callsign] || []).map(function (p) {
+            return [p[1], p[0], p[2]];
+        });
+        const result = compute(points, { windowHours: trailHours });
+        const props = stationFeatures[callsign] ? stationFeatures[callsign].properties : null;
+
+        let html = '<div class="trail-panel-header">' +
+            trailSymbolHtml(props) +
+            '<h2 class="trail-panel-title" id="trail-panel-title">' +
+            escapeHtml(callsign) + '</h2>' +
+            '<button type="button" class="trail-panel-close" ' +
+            'aria-label="Close trail panel">\u00D7</button></div>';
+
+        if (!result.hasTrail) {
+            // Spec rule 14: no trail is no trail: callsign, last heard, nothing else.
+            html += '<dl class="trail-panel-rows">' +
+                '<div class="trail-panel-row"><dt>Last heard</dt><dd>' +
+                escapeHtml(formatClock(result.lastTime)) + '</dd></div>' +
+                '</dl><p class="trail-panel-note">No trail in the window</p>';
+        } else {
+            html += '<dl class="trail-panel-rows">';
+            buildTrailRows(result, getUnits(), trailHours).forEach(function (row) {
+                html += '<div class="trail-panel-row"><dt>' + escapeHtml(row.label) +
+                    '</dt><dd>' + escapeHtml(row.value) + '</dd></div>';
+            });
+            html += '</dl>';
+            if (result.badFixes) {
+                html += '<p class="trail-panel-note">' + result.badFixes +
+                    (result.badFixes === 1 ? ' position' : ' positions') +
+                    ' excluded as a bad fix</p>';
+            }
+        }
+        el.innerHTML = html;
+        el.querySelector('.trail-panel-close').addEventListener('click', closeTrailPanel);
+
+        trailPanelCallsign = callsign;
+        if (!trailPanelOpen) trailPanelLastFocus = document.activeElement;
+        trailPanelOpen = true;
+        el.hidden = false;
+        el.focus({ preventScroll: true });
+
+        // Escape closes the panel even if focus moved off it, and stops there so
+        // it never also closes whatever is behind it (spec rules 5 and 7).
+        if (!_trailPanelKeyBound) {
+            _trailPanelKeyBound = true;
+            document.addEventListener('keydown', function (ev) {
+                if (trailPanelOpen && ev.key === 'Escape') {
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    closeTrailPanel();
+                }
+            }, true);
+        }
+        placeTrailPanel();
     }
 
     function refreshOverlaySource() {
@@ -1837,7 +2520,9 @@
             for (const cs of Object.keys(stationTracks)) delete stationTracks[cs];
             for (const [cs, points] of Object.entries(tracks)) {
                 if (!stations[cs]) continue;
-                stationTracks[cs] = points.map(p => [p[0], p[1]]);  // [lat, lon]
+                // [lat, lon, epoch seconds]: the trail panel needs the times
+                // for its statistics; the drawn line uses the first two.
+                stationTracks[cs] = points.map(p => [p[0], p[1], p[2]]);
             }
             refreshStationTrackSource();
         } catch (e) {
@@ -2214,11 +2899,11 @@
         openStationPopup(callsign);
     }
 
-    function updateStationTrack(callsign, lat, lon) {
+    function updateStationTrack(callsign, lat, lon, timestamp) {
         const s = stations[callsign];
         if (!s) return;
         if (!stationTracks[callsign]) stationTracks[callsign] = [];
-        stationTracks[callsign].push([lat, lon]);
+        stationTracks[callsign].push([lat, lon, timestamp]);
         refreshStationTrackSource();
     }
 
@@ -2980,14 +3665,7 @@
 
 
     // --- Station overlay: path lines, distance, log highlight ---
-    function haversineKm(lat1, lon1, lat2, lon2) {
-        const R = 6371;
-        const dLat = (lat2 - lat1) * Math.PI / 180;
-        const dLon = (lon2 - lon1) * Math.PI / 180;
-        const a = Math.sin(dLat / 2) ** 2 +
-            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
-        return R * 2 * Math.asin(Math.sqrt(a));
-    }
+    // haversineKm lives in the trail-statistics section above (spec radius).
 
     var _selectedCallsign = null;
     var _hopHoverBound = false;
@@ -3896,7 +4574,8 @@
                 tx: packet.tx || false,
             });
             if (!packet.position_from_db) {
-                updateStationTrack(packet.from_call, packet.latitude, packet.longitude);
+                updateStationTrack(packet.from_call, packet.latitude, packet.longitude,
+                    packet.timestamp);
             }
         }
         const myPos = getMyPosition();
