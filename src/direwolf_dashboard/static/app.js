@@ -1744,14 +1744,16 @@
         return deg * Math.PI / 180;
     }
 
-    // Great-circle distance in km, haversine, Earth radius 6371.0088 km.
+    // Great-circle distance in km, haversine (spec radius 6371.0088, atan2).
+    // Self-contained on purpose: the node harnesses extract this function in
+    // isolation, so no toRad/EARTH_RADIUS_KM references may leak in.
     function haversineKm(lat1, lon1, lat2, lon2) {
-        const dLat = toRad(lat2 - lat1);
-        const dLon = toRad(lon2 - lon1);
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
         const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
             Math.sin(dLon / 2) * Math.sin(dLon / 2);
-        return EARTH_RADIUS_KM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return 6371.0088 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     }
 
     // Initial bearing in whole-ish degrees, 0-360, north = 0.
