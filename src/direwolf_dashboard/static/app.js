@@ -478,6 +478,8 @@
             const isCollapsed = container.classList.contains('collapsed');
             legendIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
             localStorage.setItem('dw-legend-collapsed', isCollapsed ? '1' : '0');
+            // The chrome box just changed size: keep an open trail panel clear.
+            placeTrailPanel();
         });
         if (localStorage.getItem('dw-legend-collapsed') === '1') {
             container.classList.add('collapsed');
@@ -550,6 +552,7 @@
             var isCollapsed = container.classList.contains('collapsed');
             statsIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
             localStorage.setItem('dw-stats-collapsed', isCollapsed ? '1' : '0');
+            placeTrailPanel();
         });
         if (localStorage.getItem('dw-stats-collapsed') === '1') {
             container.classList.add('collapsed');
@@ -661,6 +664,7 @@
             var isCollapsed = container.classList.contains('collapsed');
             filterIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
             localStorage.setItem('dw-filter-collapsed', isCollapsed ? '1' : '0');
+            placeTrailPanel();
         });
         if (localStorage.getItem('dw-filter-collapsed') === '1') {
             container.classList.add('collapsed');
@@ -726,6 +730,7 @@
             var isCollapsed = container.classList.contains('collapsed');
             myLocIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
             localStorage.setItem('dw-myloc-collapsed', isCollapsed ? '1' : '0');
+            placeTrailPanel();
         });
         if (localStorage.getItem('dw-myloc-collapsed') === '1') {
             container.classList.add('collapsed');
@@ -1549,6 +1554,28 @@
             map.getCanvas().addEventListener('mouseleave', function () {
                 setTrailHover(null);
             });
+            // Click opens the panel through the SAME 8 px hit test the hover
+            // uses, so no prior hover state is needed (port decision 5).
+            map.on('click', function (e) {
+                // A station marker owns its own click (it opens the station
+                // popup); a station usually sits at the end of its own trail,
+                // inside the trail's 8 px band.
+                if (map.getLayer('stations-symbol-base') &&
+                    map.queryRenderedFeatures(e.point, {
+                        layers: ['stations-symbol-base', 'stations-symbol-overlay'],
+                    }).length) return;
+                const hit = pickTrailHit(map, e.point);
+                if (hit && hit.properties && hit.properties.callsign) {
+                    openTrailPanel(hit.properties.callsign);
+                    return;
+                }
+                // A click on bare map closes the panel (spec rule 5), decided
+                // by the same hit test so a trail click is never bare.
+                closeTrailPanel();
+            });
+            // The map itself resizes (log panel, window, splitter), so a panel
+            // anchored to a trail has to move with it.
+            map.on('resize', placeTrailPanel);
         }
 
         if (!map.getSource('station-overlay')) {
@@ -1770,7 +1797,10 @@
     }
 
     function timeMs(timestamp) {
-        const t = new Date(timestamp).getTime();
+        // Track rows carry epoch SECONDS (the app reads them * 1000 elsewhere);
+        // the spec's own fixtures are ISO strings, which Date parses directly.
+        const value = typeof timestamp === 'number' ? timestamp * 1000 : timestamp;
+        const t = new Date(value).getTime();
         return isFinite(t) ? t : null;
     }
 
@@ -1972,8 +2002,9 @@
         if (seconds === null || seconds === undefined || !isFinite(seconds)) return '-';
         if (seconds < 60) return Math.round(seconds) + ' s';
         if (seconds < 7200) return Math.round(seconds / 60) + ' min';
-        const h = Math.floor(seconds / 3600);
-        const m = Math.round((seconds - h * 3600) / 60);
+        // let, not const: the minutes below round up into the next hour.
+        let h = Math.floor(seconds / 3600);
+        let m = Math.round((seconds - h * 3600) / 60);
         if (m === 60) { h += 1; m = 0; }
         return h + ' h ' + m + ' min';
     }
@@ -1995,6 +2026,289 @@
         const d = new Date(t);
         return String(d.getHours()).padStart(2, '0') + ':' +
             String(d.getMinutes()).padStart(2, '0');
+    }
+
+    // --- Trail info panel (issue #207, plan tasks 3-4) ---
+    /* The DOM half of the shared spec (basemap-kit#65), ported from the
+     * reference map-shared/trail-panel.js: the spec's field order, "-" where a
+     * value is unknown, and placement beside the trail that never covers the
+     * map's own chrome. The numbers come from compute() above; this section
+     * only formats and places them. */
+    const TRAIL_PLACEMENT_GAP = 12;
+    const TRAIL_PLACEMENT_MARGIN = 10;
+
+    var trailPanelEl = null;
+    var trailPanelOpen = false;
+    var trailPanelCallsign = null;
+    var trailPanelLastFocus = null;
+    var _trailPanelKeyBound = false;
+
+    function escapeHtml(text) {
+        return String(text === null || text === undefined ? '' : text)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    // APRS symbol sprite: the same technique the station popup uses, so a
+    // station reads the same in both places.
+    function trailSymbolHtml(props) {
+        if (!props || !props.symbol) return '';
+        const sprite = parseSymbolTable(props.symbol_table);
+        const pos = getSymbolSpritePosition(props.symbol);
+        return '<span class="trail-panel-symbol" aria-hidden="true" style="' +
+            'display:inline-block;width:' + SYMBOL_SIZE + 'px;height:' + SYMBOL_SIZE + 'px;' +
+            "background-image:url('" + sprite.spriteUrl + "');" +
+            'background-position:' + pos.x + 'px ' + pos.y + 'px;' +
+            'background-size:' + (SPRITE_COLS * SYMBOL_SIZE) + 'px ' +
+            (6 * SYMBOL_SIZE) + 'px;' +
+            'background-repeat:no-repeat;"></span>';
+    }
+
+    function trailWindowLabel(hours) {
+        if (hours === null || hours === undefined) return '-';
+        if (hours < 1) return 'last ' + Math.round(hours * 60) + ' minutes';
+        if (hours === 1) return 'last 1 hour';
+        if (hours < 24) return 'last ' + hours + ' hours';
+        const days = hours / 24;
+        return 'last ' + (days === Math.round(days) ? days : days.toFixed(1)) + ' days';
+    }
+
+    function trailSpeedRow(label, kph, reported, units) {
+        if (kph === null || kph === undefined) return { label: label, value: '-' };
+        return {
+            label: label,
+            value: formatSpeed(kph, units) + (reported ? ' (reported)' : ' (computed)'),
+        };
+    }
+
+    // The spec's field order, every field present, "-" where unknown.
+    function buildTrailRows(result, units, windowHours) {
+        return [
+            { label: 'Trail start', value: formatClock(result.firstTime) },
+            { label: 'Elapsed travel time', value: formatElapsed(result.elapsedSeconds) },
+            { label: 'Total distance', value: formatDistance(result.distanceKm, units) },
+            {
+                label: 'Beacon frequency',
+                value: result.beacon.intervals
+                    ? formatInterval(result.beacon.medianSeconds) + ' median \u00B7 ' +
+                      formatInterval(result.beacon.meanSeconds) + ' mean (' +
+                      result.beacon.intervals + ' intervals)'
+                    : '-',
+            },
+            trailSpeedRow('Current speed', result.currentKph, result.currentReported, units),
+            { label: 'Average speed', value: formatSpeed(result.averageKph, units) },
+            trailSpeedRow('Maximum speed', result.maxKph, result.maxReported, units),
+            { label: 'Heading', value: formatHeading(result.headingDeg) },
+            { label: 'Last heard', value: formatClock(result.lastTime) },
+            { label: 'Points', value: String(result.points) },
+            { label: 'Data window', value: trailWindowLabel(windowHours) },
+        ];
+    }
+
+    function rectsOverlap(a, b) {
+        return a.left < b.right && a.right > b.left &&
+            a.top < b.bottom && a.bottom > b.top;
+    }
+
+    // Pure placement geometry (spec rule 9): the panel sits BESIDE the trail,
+    // one gap from its nearest edge, flipping to the other side only when the
+    // first has no room, then clamped inside the map viewport and slid clear of
+    // the chrome. All boxes are in map pixels.
+    function computeTrailPlacement(trail, size, viewport, chrome) {
+        const width = size.width;
+        const height = size.height;
+        const vw = viewport.width;
+        const vh = viewport.height;
+        const gap = TRAIL_PLACEMENT_GAP;
+        const margin = TRAIL_PLACEMENT_MARGIN;
+
+        const minLeft = margin;
+        const maxLeft = Math.max(minLeft, vw - width - margin);
+        let left = trail.maxX + gap;
+        if (left > maxLeft) left = trail.minX - gap - width;
+        left = Math.max(minLeft, Math.min(left, maxLeft));
+
+        const minTop = ((chrome && chrome.top) || 0) + margin;
+        const maxTop = Math.max(minTop, vh - height - margin);
+        let top = Math.max(
+            minTop,
+            Math.min((trail.minY + trail.maxY) / 2 - height / 2, maxTop));
+
+        // Slide clear of the map's own controls rather than covering them.
+        const obstacles = (chrome && chrome.obstacles) || [];
+        let blocked = null;
+        for (const box of obstacles) {
+            if (rectsOverlap({ left: left, right: left + width, top: top, bottom: top + height }, box)) {
+                blocked = box;
+                break;
+            }
+        }
+        if (blocked) {
+            const candidates = [blocked.top - gap - height, blocked.bottom + gap];
+            for (const candidate of candidates) {
+                const shifted = Math.max(minTop, Math.min(candidate, maxTop));
+                const fits = !obstacles.some(function (box) {
+                    return rectsOverlap({
+                        left: left, right: left + width,
+                        top: shifted, bottom: shifted + height,
+                    }, box);
+                });
+                if (fits) { top = shifted; break; }
+            }
+        }
+        return { left: left, top: top };
+    }
+
+    function ensureTrailPanel() {
+        if (trailPanelEl) return trailPanelEl;
+        const root = document.getElementById('map-container');
+        if (!root) return null;
+        const el = document.createElement('section');
+        el.id = 'trail-panel';
+        el.className = 'trail-panel';
+        el.setAttribute('role', 'dialog');
+        el.setAttribute('aria-labelledby', 'trail-panel-title');
+        el.setAttribute('tabindex', '-1');
+        el.hidden = true;
+        root.appendChild(el);
+        trailPanelEl = el;
+        return el;
+    }
+
+    function closeTrailPanel() {
+        if (!trailPanelEl || !trailPanelOpen) return;
+        trailPanelOpen = false;
+        trailPanelCallsign = null;
+        trailPanelEl.hidden = true;
+        // preventScroll: focusing must not scroll the page under the pointer.
+        if (trailPanelLastFocus && typeof trailPanelLastFocus.focus === 'function') {
+            trailPanelLastFocus.focus({ preventScroll: true });
+        }
+        trailPanelLastFocus = null;
+    }
+
+    // The trail as drawn, in map pixels, for the placement maths.
+    function trailScreenBounds(callsign) {
+        const points = stationTracks[callsign];
+        if (!map || !points || !points.length) return null;
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const p of points) {
+            const s = map.project([p[1], p[0]]);
+            minX = Math.min(minX, s.x);
+            maxX = Math.max(maxX, s.x);
+            minY = Math.min(minY, s.y);
+            maxY = Math.max(maxY, s.y);
+        }
+        return { minX: minX, minY: minY, maxX: maxX, maxY: maxY };
+    }
+
+    // The map's own controls (legend, stats, filters, my location, zoom, the
+    // follow chip) as boxes relative to the map canvas, so place() can dodge
+    // them instead of covering them.
+    function mapChromeObstacles(canvasRect) {
+        const boxes = [];
+        const all = document.querySelectorAll(
+            '#map-container .maplibregl-ctrl, #map-container .fab-center, ' +
+            '#map-container .fab-clear');
+        for (const el of all) {
+            const r = el.getBoundingClientRect();
+            if (!r.width || !r.height) continue;
+            boxes.push({
+                left: r.left - canvasRect.left,
+                top: r.top - canvasRect.top,
+                right: r.right - canvasRect.left,
+                bottom: r.bottom - canvasRect.top,
+            });
+        }
+        return boxes;
+    }
+
+    function placeTrailPanel() {
+        if (!trailPanelEl || !trailPanelOpen || !map) return null;
+        const canvas = map.getCanvas();
+        const canvasRect = canvas.getBoundingClientRect();
+        const width = canvas.clientWidth;
+        const height = canvas.clientHeight;
+        const spot = computeTrailPlacement(
+            trailScreenBounds(trailPanelCallsign) || {
+                minX: width / 2, minY: height / 2, maxX: width / 2, maxY: height / 2,
+            },
+            {
+                width: trailPanelEl.offsetWidth || 260,
+                height: trailPanelEl.offsetHeight || 240,
+            },
+            { width: width, height: height },
+            { top: 0, obstacles: mapChromeObstacles(canvasRect) });
+        // The panel is absolutely positioned in #map-container; the canvas may
+        // sit a few pixels in from it, so shift into the panel's own frame.
+        const container = trailPanelEl.parentNode.getBoundingClientRect();
+        const dx = canvasRect.left - container.left;
+        const dy = canvasRect.top - container.top;
+        trailPanelEl.style.left = (spot.left + dx) + 'px';
+        trailPanelEl.style.right = '';
+        trailPanelEl.style.top = (spot.top + dy) + 'px';
+        return spot;
+    }
+
+    function openTrailPanel(callsign) {
+        const el = ensureTrailPanel();
+        if (!el) return;
+        // Track rows are [lat, lon, epoch seconds]; the stats take the spec's
+        // [lon, lat, timestamp] with speed and course always absent here.
+        const points = (stationTracks[callsign] || []).map(function (p) {
+            return [p[1], p[0], p[2]];
+        });
+        const result = compute(points, { windowHours: trailHours });
+        const props = stationFeatures[callsign] ? stationFeatures[callsign].properties : null;
+
+        let html = '<div class="trail-panel-header">' +
+            trailSymbolHtml(props) +
+            '<h2 class="trail-panel-title" id="trail-panel-title">' +
+            escapeHtml(callsign) + '</h2>' +
+            '<button type="button" class="trail-panel-close" ' +
+            'aria-label="Close trail panel">\u00D7</button></div>';
+
+        if (!result.hasTrail) {
+            // Spec rule 14: no trail is no trail: callsign, last heard, nothing else.
+            html += '<dl class="trail-panel-rows">' +
+                '<div class="trail-panel-row"><dt>Last heard</dt><dd>' +
+                escapeHtml(formatClock(result.lastTime)) + '</dd></div>' +
+                '</dl><p class="trail-panel-note">No trail in the window</p>';
+        } else {
+            html += '<dl class="trail-panel-rows">';
+            buildTrailRows(result, getUnits(), trailHours).forEach(function (row) {
+                html += '<div class="trail-panel-row"><dt>' + escapeHtml(row.label) +
+                    '</dt><dd>' + escapeHtml(row.value) + '</dd></div>';
+            });
+            html += '</dl>';
+            if (result.badFixes) {
+                html += '<p class="trail-panel-note">' + result.badFixes +
+                    (result.badFixes === 1 ? ' position' : ' positions') +
+                    ' excluded as a bad fix</p>';
+            }
+        }
+        el.innerHTML = html;
+        el.querySelector('.trail-panel-close').addEventListener('click', closeTrailPanel);
+
+        trailPanelCallsign = callsign;
+        if (!trailPanelOpen) trailPanelLastFocus = document.activeElement;
+        trailPanelOpen = true;
+        el.hidden = false;
+        el.focus({ preventScroll: true });
+
+        // Escape closes the panel even if focus moved off it, and stops there so
+        // it never also closes whatever is behind it (spec rules 5 and 7).
+        if (!_trailPanelKeyBound) {
+            _trailPanelKeyBound = true;
+            document.addEventListener('keydown', function (ev) {
+                if (trailPanelOpen && ev.key === 'Escape') {
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    closeTrailPanel();
+                }
+            }, true);
+        }
+        placeTrailPanel();
     }
 
     function refreshOverlaySource() {
@@ -2206,7 +2520,9 @@
             for (const cs of Object.keys(stationTracks)) delete stationTracks[cs];
             for (const [cs, points] of Object.entries(tracks)) {
                 if (!stations[cs]) continue;
-                stationTracks[cs] = points.map(p => [p[0], p[1]]);  // [lat, lon]
+                // [lat, lon, epoch seconds]: the trail panel needs the times
+                // for its statistics; the drawn line uses the first two.
+                stationTracks[cs] = points.map(p => [p[0], p[1], p[2]]);
             }
             refreshStationTrackSource();
         } catch (e) {
@@ -2583,11 +2899,11 @@
         openStationPopup(callsign);
     }
 
-    function updateStationTrack(callsign, lat, lon) {
+    function updateStationTrack(callsign, lat, lon, timestamp) {
         const s = stations[callsign];
         if (!s) return;
         if (!stationTracks[callsign]) stationTracks[callsign] = [];
-        stationTracks[callsign].push([lat, lon]);
+        stationTracks[callsign].push([lat, lon, timestamp]);
         refreshStationTrackSource();
     }
 
@@ -4258,7 +4574,8 @@
                 tx: packet.tx || false,
             });
             if (!packet.position_from_db) {
-                updateStationTrack(packet.from_call, packet.latitude, packet.longitude);
+                updateStationTrack(packet.from_call, packet.latitude, packet.longitude,
+                    packet.timestamp);
             }
         }
         const myPos = getMyPosition();

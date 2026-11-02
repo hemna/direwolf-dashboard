@@ -13,6 +13,7 @@ import json
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -300,3 +301,48 @@ def test_truncated_trail_is_reported():
     assert line["TRUNC"] == "true"
     assert int(line["RETURNED"]) == 500
     assert int(line["WINDOW"]) == 1
+
+
+def test_elapsed_minutes_that_round_into_an_hour():
+    """2h59m59s is 3 h 0 min, not a crash (the const reassignment bug)."""
+    if not shutil.which("node"):
+        pytest.skip("node not installed")
+
+    extra = "\n".join(
+        [
+            "console.log('FE_BAND ' + formatElapsed(10799));",
+            "console.log('FE_HOUR ' + formatElapsed(10800));",
+            "console.log('FE_TWO ' + formatElapsed(7200));",
+            "console.log('FE_DAY ' + formatElapsed(86400));",
+        ]
+    )
+    line = _run(WORKED_EXAMPLE, extra)
+    assert line["FE_BAND"] == "3 h 0 min"
+    assert line["FE_HOUR"] == "3 h 0 min"
+    assert line["FE_TWO"] == "2 h 0 min"
+    assert line["FE_DAY"] == "24 h 0 min"
+
+
+def test_epoch_second_timestamps_are_read_as_seconds():
+    """This app's track rows carry epoch seconds; the stats must not read them
+    as milliseconds (which would put every trail in 1970)."""
+    if not shutil.which("node"):
+        pytest.skip("node not installed")
+
+    rows = [
+        [-78.8200, 37.3500, 1761655200, None, None],
+        [-78.7990, 37.3640, 1761655740, None, None],
+    ]
+    extra = "\n".join(
+        [
+            "console.log('FE ' + formatElapsed(r.elapsedSeconds));",
+            "console.log('FC_START ' + formatClock(r.firstTime));",
+            "console.log('FC_END ' + formatClock(r.lastTime));",
+        ]
+    )
+    line = _run(rows, extra)
+    assert int(line["ELAPSED"]) == 540
+    assert line["FE"] == "9 min"
+    # Local clock times for those two epochs, whatever the test host's zone.
+    for key, ts in (("FC_START", 1761655200), ("FC_END", 1761655740)):
+        assert line[key] == time.strftime("%H:%M", time.localtime(ts))

@@ -49,7 +49,9 @@ overlay opens), `b67ef60b` (a trail click opens the panel every time).
 3. **Hover = 8 screen px.** `queryRenderedFeatures` with a box of ±8 px around
    the pointer on `station-tracks-line` only; the whole trail highlights (one
    feature per station in `station-tracks`, so a new
-   `station-tracks-highlight` layer drawn from that feature), cursor `pointer`.
+   `station-tracks-highlight` layer drawn from that feature), cursor `move`
+   (the brief asked for the move glyph; the reference uses `pointer`, and the
+   test pins `move`).
 4. **Click opens the panel; Escape closes it.** Panel is one DOM element built
    by a `trail-panel` section porting `buildRows`/`speedRow`/`windowLabel`/
    `symbolHtml` (the APRS sprite technique the station popup already uses),
@@ -66,9 +68,10 @@ overlay opens), `b67ef60b` (a trail click opens the panel every time).
   `bearingDeg`, `normalise`, `median`, `mean`, `formatDistance` from `app.js`
   and assert the worked example (2.4 km / 9 min / 60 s median+mean / 16, 21, 22
   km/h / 50° / 6 points), plus: duplicate-point collapse, bad-fix rejection
-  (>1000 km/h), gap split at `max(3 × median interval, 300 s)` with the split
-  excluded from distance and speed, `<2` points → `hasTrail: false`,
-  imperial vs metric formatting.
+  (>1000 km/h), gap split at `max(3 × median interval, 300 s)` — a gap segment
+  still counts toward distance and is excluded only from the speed and beacon
+  rows (the canonical maths; only bad fixes leave the distance) — `<2` points →
+  `hasTrail: false`, imperial vs metric formatting.
 - **GREEN:** the stats section (port).
 - Commit: `feat(map): spec trail statistics from basemap-kit#65 (#207)`
 

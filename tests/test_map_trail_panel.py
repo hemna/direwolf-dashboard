@@ -1,24 +1,31 @@
-"""Hover-highlight tests for station trails (issue #207, task 2).
+"""Trail hover + info panel tests (issue #207, plan tasks 2-4).
 
 Two layers of evidence, per this repo's client-test convention:
 
 1. Source asserts against ``app.js``: the spec's 8 px hover tolerance, a
    ``queryRenderedFeatures`` box that queries ``station-tracks-line`` ONLY,
    a ``station-tracks-highlight`` layer that the hover handler adds and
-   removes, the cursor change on hit, and the highlight re-added after a
-   style reload the way ``tx-arcs`` is (inside ``addOverlaySources``, the
-   style.load handler).
-2. Node harness for the hit-test helper (the extraction idiom is the one
+   removes, the cursor change on hit, the highlight re-added after a style
+   reload the way ``tx-arcs`` is (inside ``addOverlaySources``, the
+   style.load handler), and the panel wiring: a click opens the panel
+   through the same hit test (no prior hover needed), bare map closes it,
+   Escape closes it, a station marker owns its own click, and the panel
+   re-places when the map resizes or a chrome overlay is toggled.
+2. Node harness for the pure helpers (the extraction idiom is the one
    ``tests/test_trail_stats.py`` uses): a stub map answering like MapLibre
    pins the ±8 px box maths, the one-layer query, nearest-wins among
    competing trails, the guards, and the one-feature-per-station
-   assumption (a hit feature is the WHOLE trail as a single LineString).
+   assumption (a hit feature is the WHOLE trail as a single LineString);
+   the panel harness pins the spec's field order, the ``-`` for unknown
+   values and the placement rules (beside the trail, never on it, never on
+   the chrome).
 """
 
 import json
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -139,6 +146,115 @@ def test_highlight_re_added_after_style_load():
         block.index("if (!map.getSource('station-tracks'))")
         < block.index("if (hoveredTrailCallsign) highlightTrail(")
     )
+
+
+# --------------------------------------------------------------------------
+# Source asserts: panel wiring (plan tasks 3-4)
+# --------------------------------------------------------------------------
+
+
+def _trail_click_block(js: str) -> str:
+    """The map click handler that opens/closes the trail panel."""
+    start = js.index("map.on('click', function (e) {\n                // A station marker")
+    return js[start : js.index("map.on('resize', placeTrailPanel);", start)]
+
+
+def test_panel_mounts_in_the_map_container():
+    js = APP_JS.read_text(encoding="utf-8")
+    block = _extract(js, "ensureTrailPanel")
+    assert "document.getElementById('map-container')" in block
+    assert "root.appendChild(el);" in block
+    assert "el.setAttribute('role', 'dialog');" in block
+
+
+def test_panel_field_order_is_the_spec_order():
+    js = APP_JS.read_text(encoding="utf-8")
+    block = _extract(js, "buildTrailRows")
+    labels = [
+        "'Trail start'",
+        "'Elapsed travel time'",
+        "'Total distance'",
+        "'Beacon frequency'",
+        "'Current speed'",
+        "'Average speed'",
+        "'Maximum speed'",
+        "'Heading'",
+        "'Last heard'",
+        "'Points'",
+        "'Data window'",
+    ]
+    positions = [block.index(label) for label in labels]
+    assert positions == sorted(positions)
+
+
+def test_panel_rows_are_escaped_and_missing_values_are_dashes():
+    js = APP_JS.read_text(encoding="utf-8")
+    block = _extract(js, "openTrailPanel")
+    # Callsign and every row value go through escapeHtml: the callsign comes
+    # from packet data, the values from formatters over that data.
+    assert "escapeHtml(callsign)" in block
+    assert "escapeHtml(row.value)" in block
+    # A field with no value renders "-", never an empty cell.
+    assert "return { label: label, value: '-' };" in _extract(js, "trailSpeedRow")
+    assert "if (seconds === null || seconds === undefined || !isFinite(seconds)) return '-';" in js
+
+
+def test_a_click_opens_the_panel_without_a_prior_hover():
+    js = APP_JS.read_text(encoding="utf-8")
+    block = _trail_click_block(js)
+    assert "pickTrailHit(map, e.point)" in block
+    assert block.index("pickTrailHit(map, e.point)") < block.index(
+        "openTrailPanel(hit.properties.callsign);")
+    # Port decision 5: the click never depends on the hover state.
+    assert "hoveredTrailCallsign" not in block
+
+
+def test_bare_map_click_closes_the_panel():
+    js = APP_JS.read_text(encoding="utf-8")
+    block = _trail_click_block(js)
+    assert block.index("closeTrailPanel();") > block.index("pickTrailHit(map, e.point)")
+
+
+def test_station_marker_owns_its_click_over_the_trail():
+    js = APP_JS.read_text(encoding="utf-8")
+    block = _trail_click_block(js)
+    marker_query = "layers: ['stations-symbol-base', 'stations-symbol-overlay'],"
+    assert marker_query in block
+    assert block.index(marker_query) < block.index("openTrailPanel(hit.properties.callsign);")
+
+
+def test_escape_closes_the_panel_and_stops_there():
+    js = APP_JS.read_text(encoding="utf-8")
+    # Registered once per page, not once per open, so listeners cannot pile up.
+    block = _extract(js, "openTrailPanel")
+    assert "if (!_trailPanelKeyBound) {" in block
+    assert "ev.key === 'Escape'" in js
+    assert "ev.stopPropagation();" in js
+    assert "closeTrailPanel();" in js
+
+
+def test_panel_re_places_when_the_map_resizes():
+    js = APP_JS.read_text(encoding="utf-8")
+    # The log panel and the splitter resize the map; the trail moves with it.
+    assert "map.on('resize', placeTrailPanel);" in js
+    # Chrome overlays change size without resizing the map.
+    assert js.count("placeTrailPanel();\n        });") == 4
+
+
+def test_panel_placement_avoids_the_map_chrome():
+    js = APP_JS.read_text(encoding="utf-8")
+    block = _extract(js, "placeTrailPanel")
+    assert "mapChromeObstacles(canvasRect)" in block
+    assert block.index("computeTrailPlacement(") < block.index("mapChromeObstacles(")
+    assert ".maplibregl-ctrl" in _extract(js, "mapChromeObstacles")
+
+
+def test_trail_rows_use_the_configured_units_and_window():
+    js = APP_JS.read_text(encoding="utf-8")
+    block = _extract(js, "openTrailPanel")
+    assert "buildTrailRows(result, getUnits(), trailHours)" in block
+    # Track rows are [lat, lon, epoch seconds]; the stats take [lon, lat, time].
+    assert "return [p[1], p[0], p[2]];" in block
 
 
 # --------------------------------------------------------------------------
@@ -271,3 +387,212 @@ console.log('NOCOORDS ' + nocoords.properties.callsign);
     assert line["NOPOINT"] == "null"
     assert line["NOLAYER"] == "null"
     assert line["NOCOORDS"] == "A"
+
+
+# --------------------------------------------------------------------------
+# Node harness for the panel: field order, dashes, placement
+# --------------------------------------------------------------------------
+
+PANEL_CONSTS = ["KM_PER_MILE"]
+PANEL_FUNCS = [
+    "timeMs",
+    "isMetric",
+    "formatClock",
+    "formatElapsed",
+    "formatDistance",
+    "formatInterval",
+    "formatSpeed",
+    "formatHeading",
+    "trailSpeedRow",
+    "trailWindowLabel",
+    "buildTrailRows",
+    "escapeHtml",
+]
+
+
+def _panel_harness(tail: str) -> str:
+    js = APP_JS.read_text(encoding="utf-8")
+    return "\n".join(
+        [_const(js, name) for name in PANEL_CONSTS]
+        + [_extract(js, name) for name in PANEL_FUNCS]
+        + [tail]
+    )
+
+
+# Epoch seconds, like this app's track rows (not the reference's ISO strings).
+WORKED = {
+    "points": 6,
+    "firstTime": 1761655200,
+    "lastTime": 1761655740,
+    "elapsedSeconds": 540,
+    "distanceKm": 2.4225,
+    "beacon": {"medianSeconds": 60, "meanSeconds": 60, "intervals": 4},
+    "currentKph": 21.0,
+    "currentReported": False,
+    "averageKph": 16.15,
+    "maxKph": 22.0,
+    "maxReported": False,
+    "headingDeg": 50.4,
+}
+
+
+def test_harness_rows_follow_the_spec_order_and_format():
+    """Every spec field in order, with the shared display rules."""
+    if not shutil.which("node"):
+        pytest.skip("node not installed")
+
+    out = _node(
+        _panel_harness(
+            f"""
+const rows = buildTrailRows({json.dumps(WORKED)}, 'metric', 1);
+console.log('LABELS ' + JSON.stringify(rows.map(function (r) {{ return r.label; }})));
+rows.forEach(function (r) {{ console.log('ROW ' + r.label + '=' + r.value); }});
+"""
+        )
+    )
+    line = {ln.split(" ", 1)[0]: ln.split(" ", 1)[1] for ln in out.strip().splitlines()}
+    assert json.loads(line["LABELS"]) == [
+        "Trail start",
+        "Elapsed travel time",
+        "Total distance",
+        "Beacon frequency",
+        "Current speed",
+        "Average speed",
+        "Maximum speed",
+        "Heading",
+        "Last heard",
+        "Points",
+        "Data window",
+    ]
+    # Epoch seconds are read as seconds, not milliseconds: 10:00 local, 9 min.
+    assert "ROW Elapsed travel time=9 min" in out
+    assert "ROW Total distance=2.4 km" in out
+    assert "ROW Beacon frequency=60 s median \u00B7 60 s mean (4 intervals)" in out
+    assert "ROW Current speed=21 km/h (computed)" in out
+    assert "ROW Average speed=16 km/h" in out
+    assert "ROW Maximum speed=22 km/h (computed)" in out
+    assert "ROW Heading=50\u00B0" in out
+    assert "ROW Points=6" in out
+    assert "ROW Data window=last 1 hour" in out
+    # Both times are clock times in the viewer's own zone, so a 1970 reading
+    # would mean the epoch seconds were read as milliseconds.
+    assert "ROW Trail start=" + time.strftime(
+        "%H:%M", time.localtime(WORKED["firstTime"])) in out
+    assert "ROW Last heard=" + time.strftime(
+        "%H:%M", time.localtime(WORKED["lastTime"])) in out
+
+
+def test_harness_missing_values_render_a_dash():
+    """An unknown value is "-", never an empty cell or NaN."""
+    if not shutil.which("node"):
+        pytest.skip("node not installed")
+
+    out = _node(
+        _panel_harness(
+            """
+const none = {points: 2, firstTime: null, lastTime: null,
+              elapsedSeconds: null, distanceKm: null,
+              beacon: {medianSeconds: null, meanSeconds: null, intervals: 0},
+              currentKph: null, currentReported: false, averageKph: null,
+              maxKph: null, maxReported: false, headingDeg: null};
+buildTrailRows(none, 'metric', null).forEach(function (r) {
+    console.log('ROW ' + r.label + '=' + r.value);
+});
+console.log('ESC ' + escapeHtml("<K1&>'\\""));
+"""
+        )
+    )
+    assert "ROW Total distance=-" in out
+    assert "ROW Beacon frequency=-" in out
+    assert "ROW Current speed=-" in out
+    assert "ROW Elapsed travel time=-" in out
+    assert "ROW Data window=-" in out
+    assert "ROW Points=2" in out
+    # The values come from packet data, so they are escaped before innerHTML.
+    assert "ESC &lt;K1&amp;&gt;&#39;&quot;" in out
+
+
+PLACEMENT_CONSTS = ["TRAIL_PLACEMENT_GAP", "TRAIL_PLACEMENT_MARGIN"]
+PLACEMENT_FUNCS = ["rectsOverlap", "computeTrailPlacement"]
+
+
+def _placement_harness(tail: str) -> str:
+    js = APP_JS.read_text(encoding="utf-8")
+    return "\n".join(
+        [_const(js, name) for name in PLACEMENT_CONSTS]
+        + [_extract(js, name) for name in PLACEMENT_FUNCS]
+        + [tail]
+    )
+
+
+def test_harness_panel_sits_beside_the_trail_one_gap_away():
+    """Right of the trail, one gap off its nearest edge, centred on it."""
+    if not shutil.which("node"):
+        pytest.skip("node not installed")
+
+    out = _node(
+        _placement_harness(
+            """
+const spot = computeTrailPlacement(
+    {minX: 100, minY: 100, maxX: 200, maxY: 200},
+    {width: 200, height: 150},
+    {width: 800, height: 600},
+    {top: 0, obstacles: []});
+console.log('SPOT ' + JSON.stringify(spot));
+"""
+        )
+    )
+    spot = json.loads(out.strip().split(" ", 1)[1])
+    assert spot["left"] == 200 + 12
+    assert spot["top"] == 150 - 75
+    # Clear of the trail: it never covers the line it describes.
+    assert spot["left"] > 200
+
+
+def test_harness_panel_flips_when_the_right_side_has_no_room():
+    """No room on the right: the panel goes to the trail's other side."""
+    if not shutil.which("node"):
+        pytest.skip("node not installed")
+
+    out = _node(
+        _placement_harness(
+            """
+const spot = computeTrailPlacement(
+    {minX: 400, minY: 100, maxX: 600, maxY: 200},
+    {width: 200, height: 150},
+    {width: 800, height: 600},
+    {top: 0, obstacles: []});
+console.log('SPOT ' + JSON.stringify(spot));
+"""
+        )
+    )
+    spot = json.loads(out.strip().split(" ", 1)[1])
+    assert spot["left"] == 400 - 12 - 200
+    assert spot["left"] + 200 < 400
+
+
+def test_harness_panel_slides_clear_of_the_chrome():
+    """A control in the panel's spot makes it move, never cover the control."""
+    if not shutil.which("node"):
+        pytest.skip("node not installed")
+
+    out = _node(
+        _placement_harness(
+            """
+const chrome = {top: 0, obstacles: [{left: 200, right: 420, top: 60, bottom: 300}]};
+const spot = computeTrailPlacement(
+    {minX: 100, minY: 100, maxX: 200, maxY: 200},
+    {width: 200, height: 150},
+    {width: 800, height: 600},
+    chrome);
+const box = {left: spot.left, right: spot.left + 200,
+             top: spot.top, bottom: spot.top + 150};
+console.log('SPOT ' + JSON.stringify(spot));
+console.log('OVERLAP ' + rectsOverlap(box, chrome.obstacles[0]));
+"""
+        )
+    )
+    line = {ln.split(" ", 1)[0]: ln.split(" ", 1)[1] for ln in out.strip().splitlines()}
+    assert line["OVERLAP"] == "false"
+    assert json.loads(line["SPOT"])["top"] == 300 + 12
+
