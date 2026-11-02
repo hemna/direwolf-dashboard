@@ -2629,7 +2629,6 @@
                     internet: {from: rx.coordinates, to: target.coordinates}};
                 journey.internetNodes.set(rx.call, node);
             } else if (txStops.length) node.internet.to = target.coordinates;
-            if (app) app.node = node;
             const nodeAt = addChain(journey, [rx, node], now,
                 rx.call + ':internet', 'aprsis', Math.max(at, now));
             const branchAt = nodeAt + NODE_PAUSE;
