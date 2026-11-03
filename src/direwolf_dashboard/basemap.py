@@ -21,7 +21,7 @@ from collections import OrderedDict
 from datetime import UTC, datetime, timedelta
 from math import cos, radians
 from pathlib import Path
-from time import monotonic
+from time import monotonic, time
 
 import httpx
 
@@ -275,7 +275,25 @@ REGIONS_DIR = BASEMAP_DIR / "regions"
 #: The kit's published region list (hemna/basemap-kit builds and owns
 #: ``maps-manifest.json``); this host serves it as published so ids, names,
 #: groups, sizes, digests, maxzoom and bounds cannot drift (issue #204).
+#: Withdrawn from the UI in issue #212; this vendored copy is now only the
+#: offline fallback behind the live fetch.
 REGION_MANIFEST_FILE = BASEMAP_DIR / "maps-manifest.json"
+
+#: Published region list the server fetches live (issue #212: the committed
+#: copy is the offline fallback, never the primary source).
+DEFAULT_MANIFEST_URL = "https://cloud.hemna.com/basemap-kit/maps-manifest.json"
+
+#: Live manifest fetch timeout (seconds).
+MANIFEST_FETCH_TIMEOUT = 5.0
+
+#: How long a fetched manifest stays fresh on disk before it is fetched again
+#: (seconds). Short on purpose: the kit rebuilds the list and the bundled copy
+#: must never pin a stale region set.
+MANIFEST_CACHE_TTL = 300.0
+
+#: Fetched-manifest cache, relative to ``data_dir`` (the readonly rootfs has no
+#: other writable place; a stale copy is preferred to a bundled one).
+FETCHED_MANIFEST = "basemap/maps-manifest.json"
 
 #: Served URLs for the client-facing region list and per-region archives
 #: (issue #204; same values as hemna/basemap-kit's nginx config).
@@ -315,14 +333,61 @@ class UpstreamRangeError(RuntimeError):
         self.total = total
 
 
-def kit_region_manifest(path: Path | None = None) -> dict:
-    """The kit's published region list, read exactly as published.
+def _validated_manifest(doc, where: str) -> dict:
+    """Validate a kit region list (docs/CLIENTS.md §2) read from ``where``.
 
-    Raises :class:`BasemapSourceError` with a message a log reader can act on
-    when the file is missing, is not the shape clients read, or lists a region
-    under a group the list does not define. Serving a differently-named or
-    partly-filled list would be worse than an error. Regions named in
-    :data:`INTERNAL_REGION_IDS` never appear in the returned ``regions`` list.
+    Raises :class:`BasemapSourceError` naming the source when the list is not
+    the shape clients read or lists a region under a group it does not define.
+    Serving a differently-named or partly-filled list would be worse than an
+    error. Regions named in :data:`INTERNAL_REGION_IDS` never appear in the
+    returned ``regions`` list.
+    """
+    try:
+        regions, groups = doc["regions"], doc["groups"]
+        if not regions or not groups:
+            raise KeyError("a non-empty regions and groups array")
+        if type(doc["schemaVersion"]) is not int:
+            raise BasemapSourceError(
+                f"region list at {where}: schemaVersion is not an int")
+        for key in ("tileSchema", "buildDate"):
+            if key not in doc:
+                raise KeyError(key)
+        for g in groups:
+            if not isinstance(g, dict):
+                raise BasemapSourceError(
+                    f"region list at {where}: groups entry is not an object: {g!r}")
+            for key in ("id", "name", "order"):
+                if key not in g:
+                    raise KeyError(f"group {g.get('id')!r}: {key}")
+            if type(g["order"]) is not int:
+                raise BasemapSourceError(
+                    f"region list at {where}: group {g['id']!r} order is not an int")
+        for r in regions:
+            if not isinstance(r, dict):
+                raise BasemapSourceError(
+                    f"region list at {where}: regions entry is not an object: {r!r}")
+            for key in ("id", "name", "group", "url", "bytes", "sha256",
+                        "maxzoom", "bounds"):
+                if key not in r:
+                    raise KeyError(f"region {r.get('id')!r}: {key}")
+            if type(r["maxzoom"]) is not int:
+                raise BasemapSourceError(
+                    f"region list at {where}: region {r['id']!r} maxzoom is not an int")
+        declared = {g["id"] for g in groups}
+        unknown = sorted({r["group"] for r in regions if r["group"] not in declared})
+        if unknown:
+            raise KeyError(f"a groups entry for {unknown}")
+    except (KeyError, TypeError) as e:
+        raise BasemapSourceError(f"region list at {where} is missing {e}") from e
+    visible = [r for r in regions if r["id"] not in INTERNAL_REGION_IDS]
+    return {**doc, "regions": visible}
+
+
+def kit_region_manifest(path: Path | None = None) -> dict:
+    """The vendored kit region list, read and validated from a file.
+
+    This is the offline fallback (:data:`REGION_MANIFEST_FILE` unless ``path``
+    is given); :func:`region_manifest` is the served entry point.
     """
     p = Path(path) if path is not None else REGION_MANIFEST_FILE
     try:
@@ -331,45 +396,111 @@ def kit_region_manifest(path: Path | None = None) -> dict:
         raise BasemapSourceError(f"region list unreadable at {p}: {e}") from e
     except ValueError as e:
         raise BasemapSourceError(f"region list is not valid JSON at {p}: {e}") from e
+    return _validated_manifest(doc, str(p))
+
+
+def fetch_region_manifest(url: str, timeout: float = MANIFEST_FETCH_TIMEOUT) -> dict:
+    """Fetch the published kit region list from ``url`` and validate it."""
     try:
-        regions, groups = doc["regions"], doc["groups"]
-        if not regions or not groups:
-            raise KeyError("a non-empty regions and groups array")
-        if type(doc["schemaVersion"]) is not int:
-            raise BasemapSourceError(
-                f"region list at {p}: schemaVersion is not an int")
-        for key in ("tileSchema", "buildDate"):
-            if key not in doc:
-                raise KeyError(key)
-        for g in groups:
-            if not isinstance(g, dict):
-                raise BasemapSourceError(
-                    f"region list at {p}: groups entry is not an object: {g!r}")
-            for key in ("id", "name", "order"):
-                if key not in g:
-                    raise KeyError(f"group {g.get('id')!r}: {key}")
-            if type(g["order"]) is not int:
-                raise BasemapSourceError(
-                    f"region list at {p}: group {g['id']!r} order is not an int")
-        for r in regions:
-            if not isinstance(r, dict):
-                raise BasemapSourceError(
-                    f"region list at {p}: regions entry is not an object: {r!r}")
-            for key in ("id", "name", "group", "url", "bytes", "sha256",
-                        "maxzoom", "bounds"):
-                if key not in r:
-                    raise KeyError(f"region {r.get('id')!r}: {key}")
-            if type(r["maxzoom"]) is not int:
-                raise BasemapSourceError(
-                    f"region list at {p}: region {r['id']!r} maxzoom is not an int")
-        declared = {g["id"] for g in groups}
-        unknown = sorted({r["group"] for r in regions if r["group"] not in declared})
-        if unknown:
-            raise KeyError(f"a groups entry for {unknown}")
-    except (KeyError, TypeError) as e:
-        raise BasemapSourceError(f"region list at {p} is missing {e}") from e
-    visible = [r for r in regions if r["id"] not in INTERNAL_REGION_IDS]
-    return {**doc, "regions": visible}
+        resp = httpx.get(url, timeout=timeout, follow_redirects=True)
+        resp.raise_for_status()
+        doc = resp.json()
+    except (httpx.HTTPError, ValueError) as e:
+        raise BasemapSourceError(f"region list fetch failed from {url}: {e}") from e
+    return _validated_manifest(doc, url)
+
+
+def _cache_manifest(path: Path, doc: dict) -> None:
+    """Write the fetched list atomically; a cache failure never fails a request."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(doc), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError as e:
+        LOG.warning("basemap region manifest: cache write failed at %s: %s", path, e)
+
+
+def _world_only_manifest() -> dict:
+    """Last-resort list holding the one region every install ships (issue #144).
+
+    Used only when no manifest is readable at all. Values come from the
+    vendored archive itself so a client can download exactly what is served.
+    """
+    arc = REGIONS_DIR / "world.pmtiles"
+    try:
+        raw = arc.read_bytes()
+        header = parse_pmtiles_header(raw[:_PMTILES_HEADER_SIZE])
+        built = datetime.fromtimestamp(arc.stat().st_mtime, UTC)
+    except (OSError, BasemapSourceError) as e:
+        raise BasemapSourceError(
+            f"no region list and no usable world archive: {e}") from e
+    return {
+        "schemaVersion": 1,
+        "tileSchema": "v4",
+        "buildDate": built.isoformat(),
+        "groups": [{"id": "world", "name": "World", "order": 0}],
+        "regions": [{
+            "id": "world",
+            "name": "World",
+            "group": "world",
+            "url": "/basemap/regions/world.pmtiles",
+            "bytes": len(raw),
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "maxzoom": header["max_zoom"],
+            "bounds": [header["min_lon"], header["min_lat"],
+                       header["max_lon"], header["max_lat"]],
+        }],
+    }
+
+
+def region_manifest(data_dir: str = "", url: str = DEFAULT_MANIFEST_URL) -> dict:
+    """The kit region list this host serves (issue #212).
+
+    Source chain, first usable wins:
+      1. a served copy under ``<data_dir>`` younger than
+         :data:`MANIFEST_CACHE_TTL`;
+      2. a live fetch from ``url`` (:data:`MANIFEST_FETCH_TIMEOUT`), whose
+         validated body replaces the cache;
+      3. the last cached copy on disk, however old (the fetch failed);
+      4. the vendored copy :data:`REGION_MANIFEST_FILE` — offline fallback,
+         logged whenever it is used;
+      5. a list holding only the vendored world region.
+
+    A fallback result is written back to the cache too, so an offline host
+    retries the network at most once per TTL instead of on every request.
+    """
+    cache = Path(data_dir) / FETCHED_MANIFEST if data_dir else None
+    if cache is not None and cache.is_file() and (
+        time() - cache.stat().st_mtime < MANIFEST_CACHE_TTL
+    ):
+        try:
+            return kit_region_manifest(cache)
+        except BasemapSourceError as e:
+            LOG.warning("basemap region manifest: fresh cache unusable: %s", e)
+    try:
+        doc = fetch_region_manifest(url)
+    except BasemapSourceError as e:
+        LOG.warning("basemap region manifest: %s", e)
+        if cache is not None and cache.is_file():
+            try:
+                doc = kit_region_manifest(cache)
+            except BasemapSourceError as e2:
+                LOG.warning("basemap region manifest: cached copy unusable: %s", e2)
+            else:
+                _cache_manifest(cache, doc)
+                return doc
+        try:
+            doc = kit_region_manifest()
+        except BasemapSourceError as e3:
+            LOG.warning("basemap region manifest: bundled copy unusable: %s", e3)
+            doc = _world_only_manifest()
+        else:
+            LOG.warning("basemap region manifest: serving the bundled offline copy")
+    if cache is not None:
+        _cache_manifest(cache, doc)
+    return doc
+
 
 
 def parse_pmtiles_header(raw: bytes) -> dict:

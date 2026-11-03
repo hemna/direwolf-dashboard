@@ -28,9 +28,9 @@ from direwolf_dashboard.basemap import (
     UPSTREAM_PROXY_URL,
     BasemapSourceError,
     UpstreamRangeError,
-    kit_region_manifest,
     proxy_fetch_range,
     region_archive_info,
+    region_manifest,
     render_style,
     resolve_region_archive,
     resolve_upstream_cached,
@@ -728,22 +728,30 @@ def create_basemap_tiles_route(container: ServiceContainer):
 
 
 def create_basemap_manifest_route(container: ServiceContainer):
-    """Return the Route serving the kit region list (issue #204).
+    """Return the Route serving the kit region list (issues #204, #212).
 
     ``GET /basemap/maps-manifest.json`` returns the kit's published list
-    (hemna/basemap-kit, docs/CLIENTS.md §2): ``groups`` verbatim, regions
-    filtered to the ids this host can actually serve (an archive must
-    exist under :data:`REGIONS_DIR`) with every field verbatim and only
-    ``url`` rewritten to this host's own same-origin archive route —
-    the kit's production host URL is never emitted, a client downloads
-    from the host it fetched the list from. A manifest that fails
-    validation is a 503 with the reason logged, never a partly-filled
-    list (mirrors the haminfo reference kit).
+    (hemna/basemap-kit, docs/CLIENTS.md §2) fetched live from
+    ``basemap.manifest_url`` and cached under ``data_dir`` for a short TTL;
+    the vendored copy is only the offline fallback (see
+    :func:`region_manifest`). ``groups`` are served verbatim, regions are
+    filtered to the ids this host can actually serve (an archive must exist
+    under :data:`REGIONS_DIR`) with every field verbatim and only ``url``
+    rewritten to this host's own same-origin archive route — the kit's
+    production host URL is never emitted, a client downloads from the host it
+    fetched the list from. A list that cannot be read anywhere is a 503 with
+    the reason logged, never a partly-filled list (mirrors the haminfo
+    reference kit).
     """
 
     async def get_basemap_manifest(request: Request):
+        services = _get_services(container)
         try:
-            doc = kit_region_manifest()
+            doc = await asyncio.to_thread(
+                region_manifest,
+                services.config.data_dir,
+                services.config.basemap.manifest_url,
+            )
         except BasemapSourceError as e:
             LOG.error("basemap region manifest: %s", e)
             return JSONResponse(

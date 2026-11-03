@@ -12,6 +12,7 @@ All notable changes to this project are documented here.
 
 ### Removed
 
+- **"Kit regions" overlay on the map (issue #212)** — the read-only bottom-right panel from #204/PR #208 listed the region archives the host serves and had no purpose in the dashboard UI. Its markup, per-day localStorage cache and byte formatter are gone. `GET /basemap/maps-manifest.json` and the per-region archive route stay for clients.
 - Leaflet is gone: the vendored `static/leaflet/` (leaflet.js/css + marker PNGs), its index.html tags, `.leaflet-*` CSS and the dead `L.divIcon`/`L.marker` fallbacks in app.js. The my-position pin is a bottom-anchored 24px MapLibre Marker, like the old divIcon (#146).
 - **OSM tile-cache proxy retired (issue #129)** — `tile_proxy.py`, the
   `/api/tiles/{z}/{x}/{y}.png` and `/api/tiles/preload` endpoints, the
@@ -22,6 +23,7 @@ All notable changes to this project are documented here.
   includes a `tile_cache` block.
 
 ### Fixed
+- **The served region list is fetched live, not shipped stale (issue #212)** — `GET /basemap/maps-manifest.json` reads the kit's published list from the configurable `basemap.manifest_url` with a 5 s timeout and keeps it under `<data_dir>/basemap/maps-manifest.json` for 5 minutes. The vendored `static/basemap/maps-manifest.json` is now only the offline fallback (logged when used), and with nothing readable at all the list degrades to the always-present world region instead of a 503.
 - **MapLibre station labels match Leaflet (issue #133)** — callsign label sits
   right of the icon in bold (NotoSansMedium) with a label-shadow outline, and
   my station gets the `--my-station-glow` halo under its icon.

@@ -8,7 +8,7 @@ from typing import Optional
 
 import yaml
 
-from direwolf_dashboard.basemap import DEFAULT_REGION_ARCHIVE
+from direwolf_dashboard.basemap import DEFAULT_MANIFEST_URL, DEFAULT_REGION_ARCHIVE
 
 LOG = logging.getLogger(__name__)
 
@@ -108,6 +108,10 @@ class BasemapConfig:
         "https://cloud.hemna.com/basemap-kit/archives/planet.pmtiles",
         "protomaps",
     ])
+    # Published kit region list (issue #212). Fetched live for
+    # /basemap/maps-manifest.json, cached under data_dir for a short TTL; the
+    # vendored copy is only the offline fallback. Point at a dev host to test.
+    manifest_url: str = DEFAULT_MANIFEST_URL
 
 
 @dataclass
