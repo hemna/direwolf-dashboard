@@ -24,13 +24,17 @@ from direwolf_dashboard.basemap import (
     PROXY_RANGE_MAX_BYTES,
     REGION_ARCHIVE_ROUTE,
     REGION_MANIFEST_ROUTE,
-    REGIONS_DIR,
     UPSTREAM_PROXY_URL,
     BasemapSourceError,
     UpstreamRangeError,
+    download_region,
+    downloaded_region_ids,
+    downloaded_region_path,
     proxy_fetch_range,
     region_archive_info,
+    region_archive_path,
     region_manifest,
+    remove_region,
     render_style,
     resolve_region_archive,
     resolve_upstream_cached,
@@ -403,6 +407,104 @@ def create_api_routes(container: ServiceContainer) -> list:
         await broadcast_event("storage_reset", {}, services.ws_clients)
         return JSONResponse({"status": "ok"})
 
+    async def get_basemap_regions(request: Request):
+        """List every kit region with its download state (issue #212).
+
+        The Settings picker needs the whole published list, including regions
+        this host does not serve yet — unlike the served manifest, which is
+        filtered to servable archives. Same live manifest and fallbacks.
+        """
+        services = _get_services(container)
+        try:
+            doc = await asyncio.to_thread(
+                region_manifest,
+                services.config.data_dir,
+                services.config.basemap.manifest_url,
+            )
+        except BasemapSourceError as e:
+            LOG.error("basemap region manifest: %s", e)
+            return JSONResponse(
+                status_code=503,
+                content={"error": "basemap region list unavailable", "detail": str(e)},
+            )
+        regions = []
+        listed = set()
+        for r in doc["regions"]:
+            listed.add(r["id"])
+            path = downloaded_region_path(r["id"], services.config.data_dir)
+            size = os.path.getsize(path) if os.path.isfile(path) else None
+            regions.append({
+                "id": r["id"],
+                "name": r.get("name") or r["id"],
+                "group": r.get("group"),
+                "bytes": r.get("bytes"),
+                "downloaded": size is not None,
+                "downloaded_bytes": size,
+            })
+        # A downloaded region the kit stopped publishing must stay removable.
+        for rid in downloaded_region_ids(services.config.data_dir):
+            if rid in listed:
+                continue
+            size = os.path.getsize(downloaded_region_path(rid, services.config.data_dir))
+            regions.append({
+                "id": rid, "name": rid, "group": None, "bytes": None,
+                "downloaded": True, "downloaded_bytes": size,
+            })
+        return JSONResponse({"regions": regions})
+
+    async def download_basemap_region(request: Request):
+        """Download one kit region archive into ``data_dir`` (issue #212).
+
+        Blocks until the archive is on disk and verified: the client shows
+        "Downloading…" for the request. The kit list supplies the URL, size and
+        digest, so this cannot be pointed at an arbitrary host.
+        """
+        services = _get_services(container)
+        await _require_api_token(request, services)
+        name = request.path_params["name"]
+        try:
+            doc = await asyncio.to_thread(
+                region_manifest,
+                services.config.data_dir,
+                services.config.basemap.manifest_url,
+            )
+        except BasemapSourceError as e:
+            LOG.error("basemap region manifest: %s", e)
+            return JSONResponse(
+                status_code=503,
+                content={"error": "basemap region list unavailable", "detail": str(e)},
+            )
+        region = next((r for r in doc["regions"] if r["id"] == name), None)
+        if region is None:
+            raise HTTPException(status_code=404, detail=f"unknown basemap region: {name!r}")
+        try:
+            info = await asyncio.to_thread(
+                download_region, region, services.config.data_dir
+            )
+        except BasemapSourceError as e:
+            LOG.error("basemap region download: %s", e)
+            return JSONResponse(
+                status_code=502,
+                content={"error": "basemap region download failed", "detail": str(e)},
+            )
+        return JSONResponse(info)
+
+    async def remove_basemap_region(request: Request):
+        """Delete a downloaded kit region archive (issue #212).
+
+        Only the downloaded copy under ``data_dir`` is removable; a vendored
+        archive is not writable and the answer is ``{"removed": false}``.
+        """
+        services = _get_services(container)
+        await _require_api_token(request, services)
+        name = request.path_params["name"]
+        if name in INTERNAL_REGION_IDS or not re.fullmatch(r"[a-z0-9][a-z0-9-]*", name):
+            raise HTTPException(status_code=404, detail=f"unknown basemap region: {name!r}")
+        removed = await asyncio.to_thread(
+            remove_region, name, services.config.data_dir
+        )
+        return JSONResponse({"removed": removed})
+
     async def decode_packet(request: Request):
         services = _get_services(container)
         try:
@@ -537,6 +639,13 @@ def create_api_routes(container: ServiceContainer) -> list:
         Route("/station/{callsign}", get_station),
         Route("/stats", get_stats),
         Route("/config", config_handler, methods=["GET", "PUT"]),
+        Route("/basemap/regions", get_basemap_regions),
+        Route(
+            "/basemap/regions/{name}/download",
+            download_basemap_region,
+            methods=["POST"],
+        ),
+        Route("/basemap/regions/{name}", remove_basemap_region, methods=["DELETE"]),
         Route("/storage", wipe_storage, methods=["DELETE"]),
         Route("/decode", decode_packet, methods=["POST"]),
         Route("/weather/stations", get_weather_stations),
@@ -736,7 +845,8 @@ def create_basemap_manifest_route(container: ServiceContainer):
     the vendored copy is only the offline fallback (see
     :func:`region_manifest`). ``groups`` are served verbatim, regions are
     filtered to the ids this host can actually serve (an archive must exist
-    under :data:`REGIONS_DIR`) with every field verbatim and only ``url``
+    under :data:`REGIONS_DIR` or downloaded under ``data_dir``) with every field
+    verbatim and only ``url``
     rewritten to this host's own same-origin archive route — the kit's
     production host URL is never emitted, a client downloads from the host it
     fetched the list from. A list that cannot be read anywhere is a 503 with
@@ -764,7 +874,7 @@ def create_basemap_manifest_route(container: ServiceContainer):
         servable = [
             {**r, "url": f"/basemap/regions/{r['id']}.pmtiles"}
             for r in doc["regions"]
-            if (REGIONS_DIR / f"{r['id']}.pmtiles").is_file()
+            if region_archive_path(r["id"], services.config.data_dir, _STATIC_DIR) is not None
         ]
         return JSONResponse(
             {**doc, "regions": servable},
@@ -777,25 +887,27 @@ def create_basemap_manifest_route(container: ServiceContainer):
 def create_basemap_region_archive_route(container: ServiceContainer):
     """Return the Route serving one kit region archive (issue #204).
 
-    ``GET /basemap/regions/<id>.pmtiles`` serves a vendored archive with
+    ``GET /basemap/regions/<id>.pmtiles`` serves a downloaded archive under
+    ``data_dir`` or a vendored one with
     HTTP Range support (starlette FileResponse — the same mechanism
     ``/basemap/region.pmtiles`` already proves 206 + Content-Range),
     CORS for cross-origin pmtiles:// downloaders and no-cache (a rolling
     deploy swaps archives without a URL change). The name must be a
     plain region slug — unknown ids, internal ids (:data:`INTERNAL_REGION_IDS`)
     and anything else are 404s, so the name can never escape
-    :data:`REGIONS_DIR`.
+    :data:`REGIONS_DIR` or ``<data_dir>/basemap/regions``.
     """
 
     async def get_basemap_region(request: Request):
         name = request.path_params["name"]
         if name in INTERNAL_REGION_IDS or not re.fullmatch(r"[a-z0-9][a-z0-9-]*", name):
             raise HTTPException(status_code=404, detail=f"unknown basemap region: {name!r}")
-        path = REGIONS_DIR / f"{name}.pmtiles"
-        if not path.is_file():
+        services = _get_services(container)
+        path = region_archive_path(name, services.config.data_dir, _STATIC_DIR)
+        if path is None:
             raise HTTPException(status_code=404, detail=f"unknown basemap region: {name!r}")
         return FileResponse(
-            path,
+            str(path),
             media_type="application/vnd.pmtiles",
             headers={**CORS_HEADERS, "Cache-Control": "no-cache"},
         )

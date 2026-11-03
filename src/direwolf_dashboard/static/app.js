@@ -4894,6 +4894,119 @@
         // Log color inputs
         _populateLogColorInputs();
 
+        // Offline map region list (issue #212) — fetched fresh each open so a
+        // download on another browser/tab shows up.
+        loadBasemapRegions();
+
+    }
+
+    // --- Offline map regions (issue #212) ---------------------------------
+    // Hemna's call on PR #213: the kit region list belongs in Settings, where
+    // the user picks which region archives this host downloads and caches for
+    // offline map use. GET /api/basemap/regions serves the live kit manifest
+    // with the server-side fallbacks; the map-side panel stays gone.
+    const BASEMAP_REGIONS_URL = API_BASE + '/basemap/regions';
+
+    /** Bytes -> B/KiB/MiB display text. */
+    function formatBytes(bytes) {
+        if (typeof bytes !== 'number' || bytes < 0) return '?';
+        if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + ' MiB';
+        if (bytes >= 1024) return (bytes / 1024).toFixed(1) + ' KiB';
+        return bytes + ' B';
+    }
+
+    /** One region row: name, size/state, and a Download or Remove button. */
+    function regionRow(r, feedback) {
+        const row = document.createElement('div');
+        row.className = 'basemap-region-row';
+
+        const name = document.createElement('span');
+        name.className = 'basemap-region-name';
+        name.textContent = r.name && r.name !== r.id ? r.name + ' (' + r.id + ')' : r.id;
+
+        const state = document.createElement('span');
+        state.className = 'basemap-region-state';
+        state.textContent = r.downloaded
+            ? 'Downloaded \u2014 ' + formatBytes(r.downloaded_bytes)
+            : 'Not downloaded' + (typeof r.bytes === 'number' ? ' \u2014 ' + formatBytes(r.bytes) : '');
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = r.downloaded ? 'btn-danger' : 'secondary';
+        btn.textContent = r.downloaded ? 'Remove' : 'Download';
+        btn.addEventListener('click', function () {
+            if (r.downloaded) removeBasemapRegion(r, feedback);
+            else downloadBasemapRegion(r, feedback);
+        });
+
+        row.appendChild(name);
+        row.appendChild(state);
+        row.appendChild(btn);
+        return row;
+    }
+
+    /** Render the region list from GET /api/basemap/regions. */
+    async function loadBasemapRegions() {
+        const list = document.getElementById('basemap-region-list');
+        if (!list) return;
+        list.textContent = 'Loading\u2026';
+        let regions;
+        try {
+            const resp = await fetch(BASEMAP_REGIONS_URL);
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            regions = (await resp.json()).regions || [];
+        } catch (e) {
+            list.textContent = 'Region list unavailable: ' + e.message;
+            return;
+        }
+        list.textContent = '';
+        if (!regions.length) {
+            list.textContent = 'No regions published.';
+            return;
+        }
+        const feedback = document.getElementById('basemap-region-feedback');
+        regions.forEach(function (r) { list.appendChild(regionRow(r, feedback)); });
+    }
+
+    /** POST the download; the request returns once the archive is on disk. */
+    async function downloadBasemapRegion(r, feedback) {
+        feedback.className = 'warning';
+        feedback.textContent = 'Downloading ' + r.id + '\u2026 this can take a while.';
+        feedback.classList.remove('hidden');
+        try {
+            const resp = await fetch(
+                BASEMAP_REGIONS_URL + '/' + encodeURIComponent(r.id) + '/download',
+                { method: 'POST', headers: _apiHeaders({}) },
+            );
+            const result = await resp.json().catch(function () { return {}; });
+            if (!resp.ok) throw new Error(result.detail || ('HTTP ' + resp.status));
+            feedback.className = 'success';
+            feedback.textContent = 'Downloaded ' + r.id + ' (' + formatBytes(result.size) + ')';
+        } catch (e) {
+            feedback.className = 'error';
+            feedback.textContent = 'Download failed: ' + e.message;
+        }
+        await loadBasemapRegions();
+    }
+
+    /** DELETE the downloaded archive; leaves any vendored copy untouched. */
+    async function removeBasemapRegion(r, feedback) {
+        try {
+            const resp = await fetch(
+                BASEMAP_REGIONS_URL + '/' + encodeURIComponent(r.id),
+                { method: 'DELETE', headers: _apiHeaders({}) },
+            );
+            const result = await resp.json().catch(function () { return {}; });
+            if (!resp.ok) throw new Error(result.detail || ('HTTP ' + resp.status));
+            feedback.className = 'success';
+            feedback.textContent = result.removed
+                ? 'Removed ' + r.id
+                : r.id + ' has no downloaded copy';
+        } catch (e) {
+            feedback.className = 'error';
+            feedback.textContent = 'Remove failed: ' + e.message;
+        }
+        await loadBasemapRegions();
     }
 
     async function saveSettings() {

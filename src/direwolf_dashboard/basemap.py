@@ -133,11 +133,11 @@ def resolve_region_archive(region_archive: str, data_dir: str, static_dir: str) 
     """Return the filesystem path of the region archive to serve.
 
     Priority:
-      0. ``region_archive`` is a kit region id (a bare slug, issue #204) and
-         ``<static_dir>/basemap/regions/<id>.pmtiles`` exists -> serve that; an
-         id naming no archive here (or an :data:`INTERNAL_REGION_IDS` one) falls
-         back to the default after a :meth:`LOG.warning`, so a typo never blanks
-         the map. The resolved id path then keeps rules 2-4 below.
+      0. ``region_archive`` is a kit region id (a bare slug, issue #204) and an
+         archive for it exists (downloaded under ``data_dir`` or vendored) ->
+         serve that; an id naming no archive here (or an
+         :data:`INTERNAL_REGION_IDS` one) falls back to the default after a
+         :meth:`LOG.warning`, so a typo never blanks the map.
       1. ``region_archive`` is an absolute path -> serve exactly that file.
       2. ``region_archive`` is the default and ``<data_dir>/basemap/region.pmtiles``
          (the ``basemap fetch`` output) exists -> serve that.
@@ -154,12 +154,11 @@ def resolve_region_archive(region_archive: str, data_dir: str, static_dir: str) 
     # Kit region id (issue #204; the basemap-kit archive-route slug rule). A bare
     # slug never collides with the path-shaped values below (those have / and .).
     if re.fullmatch(r"[a-z0-9][a-z0-9-]*", arc):
-        id_arc = os.path.join(os.path.dirname(DEFAULT_REGION_ARCHIVE), f"{arc}.pmtiles")
-        if arc not in INTERNAL_REGION_IDS and os.path.isfile(os.path.join(static_dir, id_arc)):
-            arc = id_arc
-        else:
-            LOG.warning("unknown basemap region id %r; serving sample", arc)
-            arc = DEFAULT_REGION_ARCHIVE
+        local = region_archive_path(arc, data_dir, static_dir)
+        if arc not in INTERNAL_REGION_IDS and local is not None:
+            return str(local)
+        LOG.warning("unknown basemap region id %r; serving sample", arc)
+        arc = DEFAULT_REGION_ARCHIVE
     if arc == DEFAULT_REGION_ARCHIVE:
         fetched = os.path.join(data_dir, FETCHED_REGION_ARCHIVE)
         if os.path.isfile(fetched):
@@ -294,6 +293,15 @@ MANIFEST_CACHE_TTL = 300.0
 #: Fetched-manifest cache, relative to ``data_dir`` (the readonly rootfs has no
 #: other writable place; a stale copy is preferred to a bundled one).
 FETCHED_MANIFEST = "basemap/maps-manifest.json"
+
+#: Downloaded kit region archives, relative to ``data_dir``. The vendored
+#: ``static/basemap/regions`` tree is read-only on the Pi, so a region picked in
+#: Settings lands here and is served from here (issues #205, #212).
+FETCHED_REGIONS = "basemap/regions"
+
+#: Kit region archive download timeout (seconds). Archives are tens of MB on a
+#: slow link, so the read timeout is generous; a hung connect still gives up.
+REGION_DOWNLOAD_TIMEOUT = 600.0
 
 #: Served URLs for the client-facing region list and per-region archives
 #: (issue #204; same values as hemna/basemap-kit's nginx config).
@@ -501,6 +509,131 @@ def region_manifest(data_dir: str = "", url: str = DEFAULT_MANIFEST_URL) -> dict
         _cache_manifest(cache, doc)
     return doc
 
+
+# ---------------------------------------------------------------------------
+# Downloaded kit regions (issue #212): the Settings picker's server side
+# ---------------------------------------------------------------------------
+
+
+def downloaded_region_path(region_id: str, data_dir: str) -> str:
+    """Filesystem path a downloaded kit region is stored at (may not exist)."""
+    return os.path.join(data_dir, FETCHED_REGIONS, f"{region_id}.pmtiles")
+
+
+def downloaded_region_ids(data_dir: str) -> list[str]:
+    """Ids with a downloaded archive on disk, sorted.
+
+    May list a region the kit no longer publishes: Settings still shows it so
+    the user can remove it from the device.
+    """
+    return sorted(p.stem for p in Path(data_dir, FETCHED_REGIONS).glob("*.pmtiles")
+                  if p.is_file())
+
+
+def region_archive_path(region_id: str, data_dir: str,
+                        static_dir: str | None = None) -> Path | None:
+    """On-disk archive for a kit region id, or None.
+
+    A downloaded copy under ``data_dir`` wins: it is the one Settings wrote and
+    an operator may have picked a region the image does not vendor. ``static_dir``
+    is the static mount being served (the package tree when omitted).
+    """
+    fetched = Path(downloaded_region_path(region_id, data_dir))
+    if fetched.is_file():
+        return fetched
+    if static_dir is None:
+        vendored = REGIONS_DIR / f"{region_id}.pmtiles"
+    else:
+        vendored = Path(static_dir, os.path.dirname(DEFAULT_REGION_ARCHIVE),
+                        f"{region_id}.pmtiles")
+    return vendored if vendored.is_file() else None
+
+
+def publish_url(region: dict) -> str:
+    """The kit's published archive URL for a list entry (``pmtiles://`` stripped)."""
+    url = str(region.get("url") or "").strip()
+    if url.startswith("pmtiles://"):
+        url = url[len("pmtiles://"):]
+    if not url.startswith(("http://", "https://")):
+        raise BasemapSourceError(
+            f"kit region {region.get('id')!r} has no downloadable URL: {url!r}")
+    return url
+
+
+#: One archive download at a time: the target box is a Pi, and two concurrent
+#: writes to the same ``.tmp`` would corrupt both.
+_DOWNLOAD_LOCK = threading.Lock()
+
+
+def _open_region_archive(url: str, timeout: float):
+    """The streaming GET behind a region download (a seam for offline tests)."""
+    return httpx.stream("GET", url, timeout=timeout, follow_redirects=True)
+
+
+def download_region(region: dict, data_dir: str,
+                    timeout: float = REGION_DOWNLOAD_TIMEOUT) -> dict:
+    """Download one kit region archive into ``data_dir`` and verify it.
+
+    The URL, byte count and digest all come from the kit list (never from the
+    request), so a client only picks an id. A size or sha256 mismatch deletes
+    the partial file and raises :class:`BasemapSourceError` — a truncated or
+    swapped archive is never served. The write is atomic (``.tmp`` + replace),
+    so a concurrent reader sees the old state or the complete archive.
+
+    Returns ``{"id", "size", "sha256"}`` of the file now on disk.
+    """
+    rid = str(region.get("id") or "")
+    if rid in INTERNAL_REGION_IDS or not re.fullmatch(r"[a-z0-9][a-z0-9-]*", rid):
+        raise BasemapSourceError(f"invalid kit region id: {rid!r}")
+    url = publish_url(region)
+    dest = downloaded_region_path(rid, data_dir)
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    tmp = dest + ".tmp"
+
+    with _DOWNLOAD_LOCK:
+        digest = hashlib.sha256()
+        size = 0
+        try:
+            with _open_region_archive(url, timeout) as resp:
+                resp.raise_for_status()
+                with open(tmp, "wb") as f:
+                    for chunk in resp.iter_bytes(1 << 16):
+                        digest.update(chunk)
+                        size += len(chunk)
+                        f.write(chunk)
+        except (httpx.HTTPError, OSError) as e:
+            _discard(tmp)
+            raise BasemapSourceError(
+                f"region {rid} download failed from {url}: {e}") from e
+
+        sha = digest.hexdigest()
+        want_size, want_sha = region.get("bytes"), str(region.get("sha256") or "")
+        if size != want_size or sha != want_sha:
+            _discard(tmp)
+            raise BasemapSourceError(
+                f"region {rid} does not match the kit list: got {size} bytes "
+                f"sha256 {sha[:12]}, list says {want_size} bytes sha256 {want_sha[:12]}")
+        os.replace(tmp, dest)
+
+    return {"id": rid, "size": size, "sha256": sha}
+
+
+def remove_region(region_id: str, data_dir: str) -> bool:
+    """Delete a downloaded kit region; True when a file was removed."""
+    path = downloaded_region_path(region_id, data_dir)
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        return False
+    return True
+
+
+def _discard(path: str) -> None:
+    """Remove a partial download; a missing file is already the goal."""
+    try:
+        os.remove(path)
+    except OSError:
+        pass
 
 
 def parse_pmtiles_header(raw: bytes) -> dict:
