@@ -17,6 +17,7 @@ from starlette.routing import Mount
 from starlette.testclient import TestClient
 
 import direwolf_dashboard
+from tests.pmtiles_fixture import write_covering
 from direwolf_dashboard.basemap import (
     DEFAULT_REGION_ARCHIVE,
     bbox_around,
@@ -123,7 +124,10 @@ def test_cli_fetch_success(tmp_path):
         captured["cmd"] = cmd
         tmp = Path(cmd[3])
         tmp.parent.mkdir(parents=True, exist_ok=True)
-        tmp.write_bytes(b"PMTILES-FAKE")
+        write_covering(
+            tmp, [float(v) for v in cmd[4][len("--bbox="):].split(",")],
+            int(cmd[5].split("=")[1]),
+        )
         return mock.MagicMock(returncode=0)
 
     with (
@@ -137,7 +141,7 @@ def test_cli_fetch_success(tmp_path):
 
     assert result.exit_code == 0, result.output
     assert out.exists()
-    assert out.read_bytes() == b"PMTILES-FAKE"
+    assert out.read_bytes()[:7] == b"PMTiles"
     # tmp file must be moved into place atomically
     assert not Path(str(out) + ".tmp.pmtiles").exists()
 
@@ -165,7 +169,11 @@ def test_cli_fetch_explicit_bbox_and_flags(tmp_path):
 
     def fake_run(cmd, **kwargs):
         Path(cmd[3]).parent.mkdir(parents=True, exist_ok=True)
-        Path(cmd[3]).write_bytes(b"x")
+        write_covering(
+            Path(cmd[3]),
+            [float(v) for v in cmd[4][len("--bbox="):].split(",")],
+            int(cmd[5].split("=")[1]),
+        )
         return mock.MagicMock(returncode=0)
 
     with (
@@ -224,7 +232,11 @@ def test_cli_fetch_default_output_is_data_dir_region(tmp_path):
 
     def fake_run(cmd, **kwargs):
         Path(cmd[3]).parent.mkdir(parents=True, exist_ok=True)
-        Path(cmd[3]).write_bytes(b"x")
+        write_covering(
+            Path(cmd[3]),
+            [float(v) for v in cmd[4][len("--bbox="):].split(",")],
+            int(cmd[5].split("=")[1]),
+        )
         return mock.MagicMock(returncode=0)
 
     with (

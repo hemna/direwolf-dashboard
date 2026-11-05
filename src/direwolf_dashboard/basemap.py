@@ -19,6 +19,7 @@ import struct
 import threading
 from collections import OrderedDict
 from datetime import UTC, datetime, timedelta
+from functools import lru_cache
 from math import cos, radians
 from pathlib import Path
 from time import monotonic, time
@@ -689,6 +690,13 @@ def _download_kit_archive(region: dict, url: str, tmp: str,
     return size, sha
 
 
+def _without_prefix(primary: Exception, rid, url: str) -> str:
+    """A kit failure's reason without the prefix the caller already adds."""
+    prefix = f"region {rid} download failed from {url}: "
+    text = str(primary)
+    return text[len(prefix):] if text.startswith(prefix) else text
+
+
 def _extract_region_fallback(region: dict, url: str, tmp: str,
                              primary: Exception, sources) -> tuple[str, str, dict]:
     """Extract the region from the world source chain after a kit failure.
@@ -704,29 +712,35 @@ def _extract_region_fallback(region: dict, url: str, tmp: str,
     downloaded the region for is worse than no fallback (#214).
     """
     # basemap_auto imports this module, so this import stays inside the call.
-    from direwolf_dashboard import basemap_auto
+    from direwolf_dashboard import basemap_auto, basemap_extract
 
     rid = region.get("id")
     bounds, maxzoom = region.get("bounds"), region.get("maxzoom")
     usable_bounds = (isinstance(bounds, (list, tuple)) and len(bounds) == 4
                      and all(isinstance(v, (int, float)) for v in bounds))
+    # The kit failure already carries this module's "region … download failed
+    # from …" prefix; strip it so the line says it once (#214 NB-3).
+    reason = _without_prefix(primary, rid, url)
     if not usable_bounds or not isinstance(maxzoom, int):
         _discard(tmp)
         raise BasemapSourceError(
-            f"region {rid} download failed from {url}: {primary}; no fallback: "
+            f"region {rid} download failed from {url}: {reason}; no fallback: "
             f"the kit list has no usable bounds/maxzoom for this region")
     chain = list(sources or basemap_auto.DEFAULT_SOURCES)
     bbox = tuple(float(v) for v in bounds)
     try:
-        src, method, _tried = basemap_auto.extract_with_fallback(
+        src, method, _tried, effective = basemap_auto.extract_with_fallback(
             chain, tmp, bbox, maxzoom)
         with open(tmp, "rb") as f:
             header = parse_pmtiles_header(f.read(_PMTILES_HEADER_SIZE))
         _require_coverage(header, bbox)
+        # The header is the extractor's own echo of the request; only the
+        # tile directory can prove the region's tiles arrived (B-2).
+        basemap_extract.require_tile_coverage(tmp, bbox, effective)
     except Exception as e:  # noqa: BLE001 - any failure means "no usable archive"
         _discard(tmp)
         raise BasemapSourceError(
-            f"region {rid} download failed from {url}: {primary}; "
+            f"region {rid} download failed from {url}: {reason}; "
             f"fallback extraction failed: {e}") from e
     if header["max_zoom"] != maxzoom:
         LOG.warning("basemap region %s extracted max zoom %s, region entry says %s",
@@ -767,18 +781,26 @@ def region_meta(region_id: str, data_dir: str) -> dict:
     return meta if isinstance(meta, dict) else {}
 
 
+@lru_cache(maxsize=8)
+def _digest_of(path: str, size: int, mtime_ns: int) -> str:
+    """sha256 of an unchanged file; the two vendored archives are ~13 MB."""
+    return sha256_file(path)
+
+
 def _served_file_facts(path: Path, meta: dict) -> dict:
     """What the archive this host is about to serve actually is.
 
     ``bytes`` and ``sha256`` describe the file, so a client verifies the
     download it receives; the digest is read from the sidecar when it still
-    matches the file's size, otherwise it is computed once. ``bounds`` and
-    ``maxzoom`` come from the file's own header (127 bytes, cheap).
+    matches the file's size, otherwise it is computed once per file version.
+    ``bounds`` and ``maxzoom`` come from the file's own header (127 bytes,
+    cheap).
     """
-    size = path.stat().st_size
+    st = path.stat()
+    size = st.st_size
     sha = meta.get("sha256") if meta.get("bytes") == size else None
     if not sha:
-        sha = sha256_file(str(path))
+        sha = _digest_of(str(path), size, st.st_mtime_ns)
     try:
         with open(path, "rb") as f:
             header = parse_pmtiles_header(f.read(_PMTILES_HEADER_SIZE))
@@ -795,10 +817,11 @@ def served_region_entry(region: dict, data_dir: str,
                         static_dir: str | None = None) -> dict | None:
     """The kit list entry for the archive this host actually serves (#214).
 
-    Returns ``None`` when no archive exists. A downloaded copy is described by
-    the file on disk — its own ``bytes``, ``sha256``, ``bounds`` and
-    ``maxzoom`` — because a fallback extract is not the kit's published
-    archive; the kit's declared values move to ``kit_bytes``, ``kit_sha256``,
+    Returns ``None`` when no archive exists. Every served archive — the
+    downloaded copy and the two files the image ships — is described by the
+    file on disk: its own ``bytes``, ``sha256``, ``bounds`` and ``maxzoom``
+    (#214 review B-1: the vendored files are not the kit's published archives
+    either). The kit's declared values move to ``kit_bytes``, ``kit_sha256``,
     ``kit_bounds`` and ``kit_maxzoom`` (only where they differ) so the shape
     clients already read is unchanged. ``url`` is this host's own same-origin
     archive route, never the kit's production host.
@@ -808,8 +831,6 @@ def served_region_entry(region: dict, data_dir: str,
     if served is None:
         return None
     entry = {**region, "url": f"/basemap/regions/{rid}.pmtiles"}
-    if Path(served) != Path(downloaded_region_path(rid, data_dir)):
-        return entry
     facts = _served_file_facts(Path(served), region_meta(rid, data_dir))
     for key in ("bytes", "sha256", "bounds", "maxzoom"):
         declared = entry.get(key)

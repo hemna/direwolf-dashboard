@@ -7,6 +7,7 @@ asserts on the served ``/basemap/maps-manifest.json`` body, the
 404 + traversal) and the 503 + caplog manifest error shapes.
 """
 
+import hashlib
 import json
 from types import SimpleNamespace
 
@@ -244,11 +245,14 @@ def _basemap_app() -> Starlette:
     )
 
 
-def test_maps_manifest_serves_the_kit_list_verbatim():
+def test_maps_manifest_serves_the_served_archives():
     # The committed kit list (33 regions) served through this app must
     # carry its groups untouched and only the regions this host can
-    # actually serve — every field verbatim, only ``url`` rewritten to
-    # the same-origin archive route (never the kit's production host).
+    # actually serve. The description fields (bytes, sha256, bounds, maxzoom)
+    # come from the file on disk, not the kit's published archive (#214
+    # review B-1: the image's own copies differ, and a client verifies the
+    # bytes it receives); the kit's values stay under ``kit_*``. ``url`` is
+    # rewritten to the same-origin archive route (never the kit's host).
     published = kit_region_manifest()
     with TestClient(_basemap_app(), raise_server_exceptions=False) as client:
         r = client.get("/basemap/maps-manifest.json")
@@ -263,12 +267,20 @@ def test_maps_manifest_serves_the_kit_list_verbatim():
     assert body["groups"] == published["groups"]
     assert [reg["id"] for reg in body["regions"]] == ["sample", "world"]
     published_by_id = {reg["id"]: reg for reg in published["regions"]}
+    described = {"url", "bytes", "sha256", "bounds", "maxzoom"}
     for served in body["regions"]:
         kit_region = published_by_id[served["id"]]
-        assert {k: v for k, v in served.items() if k != "url"} == {
-            k: v for k, v in kit_region.items() if k != "url"
-        }
+        blob = (BASEMAP_DIR / "regions" / f"{served['id']}.pmtiles").read_bytes()
+        assert served["bytes"] == len(blob)
+        assert served["sha256"] == hashlib.sha256(blob).hexdigest()
         assert served["url"] == f"/basemap/regions/{served['id']}.pmtiles"
+        # the kit's own declaration stays readable under its own keys
+        assert served["kit_bytes"] == kit_region["bytes"]
+        assert served["kit_sha256"] == kit_region["sha256"]
+        verbatim = {k: v for k, v in served.items()
+                    if k not in described and not k.startswith("kit_")}
+        expected = {k: v for k, v in kit_region.items() if k not in described}
+        assert verbatim == expected
     assert "cloud.hemna.com" not in r.text
     assert r.headers["cache-control"] == "no-cache"
     assert r.headers["access-control-allow-origin"] == "*"

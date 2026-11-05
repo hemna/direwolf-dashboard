@@ -157,7 +157,8 @@ def fetch_region(lat: float, lon: float, radius_km: float, maxzoom: int,
     os.makedirs(os.path.dirname(region), exist_ok=True)
     bbox = bbox_around(lat, lon, radius_km)
     tmp = region + ".tmp.pmtiles"
-    src, method, tried = extract_with_fallback(sources, tmp, bbox, maxzoom, use_cli)
+    src, method, tried, _effective = extract_with_fallback(
+        sources, tmp, bbox, maxzoom, use_cli)
     os.replace(tmp, region)
     LOG.info("basemap region downloaded from %s via %s", src, method)
     meta = {
@@ -177,8 +178,14 @@ def extract_with_fallback(sources, tmp: str, bbox, maxzoom: int, use_cli=None):
     A source whose archive stops below ``maxzoom`` (e.g. a low-zoom hosted
     world planet) is deferred: later sources with full street detail are
     tried first, and the low-zoom one is used only if none of them work.
-    Returns ``(source, method, tried)``; ``tried`` lists skipped sources.
-    Raises ExtractError listing every attempt if all fail.
+    After each extract the archive's own directories are checked against the
+    tiles ``bbox`` needs at the zoom the source promised (``#214`` review B-2:
+    the extractor writes the requested box into the header, so the header
+    cannot prove the tiles arrived). A source that comes back short is treated
+    as failed and the next one is tried.
+    Returns ``(source, method, tried, effective_maxzoom)``; ``effective`` is
+    the zoom the winning source could actually supply. Raises ExtractError
+    listing every attempt if all fail.
     """
     tried = []
     deferred = []
@@ -192,17 +199,31 @@ def extract_with_fallback(sources, tmp: str, bbox, maxzoom: int, use_cli=None):
             continue
         hz = (header or {}).get("max_zoom", maxzoom)
         if hz < maxzoom:
-            deferred.append(src)
+            deferred.append((src, hz))
             tried.append(f"{src}: only z{hz} < maxzoom {maxzoom}; deferred")
             continue
         got = _try_extract(src, tmp, bbox, maxzoom, use_cli, tried)
-        if got:
-            return src, got, tried
-    for src in deferred:
+        if got and _tiles_arrived(src, tmp, bbox, maxzoom, tried):
+            return src, got, tried, maxzoom
+    for src, hz in deferred:
+        effective = min(maxzoom, hz)
         got = _try_extract(src, tmp, bbox, maxzoom, use_cli, tried)
-        if got:
-            return src, got, tried
+        if got and _tiles_arrived(src, tmp, bbox, effective, tried):
+            return src, got, tried, effective
     raise basemap_extract.ExtractError("all basemap sources failed: " + " | ".join(tried))
+
+
+def _tiles_arrived(src, tmp, bbox, zoom, tried) -> bool:
+    """True when the extract holds the bbox tiles at ``zoom``; else drop it."""
+    try:
+        basemap_extract.require_tile_coverage(tmp, bbox, zoom)
+        return True
+    except basemap_extract.ExtractError as e:
+        tried.append(f"{src}: {e}")
+        LOG.warning("basemap source %s extracted an unusable archive: %s", src, e)
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        return False
 
 
 def _try_extract(src, tmp, bbox, maxzoom, use_cli, tried):

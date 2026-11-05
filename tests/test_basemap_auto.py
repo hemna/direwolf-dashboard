@@ -10,7 +10,7 @@ from pmtiles.tile import deserialize_header
 from direwolf_dashboard import basemap_auto, basemap_extract
 from direwolf_dashboard.basemap import bbox_around
 from direwolf_dashboard.config import Config
-from tests.pmtiles_fixture import make_planet, tile_bytes
+from tests.pmtiles_fixture import make_planet, tile_bytes, write_covering
 
 
 # --- extractor ---------------------------------------------------------------
@@ -152,7 +152,9 @@ def test_cli_used_when_installed(tmp_path):
 
     def fake_run(cmd, **kw):
         seen["cmd"] = cmd
-        open(cmd[3], "wb").write(b"PMTiles-fake")
+        write_covering(
+            cmd[3], [float(v) for v in cmd[4][len("--bbox="):].split(",")],
+            int(cmd[5].split("=")[1]))
 
     with mock.patch.object(basemap_auto.shutil, "which", return_value="/usr/bin/pmtiles"), \
             mock.patch.object(basemap_auto, "probe_source", return_value={}), \

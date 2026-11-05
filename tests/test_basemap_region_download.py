@@ -38,6 +38,11 @@ from direwolf_dashboard.routers import (
     create_basemap_region_archive_route,
 )
 from tests.pmtiles_fixture import make_planet
+import direwolf_dashboard.basemap_auto as basemap_auto
+
+#: The real source chain, for tests that exercise the extractor end to end
+#: (the autouse fixture replaces the attribute, not this reference).
+_REAL_EXTRACT = basemap_auto.extract_with_fallback
 
 PAYLOAD = b"PMTiles" + b"x" * 5000
 
@@ -138,7 +143,8 @@ def extraction(monkeypatch):
         calls.update(sources=list(sources), bbox=tuple(bbox), maxzoom=maxzoom)
         make_planet(tmp, maxzoom=1)
         calls["src"] = "https://planet.test/p.pmtiles"
-        return calls["src"], "python", ["https://cloud.hemna.com/x: down"]
+        # the world source could only supply z0-1, so that is the effective cap
+        return calls["src"], "python", ["https://cloud.hemna.com/x: down"], 1
 
     monkeypatch.setattr(
         "direwolf_dashboard.basemap_auto.extract_with_fallback", fake)
@@ -219,6 +225,8 @@ def test_error_names_the_kit_and_every_fallback_source(tmp_path, kit_down, monke
     message = str(excinfo.value)
     assert "https://kit.test/archives/canada.pmtiles" in message
     assert "TLSV1_UNRECOGNIZED_NAME" in message
+    # NB-3: the kit's prefix is stated once, not echoed by its own cause
+    assert message.count("download failed from") == 1
     assert "https://cloud.test/planet.pmtiles" in message
     assert "https://build.protomaps.com/20261104.pmtiles" in message
     assert not _stored(tmp_path).exists()
@@ -231,7 +239,7 @@ def test_fallback_output_must_be_a_vector_pmtiles(
     def fake(sources, tmp, bbox, maxzoom, use_cli=None):
         with open(tmp, "wb") as f:
             f.write(payload)
-        return "https://planet.test/p.pmtiles", "python", []
+        return "https://planet.test/p.pmtiles", "python", [], maxzoom
 
     monkeypatch.setattr(
         "direwolf_dashboard.basemap_auto.extract_with_fallback", fake)
@@ -465,15 +473,21 @@ def test_the_list_lives_in_settings_not_on_the_map():
 # #214 review round: the list must describe the file the host serves, and a
 # fallback archive must be checked against the region it stands in for
 # ---------------------------------------------------------------------------
-def _extraction_writing(bounds=None, maxzoom=1, tile_type=None):
-    """Fake the world extractor, writing an archive with the given header."""
+def _extraction_writing(bounds=None, maxzoom=1, tile_type=None, effective=None):
+    """Fake the world extractor, writing an archive with the given header.
+
+    ``effective`` is the zoom the source promised (and so what the extract was
+    expected to reach); by default the archive's own max zoom, i.e. a source
+    that really only had those tiles.
+    """
     def fake(sources, tmp, bbox, maxzoom_arg, use_cli=None):
         make_planet(tmp, maxzoom=maxzoom, bounds=bounds)
         if tile_type is not None:
             raw = bytearray(Path(tmp).read_bytes())
             raw[99] = tile_type  # PMTiles v3 header tile_type byte
             Path(tmp).write_bytes(raw)
-        return "https://planet.test/p.pmtiles", "python", []
+        cap = min(maxzoom_arg, maxzoom) if effective is None else effective
+        return "https://planet.test/p.pmtiles", "python", [], cap
     return fake
 
 
@@ -557,7 +571,7 @@ def test_bounds_comparison_keeps_longitude_and_latitude_apart(
     def fake(sources, tmp, bbox, maxzoom, use_cli=None):
         seen["bbox"] = tuple(bbox)
         make_planet(tmp, maxzoom=1, bounds=(125, -25, 145, -5))
-        return "https://planet.test/p.pmtiles", "python", []
+        return "https://planet.test/p.pmtiles", "python", [], maxzoom
 
     monkeypatch.setattr(
         "direwolf_dashboard.basemap_auto.extract_with_fallback", fake)
@@ -565,6 +579,108 @@ def test_bounds_comparison_keeps_longitude_and_latitude_apart(
     assert download_region(region, str(tmp_path))["method"] == "python"
     # west, south, east, north
     assert seen["bbox"] == (130.0, -20.0, 140.0, -10.0)
+
+
+@pytest.mark.parametrize("rid", ["sample", "world"])
+def test_manifest_describes_the_vendored_file_it_serves(
+        tmp_path, rid, monkeypatch
+):
+    """B-1: the image ships ``sample`` and ``world`` under kit ids whose list
+    numbers differ from the bytes on disk. The list must describe the file the
+    archive route serves, exactly as it does for a downloaded copy, or a client
+    that verifies the digest deletes the region."""
+    kit = _region(rid, payload=b"kit's own archive, never served here")
+    doc = _manifest(kit)
+    monkeypatch.setattr(
+        "direwolf_dashboard.basemap.fetch_region_manifest", lambda *a, **k: doc
+    )
+    container, _config = _container(tmp_path)
+    app = Starlette(routes=[
+        create_basemap_manifest_route(container),
+        create_basemap_region_archive_route(container),
+    ])
+    with TestClient(app, raise_server_exceptions=False) as client:
+        entry = client.get("/basemap/maps-manifest.json").json()["regions"][0]
+        served = client.get(f"/basemap/regions/{rid}.pmtiles").content
+    assert entry["url"] == f"/basemap/regions/{rid}.pmtiles"
+    assert entry["bytes"] == len(served)
+    assert entry["sha256"] == hashlib.sha256(served).hexdigest()
+    assert entry["bytes"] != kit["bytes"]
+    assert entry["kit_bytes"] == kit["bytes"]
+    assert entry["kit_sha256"] == kit["sha256"]
+
+
+def _broken_planet(tmp_path, maxzoom=0, claimed=2):
+    """A source whose header promises ``claimed`` but holds only z0-``maxzoom``."""
+    src = tmp_path / "broken-planet.pmtiles"
+    make_planet(src, maxzoom=maxzoom)
+    raw = bytearray(src.read_bytes())
+    raw[101] = claimed  # PMTiles v3 header max_zoom byte
+    src.write_bytes(raw)
+    return str(src)
+
+
+def test_fallback_archive_missing_the_needed_zoom_is_refused(
+        tmp_path, kit_down, monkeypatch
+):
+    """B-2: the extractor stamps the requested box into its own header, so a
+    source that claims z2 but holds only the z0 tile used to install a tiny
+    archive covering nothing. The guard must read the tiles present."""
+    src = _broken_planet(tmp_path)
+    # the pure-Python extractor runs regardless of whether the CLI is installed
+    monkeypatch.setattr("direwolf_dashboard.basemap_auto.shutil.which",
+                        lambda _name: None)
+    monkeypatch.setattr(
+        "direwolf_dashboard.basemap_auto.extract_with_fallback", _REAL_EXTRACT)
+    with pytest.raises(BasemapSourceError, match="need z2"):
+        download_region(_region(bounds=[2, 44, 4, 46], maxzoom=2),
+                        str(tmp_path), sources=[src])
+    assert not _stored(tmp_path).exists()
+    assert not _sidecar(tmp_path).exists()
+    assert not Path(str(_stored(tmp_path)) + ".tmp").exists()
+
+
+def test_fallback_archive_missing_a_needed_tile_is_refused(
+        tmp_path, kit_down, monkeypatch
+):
+    """The archive reaches z2 but lacks the one z2 tile the region needs."""
+    src = tmp_path / "partial-planet.pmtiles"
+    make_planet(src, maxzoom=2, omit={(2, 2, 1)})  # the tile over 2,44-4,46
+    monkeypatch.setattr("direwolf_dashboard.basemap_auto.shutil.which",
+                        lambda _name: None)
+    monkeypatch.setattr(
+        "direwolf_dashboard.basemap_auto.extract_with_fallback", _REAL_EXTRACT)
+    with pytest.raises(BasemapSourceError, match="0 of 1 tiles present"):
+        download_region(_region(bounds=[2, 44, 4, 46], maxzoom=2),
+                        str(tmp_path), sources=[str(src)])
+    assert not _stored(tmp_path).exists()
+
+
+def test_fallback_that_claims_the_zoom_but_lacks_the_tiles_is_refused(
+        tmp_path, kit_down, monkeypatch
+):
+    """A chain result that reports z2 but wrote only z0-1 is refused by the
+    installer itself, not only by the source-chain check."""
+    monkeypatch.setattr(
+        "direwolf_dashboard.basemap_auto.extract_with_fallback",
+        _extraction_writing(maxzoom=1, effective=2),
+    )
+    with pytest.raises(BasemapSourceError, match="need z2"):
+        download_region(_region(bounds=[-1, -1, 1, 1], maxzoom=2), str(tmp_path))
+    assert not _stored(tmp_path).exists()
+
+
+def test_a_source_cut_short_is_skipped_for_the_next(tmp_path, monkeypatch):
+    """The chain must move on when the first source's extract is short."""
+    good = tmp_path / "good-planet.pmtiles"
+    make_planet(good, maxzoom=2)
+    monkeypatch.setattr("direwolf_dashboard.basemap_auto.shutil.which",
+                        lambda _name: None)
+    out = tmp_path / "out.pmtiles"
+    src, method, tried, effective = _REAL_EXTRACT(
+        [_broken_planet(tmp_path), str(good)], str(out), (2, 44, 4, 46), 2)
+    assert (src, method, effective) == (str(good), "python", 2)
+    assert any("need z2" in t for t in tried)
 
 
 def test_fallback_output_must_be_vector_tiles(tmp_path, kit_down, monkeypatch):
@@ -584,9 +700,36 @@ def test_a_kit_download_that_fails_verification_leaves_no_partial_file(
     """The kit path's own discard: a wrong digest must not leave ``.tmp``."""
     tmp = str(_stored(tmp_path)) + ".tmp"
     Path(tmp).parent.mkdir(parents=True)
-    with pytest.raises(BasemapSourceError, match="does not match the kit list"):
+    # the same byte count but the wrong digest is the digest-discard branch
+    with pytest.raises(BasemapSourceError,
+                       match=r"does not match the kit list.*sha256"):
         _download_kit_archive(
             _region(sha256="0" * 64), "https://kit.test/x.pmtiles", tmp, 5)
+    assert not Path(tmp).exists()
+
+
+class _PartialThenFail(_FakeStream):
+    """A stream that writes some bytes, then the connection dies."""
+
+    def iter_bytes(self, chunk_size=65536):
+        yield self.payload[:100]
+        raise httpx.ReadError("connection reset")
+
+
+def test_a_kit_stream_that_breaks_midway_leaves_no_partial_file(
+        tmp_path, monkeypatch
+):
+    """The kit path's ``except`` discard: a reset after 100 bytes of a 5 KB
+    archive must not leave ``.tmp`` behind for a later run to trip over."""
+    monkeypatch.setattr(
+        "direwolf_dashboard.basemap._open_region_archive",
+        lambda url, timeout: _PartialThenFail(PAYLOAD),
+    )
+    tmp = str(_stored(tmp_path)) + ".tmp"
+    Path(tmp).parent.mkdir(parents=True)
+    with pytest.raises(BasemapSourceError, match="download failed from"):
+        _download_kit_archive(
+            _region(), "https://kit.test/x.pmtiles", tmp, 5)
     assert not Path(tmp).exists()
 
 

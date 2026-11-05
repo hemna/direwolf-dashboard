@@ -18,6 +18,7 @@ from pmtiles.tile import (
     Compression,
     deserialize_directory,
     deserialize_header,
+    tileid_to_zxy,
     zxy_to_tileid,
 )
 from pmtiles.writer import Writer
@@ -210,3 +211,54 @@ def file_get_bytes(path: str) -> GetBytes:
             f.seek(offset)
             return f.read(length)
     return get
+
+
+def _iter_entries(get_bytes: GetBytes, header: dict):
+    """Yield every tile entry in the archive's directories (not its header)."""
+    stack = list(deserialize_directory(
+        get_bytes(header["root_offset"], header["root_length"])))
+    while stack:
+        e = stack.pop()
+        if e.run_length == 0:
+            stack.extend(deserialize_directory(
+                get_bytes(header["leaf_directory_offset"] + e.offset, e.length)))
+        else:
+            yield e
+
+
+def archive_inventory(path: str) -> dict:
+    """The tiles a local archive actually holds, read from its directories.
+
+    Returns ``{"min_zoom", "max_zoom", "tiles"}``. The header alone cannot be
+    trusted after an extract: the extractor stamps the requested bbox into it
+    (#214 review B-2), so a coverage check has to look at the tiles present.
+    """
+    get = file_get_bytes(path)
+    header = deserialize_header(get(0, 127))
+    tiles: set[int] = set()
+    for e in _iter_entries(get, header):
+        tiles.update(range(e.tile_id, e.tile_id + e.run_length))
+    zooms = [tileid_to_zxy(tid)[0] for tid in (min(tiles), max(tiles))] if tiles else []
+    return {"min_zoom": zooms[0] if zooms else None,
+            "max_zoom": zooms[1] if zooms else None, "tiles": tiles}
+
+
+def require_tile_coverage(path: str, bbox, maxzoom: int) -> None:
+    """Reject an archive that does not hold the tiles ``bbox`` needs at ``maxzoom``.
+
+    ``maxzoom`` is the zoom the extraction was expected to reach (the request,
+    capped by the source's own header), not the archive's claim. An archive
+    with only coarse tiles cannot stand in for a region entry promising street
+    detail: the client would show a blank map offline (issue #214).
+    """
+    try:
+        inv = archive_inventory(path)
+    except Exception as e:  # noqa: BLE001 - an unreadable archive is unusable
+        raise ExtractError(
+            f"archive unreadable: {type(e).__name__}: {e}") from e
+    needed = set(tiles_in_bbox(tuple(bbox), maxzoom, maxzoom))
+    missing = needed - inv["tiles"]
+    if inv["max_zoom"] is None or inv["max_zoom"] < maxzoom or missing:
+        raise ExtractError(
+            f"archive holds tiles to z{inv['max_zoom']}, need z{maxzoom} "
+            f"({len(needed) - len(missing)} of {len(needed)} tiles present)")

@@ -7,11 +7,31 @@ def tile_bytes(z, x, y):
     return f"tile {z}/{x}/{y}".encode()
 
 
-def make_planet(path, maxzoom=6, bounds=None):
+def write_covering(path, bbox, maxzoom):
+    """A minimal archive holding exactly the bbox tiles at ``maxzoom``.
+
+    Stands in for the go-pmtiles CLI in tests: the extractor's output is now
+    checked against the tiles present, so a fake has to write real ones.
+    """
+    from direwolf_dashboard.basemap_extract import tiles_in_bbox
+
+    with open(path, "wb") as f:
+        w = Writer(f)
+        for tid in tiles_in_bbox(tuple(bbox), maxzoom, maxzoom):
+            w.write_tile(tid, tile_bytes(maxzoom, 0, 0))
+        w.finalize({"tile_type": TileType.MVT,
+                    "tile_compression": Compression.NONE},
+                   {"name": "covering", "attribution": "test"})
+    return path
+
+
+def make_planet(path, maxzoom=6, bounds=None, omit=()):
     """Write a tiny planet archive.
 
     ``bounds`` is ``(west, south, east, north)`` for the header; the default
     (whole world) matches what the writer emits when no bounds are given.
+    ``omit`` lists ``(z, x, y)`` tiles to leave out, for a source that claims a
+    zoom but is missing tiles there.
     """
     header = {"tile_type": TileType.MVT, "tile_compression": Compression.NONE}
     if bounds is not None:
@@ -27,7 +47,8 @@ def make_planet(path, maxzoom=6, bounds=None):
         n = 1 << z
         for x in range(n):
             for y in range(n):
-                ids.append((zxy_to_tileid(z, x, y), z, x, y))
+                if (z, x, y) not in omit:
+                    ids.append((zxy_to_tileid(z, x, y), z, x, y))
     ids.sort()
     with open(path, "wb") as f:
         w = Writer(f)

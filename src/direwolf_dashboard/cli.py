@@ -230,7 +230,8 @@ def fetch(ctx, bbox_text, radius_km, maxzoom, planet, output):
     click.echo(f"Downloading bbox={','.join(f'{v:.6f}' for v in bbox)} maxzoom={maxzoom} "
                f"(sources: {', '.join(sources)})")
     try:
-        src, method, tried = extract_with_fallback(sources, tmp, bbox, maxzoom)
+        src, method, tried, _effective = extract_with_fallback(
+            sources, tmp, bbox, maxzoom)
     except ExtractError as e:
         raise click.ClickException(f"region download failed: {e}") from e
     for t in tried:
