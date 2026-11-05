@@ -11,6 +11,10 @@ All notable changes to this project are documented here.
 - **Weather-station map symbol is a full NWS surface-analysis station plot (issue #152)** — wind barb (half/full = 5/10 kt, pennant = 50 kt, calm ring), temperature, dewpoint, pressure and gust where the station reports them; missing fields are omitted. A new "Station plots" toggle (default on) switches WX stations between the plot and the plain APRS sprite, with a state-driven legend explaining the symbols and units. Also fixes wind extraction for `_` WX packets, which previously never stored wind direction or speed (the most common APRS weather format).
 - Shareable map URL (#150): the address bar tracks the view as `#zoom/lat/lon` (same format as haminfo `/map`; `/bearing/pitch` appended only when non-zero). Opening such a link restores the view and takes priority over the saved center and the waiting/auto-follow centering. A `z 12.0` readout under the zoom buttons shows the current zoom.
 
+### Fixed
+
+- **Region download falls back when the kit publish host is down (issue #214)** — when a kit archive cannot be fetched (TLS error, HTTP error, short read, or a size/sha256 mismatch) the region is extracted from the dashboard's existing world source chain (`basemap.sources`: kit planet, then the Protomaps daily build) at the kit list's bounds and maxzoom, and checked for a vector PMTiles header before it is installed; the error now names every source tried and its reason, and a `<id>.pmtiles.json` sidecar records which source and method produced the file.
+
 ### Removed
 
 - **"Kit regions" overlay on the map (issue #212)** — the read-only bottom-right panel from #204/PR #208 listed the region archives the host serves and had no purpose in the dashboard UI. Its map markup, panel and per-day localStorage cache are gone; the region list now lives in Settings, where the user picks regions to download. `GET /basemap/maps-manifest.json` and the per-region archive route stay for clients.

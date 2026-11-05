@@ -479,7 +479,8 @@ def create_api_routes(container: ServiceContainer) -> list:
             raise HTTPException(status_code=404, detail=f"unknown basemap region: {name!r}")
         try:
             info = await asyncio.to_thread(
-                download_region, region, services.config.data_dir
+                download_region, region, services.config.data_dir,
+                sources=services.config.basemap.sources,
             )
         except BasemapSourceError as e:
             LOG.error("basemap region download: %s", e)

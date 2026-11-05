@@ -571,16 +571,24 @@ def _open_region_archive(url: str, timeout: float):
 
 
 def download_region(region: dict, data_dir: str,
-                    timeout: float = REGION_DOWNLOAD_TIMEOUT) -> dict:
+                    timeout: float = REGION_DOWNLOAD_TIMEOUT,
+                    sources=None) -> dict:
     """Download one kit region archive into ``data_dir`` and verify it.
 
     The URL, byte count and digest all come from the kit list (never from the
-    request), so a client only picks an id. A size or sha256 mismatch deletes
-    the partial file and raises :class:`BasemapSourceError` — a truncated or
-    swapped archive is never served. The write is atomic (``.tmp`` + replace),
-    so a concurrent reader sees the old state or the complete archive.
+    request), so a client only picks an id. An unreachable host, a short read
+    or a size/sha256 mismatch deletes the partial file and falls back to
+    extracting the region from the world source chain
+    (:func:`basemap_auto.extract_with_fallback`) with the kit list's bounds and
+    ``maxzoom`` — that keeps a region downloadable while the kit's publish host
+    is down (issue #214). The fallback archive must carry a vector PMTiles v3
+    header before it is installed. The write is atomic (``.tmp`` + replace), so
+    a concurrent reader sees the old state or the complete archive, and a
+    sidecar ``<id>.pmtiles.json`` records which source and method produced the
+    file.
 
-    Returns ``{"id", "size", "sha256"}`` of the file now on disk.
+    Returns ``{"id", "size", "sha256", "source", "method"}`` of the file now on
+    disk.
     """
     rid = str(region.get("id") or "")
     if rid in INTERNAL_REGION_IDS or not re.fullmatch(r"[a-z0-9][a-z0-9-]*", rid):
@@ -589,33 +597,106 @@ def download_region(region: dict, data_dir: str,
     dest = downloaded_region_path(rid, data_dir)
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     tmp = dest + ".tmp"
-
     with _DOWNLOAD_LOCK:
-        digest = hashlib.sha256()
-        size = 0
         try:
-            with _open_region_archive(url, timeout) as resp:
-                resp.raise_for_status()
-                with open(tmp, "wb") as f:
-                    for chunk in resp.iter_bytes(1 << 16):
-                        digest.update(chunk)
-                        size += len(chunk)
-                        f.write(chunk)
-        except (httpx.HTTPError, OSError) as e:
-            _discard(tmp)
-            raise BasemapSourceError(
-                f"region {rid} download failed from {url}: {e}") from e
-
-        sha = digest.hexdigest()
-        want_size, want_sha = region.get("bytes"), str(region.get("sha256") or "")
-        if size != want_size or sha != want_sha:
-            _discard(tmp)
-            raise BasemapSourceError(
-                f"region {rid} does not match the kit list: got {size} bytes "
-                f"sha256 {sha[:12]}, list says {want_size} bytes sha256 {want_sha[:12]}")
+            size, sha = _download_kit_archive(region, url, tmp, timeout)
+            source, method = url, "kit"
+        except BasemapSourceError as primary:
+            source, method = _extract_region_fallback(
+                region, url, tmp, primary, sources)
+            size, sha = os.path.getsize(tmp), sha256_file(tmp)
         os.replace(tmp, dest)
+    meta = {
+        "id": rid, "source": source, "method": method, "bytes": size,
+        "sha256": sha, "maxzoom": region.get("maxzoom"),
+        "bounds": region.get("bounds"),
+        "fetched": datetime.now(UTC).isoformat(timespec="seconds"),
+    }
+    _write_region_meta(rid, data_dir, meta)
+    return {"id": rid, "size": size, "sha256": sha,
+            "source": source, "method": method}
 
-    return {"id": rid, "size": size, "sha256": sha}
+
+def _download_kit_archive(region: dict, url: str, tmp: str,
+                          timeout: float) -> tuple[int, str]:
+    """Stream the kit archive to ``tmp`` and verify byte count + sha256.
+
+    Raises :class:`BasemapSourceError` and deletes ``tmp`` when the host fails
+    or the bytes are not the ones the kit list describes.
+    """
+    digest = hashlib.sha256()
+    size = 0
+    try:
+        with _open_region_archive(url, timeout) as resp:
+            resp.raise_for_status()
+            with open(tmp, "wb") as f:
+                for chunk in resp.iter_bytes(1 << 16):
+                    digest.update(chunk)
+                    size += len(chunk)
+                    f.write(chunk)
+    except (httpx.HTTPError, OSError) as e:
+        _discard(tmp)
+        raise BasemapSourceError(
+            f"region {region.get('id')} download failed from {url}: {e}") from e
+    sha = digest.hexdigest()
+    want_size, want_sha = region.get("bytes"), str(region.get("sha256") or "")
+    if size != want_size or sha != want_sha:
+        _discard(tmp)
+        raise BasemapSourceError(
+            f"region {region.get('id')} does not match the kit list: got "
+            f"{size} bytes sha256 {sha[:12]}, list says {want_size} bytes "
+            f"sha256 {want_sha[:12]}")
+    return size, sha
+
+
+def _extract_region_fallback(region: dict, url: str, tmp: str,
+                             primary: Exception, sources) -> tuple[str, str]:
+    """Extract the region from the world source chain after a kit failure.
+
+    The kit list's ``bounds`` and ``maxzoom`` make the fallback cover the same
+    area as the archive it replaces. When no source works, the raised message
+    names the kit URL's failure and every source tried with its reason
+    (issue #214: the old message named one URL and no alternatives).
+    """
+    # basemap_auto imports this module, so this import stays inside the call.
+    from direwolf_dashboard import basemap_auto
+
+    rid = region.get("id")
+    bounds, maxzoom = region.get("bounds"), region.get("maxzoom")
+    usable_bounds = (isinstance(bounds, (list, tuple)) and len(bounds) == 4
+                     and all(isinstance(v, (int, float)) for v in bounds))
+    if not usable_bounds or not isinstance(maxzoom, int):
+        _discard(tmp)
+        raise BasemapSourceError(
+            f"region {rid} download failed from {url}: {primary}; no fallback: "
+            f"the kit list has no usable bounds/maxzoom for this region")
+    chain = list(sources or basemap_auto.DEFAULT_SOURCES)
+    try:
+        src, method, _tried = basemap_auto.extract_with_fallback(
+            chain, tmp, tuple(float(v) for v in bounds), maxzoom)
+        with open(tmp, "rb") as f:
+            parse_pmtiles_header(f.read(_PMTILES_HEADER_SIZE))
+    except Exception as e:  # noqa: BLE001 - any failure means "no usable archive"
+        _discard(tmp)
+        raise BasemapSourceError(
+            f"region {rid} download failed from {url}: {primary}; "
+            f"fallback extraction failed: {e}") from e
+    LOG.info("basemap region %s extracted from %s via %s", rid, src, method)
+    return src, method
+
+
+def _region_meta_path(region_id: str, data_dir: str) -> str:
+    """Sidecar recording how a downloaded region was produced (#214)."""
+    return downloaded_region_path(region_id, data_dir) + ".json"
+
+
+def _write_region_meta(region_id: str, data_dir: str, meta: dict) -> None:
+    """Best-effort sidecar: a missing file must not fail the download."""
+    try:
+        with open(_region_meta_path(region_id, data_dir), "w") as f:
+            json.dump(meta, f, indent=2)
+    except OSError as e:
+        LOG.warning("basemap region %s metadata not written: %s", region_id, e)
 
 
 def remove_region(region_id: str, data_dir: str) -> bool:

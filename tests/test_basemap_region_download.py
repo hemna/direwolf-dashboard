@@ -8,8 +8,10 @@ network: ``_open_region_archive`` is faked or blocked by conftest.
 """
 
 import hashlib
+import json
 from pathlib import Path
 
+import httpx
 import pytest
 from starlette.applications import Starlette
 from starlette.routing import Mount
@@ -25,6 +27,7 @@ from direwolf_dashboard.basemap import (
     remove_region,
     resolve_region_archive,
 )
+from direwolf_dashboard.basemap_extract import ExtractError
 from direwolf_dashboard.config import BasemapConfig, Config
 from direwolf_dashboard.lifecycle import ServiceContainer
 from direwolf_dashboard.routers import (
@@ -32,6 +35,7 @@ from direwolf_dashboard.routers import (
     create_basemap_manifest_route,
     create_basemap_region_archive_route,
 )
+from tests.pmtiles_fixture import make_planet
 
 PAYLOAD = b"PMTiles" + b"x" * 5000
 
@@ -99,29 +103,152 @@ def _manifest(*regions):
 # ---------------------------------------------------------------------------
 
 
-def test_download_verifies_and_stores_the_archive(tmp_path, served):
+@pytest.fixture(autouse=True)
+def _offline_extractor(monkeypatch):
+    """No test reaches the network for a fallback extraction by default.
+
+    A test that wants the fallback supplies its own ``extract_with_fallback``;
+    fixtures run before the test body, so that fake replaces this one.
+    """
+    def _offline(*_a, **_k):
+        raise ExtractError("offline in tests")
+
+    monkeypatch.setattr(
+        "direwolf_dashboard.basemap_auto.extract_with_fallback", _offline)
+
+
+@pytest.fixture
+def kit_down(monkeypatch):
+    """The publish host is unreachable, as on 2026-11-05 (issue #214)."""
+    def fake(url, timeout):
+        raise httpx.ConnectError(
+            "[SSL: TLSV1_UNRECOGNIZED_NAME] tlsv1 unrecognized name")
+
+    monkeypatch.setattr("direwolf_dashboard.basemap._open_region_archive", fake)
+
+
+@pytest.fixture
+def extraction(monkeypatch):
+    """Record the fallback chain and write a valid vector PMTiles to ``tmp``."""
+    calls = {}
+
+    def fake(sources, tmp, bbox, maxzoom, use_cli=None):
+        calls.update(sources=list(sources), bbox=tuple(bbox), maxzoom=maxzoom)
+        make_planet(tmp, maxzoom=1)
+        calls["src"] = "https://planet.test/p.pmtiles"
+        return calls["src"], "python", ["https://cloud.hemna.com/x: down"]
+
+    monkeypatch.setattr(
+        "direwolf_dashboard.basemap_auto.extract_with_fallback", fake)
+    return calls
+
+
+def _stored(tmp_path, rid="canada"):
+    return tmp_path / "basemap" / "regions" / f"{rid}.pmtiles"
+
+
+def _sidecar(tmp_path, rid="canada"):
+    return tmp_path / "basemap" / "regions" / f"{rid}.pmtiles.json"
+
+
+def test_download_verifies_and_stores_the_archive(tmp_path, served, extraction):
     info = download_region(_region(), str(tmp_path))
 
-    dest = tmp_path / "basemap" / "regions" / "canada.pmtiles"
-    assert dest.read_bytes() == PAYLOAD
+    assert _stored(tmp_path).read_bytes() == PAYLOAD
     assert info == {"id": "canada", "size": len(PAYLOAD),
-                    "sha256": hashlib.sha256(PAYLOAD).hexdigest()}
+                    "sha256": hashlib.sha256(PAYLOAD).hexdigest(),
+                    "source": "https://kit.test/archives/canada.pmtiles",
+                    "method": "kit"}
     assert not (tmp_path / "basemap" / "regions" / "canada.pmtiles.tmp").exists()
     # the pmtiles:// prefix is stripped before the GET
     assert served["url"] == "https://kit.test/archives/canada.pmtiles"
+    # a verified kit download never reaches the extractor
+    assert extraction == {}
+    meta = json.loads(_sidecar(tmp_path).read_text())
+    assert (meta["source"], meta["method"]) == (
+        "https://kit.test/archives/canada.pmtiles", "kit")
 
 
-def test_download_rejects_a_digest_mismatch(tmp_path, served):
-    with pytest.raises(BasemapSourceError, match="does not match the kit list"):
-        download_region(_region(sha256="0" * 64), str(tmp_path))
-    assert not (tmp_path / "basemap" / "regions" / "canada.pmtiles").exists()
+def test_unreachable_kit_extracts_the_region_instead(tmp_path, kit_down, extraction):
+    info = download_region(_region(), str(tmp_path), sources=["cloud", "protomaps"])
+
+    assert _stored(tmp_path).stat().st_size > 0
+    assert (info["source"], info["method"]) == (
+        "https://planet.test/p.pmtiles", "python")
+    assert extraction["bbox"] == (-1.0, -1.0, 1.0, 1.0)
+    assert extraction["maxzoom"] == 15
+    assert extraction["sources"] == ["cloud", "protomaps"]
+    meta = json.loads(_sidecar(tmp_path).read_text())
+    assert (meta["source"], meta["method"]) == (
+        "https://planet.test/p.pmtiles", "python")
     assert not (tmp_path / "basemap" / "regions" / "canada.pmtiles.tmp").exists()
 
 
-def test_download_rejects_a_size_mismatch(tmp_path, served):
-    with pytest.raises(BasemapSourceError, match="does not match the kit list"):
-        download_region(_region(bytes=len(PAYLOAD) + 1), str(tmp_path))
-    assert not (tmp_path / "basemap" / "regions" / "canada.pmtiles").exists()
+def test_wrong_digest_falls_back_and_never_installs_the_bad_file(
+        tmp_path, served, extraction):
+    info = download_region(_region(sha256="0" * 64), str(tmp_path))
+
+    stored = _stored(tmp_path).read_bytes()
+    assert stored != PAYLOAD  # the mismatched bytes are not what landed
+    assert info["method"] == "python"
+    assert hashlib.sha256(stored).hexdigest() == info["sha256"]
+
+
+def test_short_read_falls_back_and_never_installs_the_bad_file(
+        tmp_path, served, extraction):
+    info = download_region(_region(bytes=len(PAYLOAD) + 1), str(tmp_path))
+
+    assert _stored(tmp_path).read_bytes() != PAYLOAD
+    assert info["method"] == "python"
+
+
+def test_error_names_the_kit_and_every_fallback_source(tmp_path, kit_down, monkeypatch):
+    def fake(sources, tmp, bbox, maxzoom, use_cli=None):
+        raise ExtractError(
+            "all basemap sources failed: "
+            "https://cloud.test/planet.pmtiles: ConnectError: down | "
+            "https://build.protomaps.com/20261104.pmtiles: HTTP 404")
+
+    monkeypatch.setattr(
+        "direwolf_dashboard.basemap_auto.extract_with_fallback", fake)
+    with pytest.raises(BasemapSourceError) as excinfo:
+        download_region(_region(), str(tmp_path))
+
+    message = str(excinfo.value)
+    assert "https://kit.test/archives/canada.pmtiles" in message
+    assert "TLSV1_UNRECOGNIZED_NAME" in message
+    assert "https://cloud.test/planet.pmtiles" in message
+    assert "https://build.protomaps.com/20261104.pmtiles" in message
+    assert not _stored(tmp_path).exists()
+    assert not (tmp_path / "basemap" / "regions" / "canada.pmtiles.tmp").exists()
+
+
+@pytest.mark.parametrize("payload", [b"", b"not a pmtiles archive" * 10])
+def test_fallback_output_must_be_a_vector_pmtiles(
+        tmp_path, kit_down, monkeypatch, payload):
+    def fake(sources, tmp, bbox, maxzoom, use_cli=None):
+        with open(tmp, "wb") as f:
+            f.write(payload)
+        return "https://planet.test/p.pmtiles", "python", []
+
+    monkeypatch.setattr(
+        "direwolf_dashboard.basemap_auto.extract_with_fallback", fake)
+    with pytest.raises(BasemapSourceError, match="fallback extraction failed"):
+        download_region(_region(), str(tmp_path))
+
+    assert not _stored(tmp_path).exists()
+    assert not (tmp_path / "basemap" / "regions" / "canada.pmtiles.tmp").exists()
+    assert not _sidecar(tmp_path).exists()
+
+
+def test_no_bounds_means_no_fallback(tmp_path, kit_down, extraction):
+    region = _region()
+    del region["bounds"]
+    with pytest.raises(BasemapSourceError, match="no usable bounds/maxzoom"):
+        download_region(region, str(tmp_path))
+
+    assert extraction == {}
+    assert not _stored(tmp_path).exists()
 
 
 def test_download_never_opens_a_stream_for_a_bad_id(tmp_path):
