@@ -560,6 +560,38 @@ def publish_url(region: dict) -> str:
     return url
 
 
+#: Degrees of slack when comparing an archive header's coverage with the kit
+#: region entry. A tile-aligned extract rounds outwards, so this only absorbs
+#: float rounding, not a real gap.
+_BOUNDS_EPSILON = 1e-6
+
+
+def _header_bounds(header: dict) -> list[float]:
+    """A PMTiles header's bounds as ``[west, south, east, north]``."""
+    return [header["min_lon"], header["min_lat"],
+            header["max_lon"], header["max_lat"]]
+
+
+def _require_coverage(header: dict, bounds) -> None:
+    """Reject an archive that covers less than the region entry promises.
+
+    Wider bounds and fewer zoom levels are accepted and recorded as the file
+    really is (:func:`download_region`): the world source's own max zoom can cap
+    the extract. Less area than the entry declares is not usable — the user
+    downloaded the region to have that area offline.
+    """
+    west, south, east, north = bounds
+    if (header["min_lon"] > west + _BOUNDS_EPSILON
+            or header["min_lat"] > south + _BOUNDS_EPSILON
+            or header["max_lon"] < east - _BOUNDS_EPSILON
+            or header["max_lat"] < north - _BOUNDS_EPSILON):
+        raise BasemapSourceError(
+            f"extracted archive covers {header['min_lon']:.4f},"
+            f"{header['min_lat']:.4f} to {header['max_lon']:.4f},"
+            f"{header['max_lat']:.4f}, not the region bounds {west},{south} "
+            f"to {east},{north}")
+
+
 #: One archive download at a time: the target box is a Pi, and two concurrent
 #: writes to the same ``.tmp`` would corrupt both.
 _DOWNLOAD_LOCK = threading.Lock()
@@ -600,21 +632,29 @@ def download_region(region: dict, data_dir: str,
     with _DOWNLOAD_LOCK:
         try:
             size, sha = _download_kit_archive(region, url, tmp, timeout)
-            source, method = url, "kit"
+            source, method, header = url, "kit", None
         except BasemapSourceError as primary:
-            source, method = _extract_region_fallback(
+            source, method, header = _extract_region_fallback(
                 region, url, tmp, primary, sources)
             size, sha = os.path.getsize(tmp), sha256_file(tmp)
         os.replace(tmp, dest)
     meta = {
         "id": rid, "source": source, "method": method, "bytes": size,
-        "sha256": sha, "maxzoom": region.get("maxzoom"),
-        "bounds": region.get("bounds"),
+        "sha256": sha,
+        # The sidecar states what the file is, never what was asked for: an
+        # extract can carry fewer zoom levels or wider bounds than the region
+        # entry (#214). The request is kept alongside it.
+        "maxzoom": header["max_zoom"] if header else region.get("maxzoom"),
+        "bounds": _header_bounds(header) if header else region.get("bounds"),
         "fetched": datetime.now(UTC).isoformat(timespec="seconds"),
     }
+    if header:
+        meta["requested_maxzoom"] = region.get("maxzoom")
+        meta["requested_bounds"] = region.get("bounds")
     _write_region_meta(rid, data_dir, meta)
     return {"id": rid, "size": size, "sha256": sha,
-            "source": source, "method": method}
+            "source": source, "method": method,
+            "maxzoom": meta["maxzoom"], "bounds": meta["bounds"]}
 
 
 def _download_kit_archive(region: dict, url: str, tmp: str,
@@ -650,13 +690,18 @@ def _download_kit_archive(region: dict, url: str, tmp: str,
 
 
 def _extract_region_fallback(region: dict, url: str, tmp: str,
-                             primary: Exception, sources) -> tuple[str, str]:
+                             primary: Exception, sources) -> tuple[str, str, dict]:
     """Extract the region from the world source chain after a kit failure.
 
     The kit list's ``bounds`` and ``maxzoom`` make the fallback cover the same
     area as the archive it replaces. When no source works, the raised message
     names the kit URL's failure and every source tried with its reason
     (issue #214: the old message named one URL and no alternatives).
+
+    The extracted header is returned so the sidecar can record the file's own
+    bounds and zoom range, and an archive that does not cover the region's
+    bounds is rejected with that reason — a file missing the area the user
+    downloaded the region for is worse than no fallback (#214).
     """
     # basemap_auto imports this module, so this import stays inside the call.
     from direwolf_dashboard import basemap_auto
@@ -671,18 +716,23 @@ def _extract_region_fallback(region: dict, url: str, tmp: str,
             f"region {rid} download failed from {url}: {primary}; no fallback: "
             f"the kit list has no usable bounds/maxzoom for this region")
     chain = list(sources or basemap_auto.DEFAULT_SOURCES)
+    bbox = tuple(float(v) for v in bounds)
     try:
         src, method, _tried = basemap_auto.extract_with_fallback(
-            chain, tmp, tuple(float(v) for v in bounds), maxzoom)
+            chain, tmp, bbox, maxzoom)
         with open(tmp, "rb") as f:
-            parse_pmtiles_header(f.read(_PMTILES_HEADER_SIZE))
+            header = parse_pmtiles_header(f.read(_PMTILES_HEADER_SIZE))
+        _require_coverage(header, bbox)
     except Exception as e:  # noqa: BLE001 - any failure means "no usable archive"
         _discard(tmp)
         raise BasemapSourceError(
             f"region {rid} download failed from {url}: {primary}; "
             f"fallback extraction failed: {e}") from e
+    if header["max_zoom"] != maxzoom:
+        LOG.warning("basemap region %s extracted max zoom %s, region entry says %s",
+                    rid, header["max_zoom"], maxzoom)
     LOG.info("basemap region %s extracted from %s via %s", rid, src, method)
-    return src, method
+    return src, method, header
 
 
 def _region_meta_path(region_id: str, data_dir: str) -> str:
@@ -691,12 +741,83 @@ def _region_meta_path(region_id: str, data_dir: str) -> str:
 
 
 def _write_region_meta(region_id: str, data_dir: str, meta: dict) -> None:
-    """Best-effort sidecar: a missing file must not fail the download."""
+    """Best-effort sidecar: a missing file must not fail the download.
+
+    Written atomically because the served region list reads it while downloads
+    run; a reader sees the previous sidecar or the complete new one.
+    """
+    path = _region_meta_path(region_id, data_dir)
+    tmp = path + ".tmp"
     try:
-        with open(_region_meta_path(region_id, data_dir), "w") as f:
+        with open(tmp, "w") as f:
             json.dump(meta, f, indent=2)
+        os.replace(tmp, path)
     except OSError as e:
+        _discard(tmp)
         LOG.warning("basemap region %s metadata not written: %s", region_id, e)
+
+
+def region_meta(region_id: str, data_dir: str) -> dict:
+    """The sidecar for a downloaded region, or ``{}`` when there is none."""
+    try:
+        with open(_region_meta_path(region_id, data_dir)) as f:
+            meta = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return meta if isinstance(meta, dict) else {}
+
+
+def _served_file_facts(path: Path, meta: dict) -> dict:
+    """What the archive this host is about to serve actually is.
+
+    ``bytes`` and ``sha256`` describe the file, so a client verifies the
+    download it receives; the digest is read from the sidecar when it still
+    matches the file's size, otherwise it is computed once. ``bounds`` and
+    ``maxzoom`` come from the file's own header (127 bytes, cheap).
+    """
+    size = path.stat().st_size
+    sha = meta.get("sha256") if meta.get("bytes") == size else None
+    if not sha:
+        sha = sha256_file(str(path))
+    try:
+        with open(path, "rb") as f:
+            header = parse_pmtiles_header(f.read(_PMTILES_HEADER_SIZE))
+    except BasemapSourceError:
+        # An operator-placed file that is not a PMTiles archive: keep whatever
+        # the sidecar recorded rather than guessing.
+        return {"bytes": size, "sha256": sha,
+                "bounds": meta.get("bounds"), "maxzoom": meta.get("maxzoom")}
+    return {"bytes": size, "sha256": sha,
+            "bounds": _header_bounds(header), "maxzoom": header["max_zoom"]}
+
+
+def served_region_entry(region: dict, data_dir: str,
+                        static_dir: str | None = None) -> dict | None:
+    """The kit list entry for the archive this host actually serves (#214).
+
+    Returns ``None`` when no archive exists. A downloaded copy is described by
+    the file on disk — its own ``bytes``, ``sha256``, ``bounds`` and
+    ``maxzoom`` — because a fallback extract is not the kit's published
+    archive; the kit's declared values move to ``kit_bytes``, ``kit_sha256``,
+    ``kit_bounds`` and ``kit_maxzoom`` (only where they differ) so the shape
+    clients already read is unchanged. ``url`` is this host's own same-origin
+    archive route, never the kit's production host.
+    """
+    rid = str(region.get("id") or "")
+    served = region_archive_path(rid, data_dir, static_dir)
+    if served is None:
+        return None
+    entry = {**region, "url": f"/basemap/regions/{rid}.pmtiles"}
+    if Path(served) != Path(downloaded_region_path(rid, data_dir)):
+        return entry
+    facts = _served_file_facts(Path(served), region_meta(rid, data_dir))
+    for key in ("bytes", "sha256", "bounds", "maxzoom"):
+        declared = entry.get(key)
+        if facts[key] is not None and facts[key] != declared:
+            if declared is not None:
+                entry[f"kit_{key}"] = declared
+            entry[key] = facts[key]
+    return entry
 
 
 def remove_region(region_id: str, data_dir: str) -> bool:

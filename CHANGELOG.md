@@ -13,7 +13,15 @@ All notable changes to this project are documented here.
 
 ### Fixed
 
-- **Region download falls back when the kit publish host is down (issue #214)** — when a kit archive cannot be fetched (TLS error, HTTP error, short read, or a size/sha256 mismatch) the region is extracted from the dashboard's existing world source chain (`basemap.sources`: kit planet, then the Protomaps daily build) at the kit list's bounds and maxzoom, and checked for a vector PMTiles header before it is installed; the error now names every source tried and its reason, and a `<id>.pmtiles.json` sidecar records which source and method produced the file.
+- **Region download falls back when the kit publish host is down (issue #214)** — when a kit archive
+cannot be fetched (TLS error, HTTP error, short read, or a size/sha256 mismatch) the region is
+extracted from the dashboard's existing world source chain (`basemap.sources`: kit planet, then the
+Protomaps daily build) at the kit list's bounds and maxzoom. The extracted file must be a vector
+PMTiles archive that covers the region's bounds before it is installed, and the error names every
+source tried and its reason. The region list, the download response and the
+`<id>.pmtiles.json` sidecar describe the file
+that was actually installed — its own bytes, digest, bounds and max zoom — with the kit's declared
+values kept under `kit_*` keys, so a client verifies the digest of the download it receives.
 
 ### Removed
 

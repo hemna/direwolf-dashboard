@@ -20,10 +20,12 @@ from starlette.testclient import TestClient
 import direwolf_dashboard
 from direwolf_dashboard.basemap import (
     BasemapSourceError,
+    _download_kit_archive,
     download_region,
     downloaded_region_path,
     publish_url,
     region_archive_path,
+    region_meta,
     remove_region,
     resolve_region_archive,
 )
@@ -158,7 +160,7 @@ def test_download_verifies_and_stores_the_archive(tmp_path, served, extraction):
     assert info == {"id": "canada", "size": len(PAYLOAD),
                     "sha256": hashlib.sha256(PAYLOAD).hexdigest(),
                     "source": "https://kit.test/archives/canada.pmtiles",
-                    "method": "kit"}
+                    "method": "kit", "maxzoom": 15, "bounds": [-1, -1, 1, 1]}
     assert not (tmp_path / "basemap" / "regions" / "canada.pmtiles.tmp").exists()
     # the pmtiles:// prefix is stripped before the GET
     assert served["url"] == "https://kit.test/archives/canada.pmtiles"
@@ -457,3 +459,150 @@ def test_the_list_lives_in_settings_not_on_the_map():
     app_js = (static / "app.js").read_text(encoding="utf-8")
     assert "loadBasemapRegions" in app_js
     assert "showKitRegionList" not in app_js
+
+
+# ---------------------------------------------------------------------------
+# #214 review round: the list must describe the file the host serves, and a
+# fallback archive must be checked against the region it stands in for
+# ---------------------------------------------------------------------------
+def _extraction_writing(bounds=None, maxzoom=1, tile_type=None):
+    """Fake the world extractor, writing an archive with the given header."""
+    def fake(sources, tmp, bbox, maxzoom_arg, use_cli=None):
+        make_planet(tmp, maxzoom=maxzoom, bounds=bounds)
+        if tile_type is not None:
+            raw = bytearray(Path(tmp).read_bytes())
+            raw[99] = tile_type  # PMTiles v3 header tile_type byte
+            Path(tmp).write_bytes(raw)
+        return "https://planet.test/p.pmtiles", "python", []
+    return fake
+
+
+@pytest.fixture
+def fallback_extract(monkeypatch):
+    """The kit host is down and the extractor writes a zoom 0-1 archive."""
+    monkeypatch.setattr(
+        "direwolf_dashboard.basemap_auto.extract_with_fallback",
+        _extraction_writing(maxzoom=1),
+    )
+
+
+def test_manifest_publishes_the_installed_file_not_the_kit_numbers(
+        tmp_path, offline_manifest, kit_down, fallback_extract
+):
+    """B-1: a fallback install is a different file, so the list must describe
+    that file. A client verifies both values and deletes the part on a
+    mismatch (basemap-kit docs/CLIENTS.md), so the kit's numbers would throw
+    away a working download."""
+    container, config = _container(tmp_path)
+    region = next(r for r in offline_manifest["regions"] if r["id"] == "canada")
+    download_region(region, config.data_dir)
+    app = Starlette(routes=[
+        create_basemap_manifest_route(container),
+        create_basemap_region_archive_route(container),
+    ])
+    with TestClient(app, raise_server_exceptions=False) as client:
+        regions = client.get("/basemap/maps-manifest.json").json()["regions"]
+        served = client.get("/basemap/regions/canada.pmtiles").content
+    entry = {r["id"]: r for r in regions}["canada"]
+    assert entry["bytes"] == len(served)
+    assert entry["sha256"] == hashlib.sha256(served).hexdigest()
+    assert entry["bytes"] != region["bytes"]
+    assert entry["sha256"] != region["sha256"]
+    # the kit's declaration stays readable, under its own keys
+    assert entry["kit_bytes"] == region["bytes"]
+    assert entry["kit_sha256"] == region["sha256"]
+    # a zoom 0-1 extract is not the zoom 15 region the entry promises
+    assert entry["maxzoom"] == 1
+    assert entry["kit_maxzoom"] == 15
+
+
+def test_fallback_sidecar_records_the_file_not_the_request(
+        tmp_path, kit_down, fallback_extract
+):
+    """B-2: the sidecar and the download response stated the requested maxzoom
+    (15) for a zoom 0-1 file."""
+    info = download_region(_region(), str(tmp_path))
+    meta = region_meta("canada", str(tmp_path))
+    assert meta["maxzoom"] == 1
+    assert meta["bounds"] == [-180.0, -90.0, 180.0, 90.0]
+    assert meta["requested_maxzoom"] == 15
+    assert meta["requested_bounds"] == [-1, -1, 1, 1]
+    assert (info["maxzoom"], info["bounds"]) == (
+        1, [-180.0, -90.0, 180.0, 90.0])
+
+
+def test_fallback_archive_must_cover_the_region_bounds(
+        tmp_path, kit_down, monkeypatch
+):
+    """An archive missing the area the region promises is not installed."""
+    monkeypatch.setattr(
+        "direwolf_dashboard.basemap_auto.extract_with_fallback",
+        _extraction_writing(bounds=(20, 40, 30, 50)),
+    )
+    with pytest.raises(BasemapSourceError, match="not the region bounds"):
+        download_region(_region(bounds=[-1, -1, 1, 1]), str(tmp_path))
+    assert not _stored(tmp_path).exists()
+    assert not _sidecar(tmp_path).exists()
+    assert not Path(str(_stored(tmp_path)) + ".tmp").exists()
+
+
+def test_bounds_comparison_keeps_longitude_and_latitude_apart(
+        tmp_path, kit_down, monkeypatch
+):
+    """A region south of the equator and east of Greenwich: the box handed to
+    the extractor and the coverage check must both keep the axes apart, or the
+    region is cut from the wrong part of the world."""
+    seen = {}
+
+    def fake(sources, tmp, bbox, maxzoom, use_cli=None):
+        seen["bbox"] = tuple(bbox)
+        make_planet(tmp, maxzoom=1, bounds=(125, -25, 145, -5))
+        return "https://planet.test/p.pmtiles", "python", []
+
+    monkeypatch.setattr(
+        "direwolf_dashboard.basemap_auto.extract_with_fallback", fake)
+    region = _region(rid="australia", bounds=[130, -20, 140, -10], maxzoom=1)
+    assert download_region(region, str(tmp_path))["method"] == "python"
+    # west, south, east, north
+    assert seen["bbox"] == (130.0, -20.0, 140.0, -10.0)
+
+
+def test_fallback_output_must_be_vector_tiles(tmp_path, kit_down, monkeypatch):
+    """A v3 archive carrying raster tiles parses as PMTiles but cannot render."""
+    monkeypatch.setattr(
+        "direwolf_dashboard.basemap_auto.extract_with_fallback",
+        _extraction_writing(tile_type=2),
+    )
+    with pytest.raises(BasemapSourceError, match="tile type 2"):
+        download_region(_region(), str(tmp_path))
+    assert not _stored(tmp_path).exists()
+
+
+def test_a_kit_download_that_fails_verification_leaves_no_partial_file(
+        tmp_path, served
+):
+    """The kit path's own discard: a wrong digest must not leave ``.tmp``."""
+    tmp = str(_stored(tmp_path)) + ".tmp"
+    Path(tmp).parent.mkdir(parents=True)
+    with pytest.raises(BasemapSourceError, match="does not match the kit list"):
+        _download_kit_archive(
+            _region(sha256="0" * 64), "https://kit.test/x.pmtiles", tmp, 5)
+    assert not Path(tmp).exists()
+
+
+def test_api_download_uses_the_configured_sources(tmp_path, offline_manifest,
+                                                  monkeypatch):
+    """The router must hand the operator's source chain to the downloader."""
+    container, config = _container(tmp_path)
+    config.basemap.sources = ["https://world.test/planet.pmtiles"]
+    seen = {}
+
+    def fake(region, data_dir, timeout=0, sources=None):
+        seen["sources"] = sources
+        return {"id": region["id"], "size": 1, "sha256": "0" * 64,
+                "source": "fake", "method": "kit"}
+
+    monkeypatch.setattr("direwolf_dashboard.routers.download_region", fake)
+    with TestClient(_app(container), raise_server_exceptions=False) as client:
+        assert client.post("/api/basemap/regions/canada/download").status_code == 200
+    assert seen["sources"] == ["https://world.test/planet.pmtiles"]

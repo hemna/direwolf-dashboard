@@ -38,6 +38,7 @@ from direwolf_dashboard.basemap import (
     render_style,
     resolve_region_archive,
     resolve_upstream_cached,
+    served_region_entry,
     upstream_sources,
 )
 from direwolf_dashboard.config import update_config
@@ -850,9 +851,12 @@ def create_basemap_manifest_route(container: ServiceContainer):
     verbatim and only ``url``
     rewritten to this host's own same-origin archive route — the kit's
     production host URL is never emitted, a client downloads from the host it
-    fetched the list from. A list that cannot be read anywhere is a 503 with
-    the reason logged, never a partly-filled list (mirrors the haminfo
-    reference kit).
+    fetched the list from. A downloaded copy is described by the file on disk
+    instead of the kit's numbers (:func:`served_region_entry`, issue #214): a
+    fallback extract is not the published archive, and the client verifies the
+    bytes and digest it actually receives. A list that cannot be read anywhere
+    is a 503 with the reason logged, never a partly-filled list (mirrors the
+    haminfo reference kit).
     """
 
     async def get_basemap_manifest(request: Request):
@@ -873,9 +877,10 @@ def create_basemap_manifest_route(container: ServiceContainer):
                 },
             )
         servable = [
-            {**r, "url": f"/basemap/regions/{r['id']}.pmtiles"}
-            for r in doc["regions"]
-            if region_archive_path(r["id"], services.config.data_dir, _STATIC_DIR) is not None
+            entry for entry in (
+                served_region_entry(r, services.config.data_dir, _STATIC_DIR)
+                for r in doc["regions"]
+            ) if entry is not None
         ]
         return JSONResponse(
             {**doc, "regions": servable},
