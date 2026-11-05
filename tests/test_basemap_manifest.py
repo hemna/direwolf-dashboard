@@ -8,6 +8,7 @@ asserts on the served ``/basemap/maps-manifest.json`` body, the
 """
 
 import json
+from types import SimpleNamespace
 
 import pytest
 from direwolf_dashboard.basemap import (
@@ -17,6 +18,7 @@ from direwolf_dashboard.basemap import (
     BasemapSourceError,
     kit_region_manifest,
 )
+from direwolf_dashboard.config import Config
 from direwolf_dashboard.lifecycle import ServiceContainer
 from direwolf_dashboard.routers import (
     create_basemap_manifest_route,
@@ -230,9 +232,10 @@ def test_int_type_violations_do_not_say_missing(tmp_path):
 
 
 def _basemap_app() -> Starlette:
-    """App holding only the two new routes (they read the package tree,
-    not live services, so a bare container is enough)."""
+    """App holding only the two new routes. The manifest route reads
+    ``data_dir`` / ``basemap.manifest_url`` from the services config."""
     container = ServiceContainer()
+    container.services = SimpleNamespace(config=Config())
     return Starlette(
         routes=[
             create_basemap_manifest_route(container),
@@ -296,59 +299,45 @@ def test_region_archive_route_404_and_traversal():
         )
 
 
-def test_maps_manifest_errors_when_the_list_is_missing(monkeypatch, tmp_path, caplog):
+def test_maps_manifest_falls_back_to_the_world_region(monkeypatch, tmp_path, caplog):
+    # #212: with no live list, no cache and no bundled copy, the served list
+    # degrades to the one region every install ships instead of an error.
     monkeypatch.setattr(
         "direwolf_dashboard.basemap.REGION_MANIFEST_FILE", tmp_path / "nope.json"
     )
     with TestClient(_basemap_app(), raise_server_exceptions=False) as client:
-        with caplog.at_level("ERROR", logger="direwolf_dashboard.routers"):
+        with caplog.at_level("WARNING", logger="direwolf_dashboard.basemap"):
             r = client.get("/basemap/maps-manifest.json")
-    assert r.status_code == 503
-    assert "unreadable" in r.json()["detail"]
+    assert r.status_code == 200
+    body = r.json()
+    assert [reg["id"] for reg in body["regions"]] == ["world"]
+    assert body["regions"][0]["url"] == "/basemap/regions/world.pmtiles"
+    assert body["regions"][0]["maxzoom"] == 4
     assert "nope.json" in caplog.text
 
 
-def test_maps_manifest_errors_when_the_list_is_malformed(monkeypatch, tmp_path, caplog):
+def test_maps_manifest_rejects_a_malformed_bundled_copy(monkeypatch, tmp_path, caplog):
     path = tmp_path / "maps-manifest.json"
     path.write_text('{"regions": [', encoding="utf-8")
     monkeypatch.setattr(
         "direwolf_dashboard.basemap.REGION_MANIFEST_FILE", path
     )
     with TestClient(_basemap_app(), raise_server_exceptions=False) as client:
-        with caplog.at_level("ERROR", logger="direwolf_dashboard.routers"):
+        with caplog.at_level("WARNING", logger="direwolf_dashboard.basemap"):
             r = client.get("/basemap/maps-manifest.json")
-    assert r.status_code == 503
-    assert "not valid JSON" in r.json()["detail"]
+    assert r.status_code == 200
+    assert [reg["id"] for reg in r.json()["regions"]] == ["world"]
     assert "not valid JSON" in caplog.text
 
 
-def test_maps_manifest_errors_when_a_region_field_is_missing(monkeypatch, tmp_path, caplog):
-    doc = _kit_manifest()
-    del doc["regions"][0]["bounds"]
-    path = _write_manifest(tmp_path, doc)
+def test_maps_manifest_503_when_no_region_is_readable(monkeypatch, tmp_path, caplog):
     monkeypatch.setattr(
-        "direwolf_dashboard.basemap.REGION_MANIFEST_FILE", path
+        "direwolf_dashboard.basemap.REGION_MANIFEST_FILE", tmp_path / "nope.json"
     )
+    monkeypatch.setattr("direwolf_dashboard.basemap.REGIONS_DIR", tmp_path)
     with TestClient(_basemap_app(), raise_server_exceptions=False) as client:
         with caplog.at_level("ERROR", logger="direwolf_dashboard.routers"):
             r = client.get("/basemap/maps-manifest.json")
     assert r.status_code == 503
-    assert "bounds" in r.json()["detail"]
-    assert "bounds" in caplog.text
-
-
-def test_maps_manifest_errors_when_a_region_points_at_an_undeclared_group(
-    monkeypatch, tmp_path, caplog
-):
-    doc = _kit_manifest()
-    doc["regions"][0]["group"] = "atlantis"
-    path = _write_manifest(tmp_path, doc)
-    monkeypatch.setattr(
-        "direwolf_dashboard.basemap.REGION_MANIFEST_FILE", path
-    )
-    with TestClient(_basemap_app(), raise_server_exceptions=False) as client:
-        with caplog.at_level("ERROR", logger="direwolf_dashboard.routers"):
-            r = client.get("/basemap/maps-manifest.json")
-    assert r.status_code == 503
-    assert "atlantis" in r.json()["detail"]
-    assert "atlantis" in caplog.text
+    assert "usable world archive" in r.json()["detail"]
+    assert "usable world archive" in caplog.text

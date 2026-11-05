@@ -886,6 +886,36 @@ a.secondary.btn-as-link:hover {
     gap: 8px;
 }
 
+/* Offline map regions (issue #212): one row per kit region in Settings. */
+.basemap-region-list {
+    margin-top: 8px;
+    max-height: 240px;
+    overflow-y: auto;
+}
+
+.basemap-region-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.basemap-region-name {
+    flex: 1;
+    font-size: 13px;
+}
+
+.basemap-region-state {
+    font-size: 12px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.basemap-region-row button {
+    flex: 0 0 auto;
+}
+
 .confirm-modal-content {
     width: 360px;
 }

@@ -1270,9 +1270,6 @@
         map.on('mouseleave', 'stations-symbol-base', function () { map.getCanvas().style.cursor = ''; });
 
         setInterval(cleanupAnimations, 10000);
-
-        // Read-only kit region list panel (#204); never blocks the map boot.
-        showKitRegionList();
     }
 
     /** Rewrite the style's sprite (string or array of {id,url}) and glyphs
@@ -1335,92 +1332,6 @@
             .map(function (l) { return Object.assign({}, l, { id: 'world-' + l.id, source: 'world' }); });
         const bg = style.layers.findIndex(function (l) { return l.type === 'background'; });
         style.layers.splice(bg + 1, 0, ...worldLayers);
-    }
-
-    // --- Kit region list (issue #204) -------------------------------------
-    // Read-only display of the kit regions this host serves, fetched same-
-    // origin from the served manifest (never an upstream host); cached per
-    // calendar day in localStorage under dw-region-list-<YYYY-MM-DD> keys
-    // with older-day keys pruned. Manifest byte counts are informational
-    // display text only (measured on the shipped kit: they do not match the
-    // vendored archives) and its digest is never validated here; the ACTIVE
-    // region's row instead shows the real on-disk size from region_archive_
-    // info in GET /api/config (config.basemap.region: {name, size}).
-    const REGION_MANIFEST_URL = '/basemap/maps-manifest.json';
-    const REGION_LIST_KEY_PREFIX = 'dw-region-list-';
-
-    /** Today's cache key (dw-region-list-<YYYY-MM-DD>); prunes older-day keys. */
-    function regionListDayKey() {
-        const today = REGION_LIST_KEY_PREFIX + new Date().toISOString().slice(0, 10);
-        Object.keys(localStorage).forEach(function (k) {
-            if (k.indexOf(REGION_LIST_KEY_PREFIX) === 0 && k !== today) localStorage.removeItem(k);
-        });
-        return today;
-    }
-
-    /** The manifest cached earlier today, or null (key prefix dw-region-list-). */
-    function cachedRegionList() {
-        const today = regionListDayKey();
-        try {
-            const raw = localStorage.getItem(today);
-            if (!raw) return null;
-            const doc = JSON.parse(raw);
-            return Array.isArray(doc.regions) ? doc : null;
-        } catch (e) {
-            localStorage.removeItem(today);
-            return null;
-        }
-    }
-
-    /** Bytes -> human-readable B/KiB/MiB display text (manifest numbers). */
-    function formatBytes(bytes) {
-        if (typeof bytes !== 'number' || bytes < 0) return '?';
-        if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + ' MiB';
-        if (bytes >= 1024) return (bytes / 1024).toFixed(1) + ' KiB';
-        return bytes + ' B';
-    }
-
-    /** Render the read-only map panel: one row per served region (id + name
-     *  + bytes). The active row's size is the on-disk value from GET /api/
-     *  config, not the manifest's informational bytes; nothing in this panel
-     *  can grab an archive. */
-    async function showKitRegionList() {
-        if (!map) return;
-        let doc = cachedRegionList();
-        if (!doc) {
-            try {
-                const resp = await fetch(REGION_MANIFEST_URL);
-                if (!resp.ok) return;
-                doc = await resp.json();
-                localStorage.setItem(regionListDayKey(), JSON.stringify(doc));
-            } catch (e) {
-                return;
-            }
-        }
-        const regions = doc.regions;
-        if (!Array.isArray(regions) || !regions.length) return;
-        const active = config.basemap?.region; // region_archive_info: {name, size}
-        const container = mlCreate('stats-overlay');
-        const header = mlCreate('stats-overlay-header');
-        header.textContent = 'Kit regions';
-        container.appendChild(header);
-        const body = mlCreate('stats-overlay-body');
-        regions.forEach(function (r) {
-            if (!r || !r.id) return;
-            const isActive = active && active.name === r.id + '.pmtiles';
-            const row = mlCreate('stats-overlay-row');
-            const label = document.createElement('span');
-            label.className = 'stats-label';
-            label.textContent = r.id + ' \u2014 ' + (r.name || r.id) + (isActive ? ' (active)' : '');
-            const value = document.createElement('span');
-            value.className = 'stats-value';
-            value.textContent = formatBytes(isActive ? active.size : r.bytes);
-            row.appendChild(label);
-            row.appendChild(value);
-            body.appendChild(row);
-        });
-        container.appendChild(body);
-        map.addControl(mlControl(function () { return container; }, 'bottom-right'));
     }
 
     /** One GeoJSON source + symbol layers for all stations:
@@ -4983,6 +4894,119 @@
         // Log color inputs
         _populateLogColorInputs();
 
+        // Offline map region list (issue #212) — fetched fresh each open so a
+        // download on another browser/tab shows up.
+        loadBasemapRegions();
+
+    }
+
+    // --- Offline map regions (issue #212) ---------------------------------
+    // Hemna's call on PR #213: the kit region list belongs in Settings, where
+    // the user picks which region archives this host downloads and caches for
+    // offline map use. GET /api/basemap/regions serves the live kit manifest
+    // with the server-side fallbacks; the map-side panel stays gone.
+    const BASEMAP_REGIONS_URL = API_BASE + '/basemap/regions';
+
+    /** Bytes -> B/KiB/MiB display text. */
+    function formatBytes(bytes) {
+        if (typeof bytes !== 'number' || bytes < 0) return '?';
+        if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + ' MiB';
+        if (bytes >= 1024) return (bytes / 1024).toFixed(1) + ' KiB';
+        return bytes + ' B';
+    }
+
+    /** One region row: name, size/state, and a Download or Remove button. */
+    function regionRow(r, feedback) {
+        const row = document.createElement('div');
+        row.className = 'basemap-region-row';
+
+        const name = document.createElement('span');
+        name.className = 'basemap-region-name';
+        name.textContent = r.name && r.name !== r.id ? r.name + ' (' + r.id + ')' : r.id;
+
+        const state = document.createElement('span');
+        state.className = 'basemap-region-state';
+        state.textContent = r.downloaded
+            ? 'Downloaded \u2014 ' + formatBytes(r.downloaded_bytes)
+            : 'Not downloaded' + (typeof r.bytes === 'number' ? ' \u2014 ' + formatBytes(r.bytes) : '');
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = r.downloaded ? 'btn-danger' : 'secondary';
+        btn.textContent = r.downloaded ? 'Remove' : 'Download';
+        btn.addEventListener('click', function () {
+            if (r.downloaded) removeBasemapRegion(r, feedback);
+            else downloadBasemapRegion(r, feedback);
+        });
+
+        row.appendChild(name);
+        row.appendChild(state);
+        row.appendChild(btn);
+        return row;
+    }
+
+    /** Render the region list from GET /api/basemap/regions. */
+    async function loadBasemapRegions() {
+        const list = document.getElementById('basemap-region-list');
+        if (!list) return;
+        list.textContent = 'Loading\u2026';
+        let regions;
+        try {
+            const resp = await fetch(BASEMAP_REGIONS_URL);
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            regions = (await resp.json()).regions || [];
+        } catch (e) {
+            list.textContent = 'Region list unavailable: ' + e.message;
+            return;
+        }
+        list.textContent = '';
+        if (!regions.length) {
+            list.textContent = 'No regions published.';
+            return;
+        }
+        const feedback = document.getElementById('basemap-region-feedback');
+        regions.forEach(function (r) { list.appendChild(regionRow(r, feedback)); });
+    }
+
+    /** POST the download; the request returns once the archive is on disk. */
+    async function downloadBasemapRegion(r, feedback) {
+        feedback.className = 'warning';
+        feedback.textContent = 'Downloading ' + r.id + '\u2026 this can take a while.';
+        feedback.classList.remove('hidden');
+        try {
+            const resp = await fetch(
+                BASEMAP_REGIONS_URL + '/' + encodeURIComponent(r.id) + '/download',
+                { method: 'POST', headers: _apiHeaders({}) },
+            );
+            const result = await resp.json().catch(function () { return {}; });
+            if (!resp.ok) throw new Error(result.detail || ('HTTP ' + resp.status));
+            feedback.className = 'success';
+            feedback.textContent = 'Downloaded ' + r.id + ' (' + formatBytes(result.size) + ')';
+        } catch (e) {
+            feedback.className = 'error';
+            feedback.textContent = 'Download failed: ' + e.message;
+        }
+        await loadBasemapRegions();
+    }
+
+    /** DELETE the downloaded archive; leaves any vendored copy untouched. */
+    async function removeBasemapRegion(r, feedback) {
+        try {
+            const resp = await fetch(
+                BASEMAP_REGIONS_URL + '/' + encodeURIComponent(r.id),
+                { method: 'DELETE', headers: _apiHeaders({}) },
+            );
+            const result = await resp.json().catch(function () { return {}; });
+            if (!resp.ok) throw new Error(result.detail || ('HTTP ' + resp.status));
+            feedback.className = 'success';
+            feedback.textContent = result.removed
+                ? 'Removed ' + r.id
+                : r.id + ' has no downloaded copy';
+        } catch (e) {
+            feedback.className = 'error';
+            feedback.textContent = 'Remove failed: ' + e.message;
+        }
+        await loadBasemapRegions();
     }
 
     async function saveSettings() {
