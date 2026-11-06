@@ -4,7 +4,7 @@ On startup the dashboard checks whether ``<data_dir>/basemap/region.pmtiles``
 covers the station position. If it doesn't (first run, or the station moved),
 it extracts a square region around the station in the background from the
 first working entry of ``basemap.sources``: by default the basemap-kit planet
-on cloud.hemna.com (haminfo #221), then the Protomaps daily build: with the ``pmtiles`` CLI when it's installed, otherwise
+on aprslive.com (haminfo #221), then the Protomaps daily build: with the ``pmtiles`` CLI when it's installed, otherwise
 with the pure-Python extractor. Nothing needs to be hand-built.
 
 Any failure (no position yet, no network, planet unreachable, region too big)
@@ -96,9 +96,9 @@ def needs_fetch(lat: float, lon: float, radius_km: float, maxzoom: int,
 
 
 #: basemap-kit publish layout (CONTRACT.md / scripts/publish.py):
-#: https://cloud.hemna.com/basemap-kit/archives/<id>.pmtiles. The kit's
+#: https://aprslive.com/basemap-kit/archives/<id>.pmtiles. The kit's
 #: capped-maxzoom planet archive is published as id "planet" (haminfo #221).
-CLOUD_PLANET_URL = "https://cloud.hemna.com/basemap-kit/archives/planet.pmtiles"
+CLOUD_PLANET_URL = "https://aprslive.com/basemap-kit/archives/planet.pmtiles"
 #: Keyword for yesterday's Protomaps daily build.
 PROTOMAPS = "protomaps"
 DEFAULT_SOURCES = [CLOUD_PLANET_URL, PROTOMAPS]

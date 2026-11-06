@@ -781,7 +781,7 @@ def create_basemap_tiles_route(container: ServiceContainer):
 
     ``pmtiles.js`` asks the browser for single byte ranges against this URL;
     the proxy passes each range through to the resolved upstream
-    (cloud.hemna.com first, Protomaps daily fallback) **server-side**, caches
+    (aprslive.com first, Protomaps daily fallback) **server-side**, caches
     the slice, and returns a same-origin 206. The browser never touches
     ``build.protomaps.com`` (CORS-blocked) and no CSP change is needed.
     """

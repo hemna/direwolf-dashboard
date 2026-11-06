@@ -215,8 +215,8 @@ Australia, South America, anywhere. Nothing to build or copy by hand.
    a square of `basemap.radius_km` (default **40 km**) around you, up to
    `basemap.maxzoom` (default **13**), from the first working entry of
    `basemap.sources`:
-   1. the basemap-kit planet on cloud.hemna.com
-      (`https://cloud.hemna.com/basemap-kit/archives/planet.pmtiles`, read with
+   1. the basemap-kit planet on aprslive.com
+      (`https://aprslive.com/basemap-kit/archives/planet.pmtiles`, read with
       HTTP range requests);
    2. otherwise the daily [Protomaps](https://protomaps.com) planet build.
 
@@ -239,7 +239,7 @@ basemap:
   radius_km: 40         # half-width of the square, km
   maxzoom: 13           # 14 roughly doubles the size; 15 again
   sources:              # tried in order; first valid archive wins
-    - https://cloud.hemna.com/basemap-kit/archives/planet.pmtiles
+    - https://aprslive.com/basemap-kit/archives/planet.pmtiles
     - protomaps          # = yesterday's build.protomaps.com planet
   # entries may also be other URLs or local .pmtiles paths
 ```

@@ -183,7 +183,7 @@ def region_archive_info(path: str) -> dict | None:
 # browser never touches an external tile host directly: the served style
 # points the z12+ source at the same-origin proxy route
 # (:data:`UPSTREAM_PROXY_URL`), which passes HTTP byte ranges through to the
-# resolved upstream (``basemap.sources``: cloud.hemna.com first, Protomaps
+# resolved upstream (``basemap.sources``: aprslive.com first, Protomaps
 # daily fallback - or a single pinned :data:`UPSTREAM_URL_ENV` for dev) and
 # caches the slices.
 # ============================================================================
@@ -248,10 +248,10 @@ UPSTREAM_URL_ENV = "DIREWOLF_MAP_TILES_URL"
 PROBE_TIMEOUT_SECONDS = 5.0
 
 #: Ordered upstream sources used when no config is available (the config
-#: ``basemap.sources`` default is identical): cloud.hemna.com first, Protomaps
+#: ``basemap.sources`` default is identical): aprslive.com first, Protomaps
 #: daily build as the fallback (Hemna tile-source rule, aprs-chat-project).
 DEFAULT_UPSTREAM_SOURCES = [
-    "https://cloud.hemna.com/basemap-kit/archives/planet.pmtiles",
+    "https://aprslive.com/basemap-kit/archives/planet.pmtiles",
     "protomaps",
 ]
 
@@ -280,7 +280,7 @@ REGION_MANIFEST_FILE = BASEMAP_DIR / "maps-manifest.json"
 
 #: Published region list the server fetches live (issue #212: the committed
 #: copy is the offline fallback, never the primary source).
-DEFAULT_MANIFEST_URL = "https://cloud.hemna.com/basemap-kit/maps-manifest.json"
+DEFAULT_MANIFEST_URL = "https://aprslive.com/basemap-kit/maps-manifest.json"
 
 #: Live manifest fetch timeout (seconds).
 MANIFEST_FETCH_TIMEOUT = 5.0
@@ -374,13 +374,19 @@ def _validated_manifest(doc, where: str) -> dict:
             if not isinstance(r, dict):
                 raise BasemapSourceError(
                     f"region list at {where}: regions entry is not an object: {r!r}")
-            for key in ("id", "name", "group", "url", "bytes", "sha256",
-                        "maxzoom", "bounds"):
+            for key in ("id", "name", "group", "url", "bytes", "sha256"):
                 if key not in r:
                     raise KeyError(f"region {r.get('id')!r}: {key}")
-            if type(r["maxzoom"]) is not int:
+            # The kit publishes its planet entry without bounds/maxzoom, so both
+            # are optional; validate them only when present.
+            if "maxzoom" in r and type(r["maxzoom"]) is not int:
                 raise BasemapSourceError(
                     f"region list at {where}: region {r['id']!r} maxzoom is not an int")
+            if "bounds" in r and not (
+                isinstance(r["bounds"], list) and len(r["bounds"]) == 4
+            ):
+                raise BasemapSourceError(
+                    f"region list at {where}: region {r['id']!r} bounds is not 4 corners")
         declared = {g["id"] for g in groups}
         unknown = sorted({r["group"] for r in regions if r["group"] not in declared})
         if unknown:

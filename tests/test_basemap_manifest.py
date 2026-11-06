@@ -7,6 +7,7 @@ asserts on the served ``/basemap/maps-manifest.json`` body, the
 404 + traversal) and the 503 + caplog manifest error shapes.
 """
 
+import hashlib
 import json
 from types import SimpleNamespace
 
@@ -28,6 +29,23 @@ from starlette.applications import Starlette
 from starlette.testclient import TestClient
 
 SAMPLE = BASEMAP_DIR / "regions" / "sample.pmtiles"
+
+
+def test_vendored_archives_match_the_committed_list():
+    # A client verifies the archive length and sha256 from the list and treats
+    # a mismatch as permanent, so every published region this repo vendors must
+    # be the exact archive the list describes.
+    published = {r["id"]: r for r in kit_region_manifest()["regions"]}
+    checked = []
+    for arc in sorted((BASEMAP_DIR / "regions").glob("*.pmtiles")):
+        reg = published.get(arc.stem)
+        if reg is None:
+            continue  # the sample fallback is not a published region
+        data = arc.read_bytes()
+        assert len(data) == reg["bytes"], arc.name
+        assert hashlib.sha256(data).hexdigest() == reg["sha256"], arc.name
+        checked.append(arc.stem)
+    assert checked == ["world"]
 
 # ---------------------------------------------------------------------------
 # A kit manifest shape (hemna/basemap-kit, docs/CLIENTS.md §2)
@@ -57,7 +75,7 @@ def _kit_manifest(regions=("sample", "world")):
             {"id": rid,
              "name": rid.title(),
              "group": "sample" if rid == "sample" else "world",
-             "url": f"pmtiles://https://cloud.hemna.com/basemap-kit/"
+             "url": f"pmtiles://https://aprslive.com/basemap-kit/"
                     f"archives/{rid}.pmtiles",
              "bytes": 999999,
              "sha256": "a" * 64,
@@ -76,7 +94,7 @@ def _full_kit_manifest():
         {"id": f"{g['id']}-{i}",
          "name": f"{g['name']} {i}",
          "group": g["id"],
-         "url": f"pmtiles://https://cloud.hemna.com/basemap-kit/"
+         "url": f"pmtiles://https://aprslive.com/basemap-kit/"
                 f"archives/{g['id']}-{i}.pmtiles",
          "bytes": 999999,
          "sha256": "a" * 64,
@@ -153,10 +171,22 @@ def test_loader_raises_when_the_file_is_not_valid_json(tmp_path):
 
 def test_loader_raises_when_a_region_field_is_missing(tmp_path):
     doc = _kit_manifest()
-    del doc["regions"][0]["bounds"]
+    del doc["regions"][0]["url"]
     path = _write_manifest(tmp_path, doc)
-    with pytest.raises(BasemapSourceError, match="bounds"):
+    with pytest.raises(BasemapSourceError, match="url"):
         kit_region_manifest(path)
+
+
+def test_loader_accepts_the_kit_planet_entry_without_bounds_or_maxzoom(tmp_path):
+    # The published list carries a capped planet entry with no bounds/maxzoom;
+    # both are optional, so the published list must load unchanged.
+    doc = _kit_manifest()
+    del doc["regions"][0]["bounds"]
+    del doc["regions"][0]["maxzoom"]
+    path = _write_manifest(tmp_path, doc)
+    loaded = kit_region_manifest(path)
+    assert "bounds" not in loaded["regions"][0]
+    assert "maxzoom" not in loaded["regions"][0]
 
 
 def test_loader_raises_when_a_region_points_at_an_undeclared_group(tmp_path):
@@ -245,7 +275,7 @@ def _basemap_app() -> Starlette:
 
 
 def test_maps_manifest_serves_the_kit_list_verbatim():
-    # The committed kit list (33 regions) served through this app must
+    # The committed kit list served through this app must
     # carry its groups untouched and only the regions this host can
     # actually serve — every field verbatim, only ``url`` rewritten to
     # the same-origin archive route (never the kit's production host).
@@ -261,7 +291,7 @@ def test_maps_manifest_serves_the_kit_list_verbatim():
             assert part.headers["accept-ranges"] == "bytes"
     assert r.status_code == 200
     assert body["groups"] == published["groups"]
-    assert [reg["id"] for reg in body["regions"]] == ["sample", "world"]
+    assert [reg["id"] for reg in body["regions"]] == ["world"]
     published_by_id = {reg["id"]: reg for reg in published["regions"]}
     for served in body["regions"]:
         kit_region = published_by_id[served["id"]]
@@ -269,7 +299,7 @@ def test_maps_manifest_serves_the_kit_list_verbatim():
             k: v for k, v in kit_region.items() if k != "url"
         }
         assert served["url"] == f"/basemap/regions/{served['id']}.pmtiles"
-    assert "cloud.hemna.com" not in r.text
+    assert "aprslive.com" not in r.text
     assert r.headers["cache-control"] == "no-cache"
     assert r.headers["access-control-allow-origin"] == "*"
 
