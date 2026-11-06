@@ -114,7 +114,7 @@ def test_styles_rewritten_to_local_urls(client):
 
     for theme in ("light", "dark"):
         text = (BASEMAP / f"style.{theme}.json").read_text(encoding="utf-8")
-        assert "cloud.hemna.com" not in text, f"style.{theme}.json still references cloud.hemna.com"
+        assert "aprslive.com" not in text, f"style.{theme}.json still references aprslive.com"
         assert "__MAP_TILES_URL__" not in text, f"style.{theme}.json still has the tile token"
 
         style = json.loads(text)
@@ -384,7 +384,7 @@ def test_upstream_sources_from_config_cloud_first():
 
     class _Basemap:
         sources = [
-            "https://cloud.hemna.com/basemap-kit/archives/planet.pmtiles",
+            "https://aprslive.com/basemap-kit/archives/planet.pmtiles",
             "protomaps",
         ]
 
@@ -392,7 +392,7 @@ def test_upstream_sources_from_config_cloud_first():
         basemap = _Basemap()
 
     srcs = upstream_sources(_Cfg())
-    assert srcs[0].startswith("https://cloud.hemna.com")
+    assert srcs[0].startswith("https://aprslive.com")
     assert srcs[1] == "protomaps"
 
 
@@ -403,7 +403,7 @@ def test_resolve_upstream_primary_cloud_wins(monkeypatch):
 
     def _probe(src):
         calls.append(src)
-        assert src.startswith("https://cloud.hemna.com"), src
+        assert src.startswith("https://aprslive.com"), src
         return {"max_zoom": 15}
 
     monkeypatch.delenv(basemap_module.UPSTREAM_URL_ENV, raising=False)
@@ -411,7 +411,7 @@ def test_resolve_upstream_primary_cloud_wins(monkeypatch):
     url, _label, header = basemap_module._resolve_style(
         basemap_module.DEFAULT_UPSTREAM_SOURCES, probe=_probe
     )
-    assert url.startswith("https://cloud.hemna.com")
+    assert url.startswith("https://aprslive.com")
     assert header["max_zoom"] == 15
     assert len(calls) == 1  # cloud wins; protomaps never probed
 
@@ -423,7 +423,7 @@ def test_resolve_upstream_falls_back_to_protomaps(monkeypatch):
 
     def _probe(src):
         calls.append(src)
-        if src.startswith("https://cloud.hemna.com"):
+        if src.startswith("https://aprslive.com"):
             raise basemap_module.BasemapSourceError("HTTP 404 not found")
         return {"max_zoom": 15}
 

@@ -144,8 +144,8 @@ def test_cli_fetch_success(tmp_path):
     cmd = captured["cmd"]
     assert cmd[0:2] == ["pmtiles", "extract"]
     planet, tmp_out = cmd[2], cmd[3]
-    # first configured source: the basemap-kit planet on cloud.hemna.com
-    assert planet == "https://cloud.hemna.com/basemap-kit/archives/planet.pmtiles"
+    # first configured source: the basemap-kit planet on aprslive.com
+    assert planet == "https://aprslive.com/basemap-kit/archives/planet.pmtiles"
     assert tmp_out == str(out) + ".tmp.pmtiles"
     assert cmd[4].startswith("--bbox=")
     assert cmd[5] == "--maxzoom=13"  # basemap.maxzoom default

@@ -25,15 +25,15 @@ paths at pin time — the map needs zero internet.
 
 The two style files are *not* byte-identical to the kit: the zero-internet
 requirement means sprite/glyph/tile URLs are rewritten from the kit's
-`cloud.hemna.com` base to this app's own static mount. Exact rewrites applied
-(measured on the rewritten files — 0 `cloud.hemna.com` / `__MAP_TILES_URL__`
+`aprslive.com` base to this app's own static mount. Exact rewrites applied
+(measured on the rewritten files — 0 `aprslive.com` / `__MAP_TILES_URL__`
 remaining):
 
 | Kit field | Kit value | Rewritten to |
 |---|---|---|
-| `glyphs` | `https://cloud.hemna.com/basemap-kit/fonts/{fontstack}/{range}.pbf` | `/static/basemap/fonts/{fontstack}/{range}.pbf` |
-| `sprite[].url` (default) | `https://cloud.hemna.com/basemap-kit/sprites/light` (dark) | `/static/basemap/sprites/light` (dark) |
-| `sprite[].url` (aprs) | `https://cloud.hemna.com/basemap-kit/sprites/aprs` | `/static/basemap/sprites/aprs` |
+| `glyphs` | `https://aprslive.com/basemap-kit/fonts/{fontstack}/{range}.pbf` | `/static/basemap/fonts/{fontstack}/{range}.pbf` |
+| `sprite[].url` (default) | `https://aprslive.com/basemap-kit/sprites/light` (dark) | `/static/basemap/sprites/light` (dark) |
+| `sprite[].url` (aprs) | `https://aprslive.com/basemap-kit/sprites/aprs` | `/static/basemap/sprites/aprs` |
 | `sources.protomaps.url` | `__MAP_TILES_URL__` | `/static/basemap/regions/sample.pmtiles` |
 
 The tile URL is baked to the **default** region archive from the config seam
