@@ -2846,7 +2846,8 @@ kbd {
     left: 8px;
     bottom: 8px;
     width: 254px;
-    z-index: 90;
+    /* above #topnav/#toolrow (both z-index 110) so the TOOLS header and close stay clickable */
+    z-index: 120;
     background: var(--overlay-bg);
     border: 1px solid var(--overlay-border);
     border-radius: 8px;
