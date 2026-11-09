@@ -7159,7 +7159,7 @@
     // the top-toolbar controls (Find + station count).
     window.__dwToolbar = {
         getStation: function (cs) { return stations[cs] || null; },
-        flyTo: function (lat, lng, zoom) { mapFlyTo(lat, lng, zoom); },
+        flyTo: function (lat, lng, zoom) { mapFlyTo(lat, lng, toMlZoom(zoom)); },
         stationCount: function () {
             var n = 0;
             for (var k in stations) {
