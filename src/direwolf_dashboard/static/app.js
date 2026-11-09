@@ -19,6 +19,16 @@
     let wsReconnectDelay = 1000;
     let config = {};
     let stations = {};      // callsign -> { data, popupDiv }
+
+    // Issue #218: total height of the top toolbar chrome (both bands).
+    function toolbarChromeHeight() {
+        var h = 0;
+        var tn = document.getElementById('topnav'); if (tn) h += tn.offsetHeight;
+        var tr = document.getElementById('toolrow'); if (tr) h += tr.offsetHeight;
+        var t = document.getElementById('toolbar'); if (t) h += t.offsetHeight;
+        return h || 82;
+    }
+
     // Main map is MapLibre (issue #125); Leaflet-only paths are guarded on this.
     let mainMapIsMaplibre = false;
     // GeoJSON features (callsign -> Feature) backing the maplibre station layers.
@@ -5234,9 +5244,8 @@
 
         // Set default map height to 2/3 viewport if no saved height exists
         if (!localStorage.getItem(MAP_HEIGHT_KEY)) {
-            var toolbar = document.getElementById('toolbar');
             var footer = document.getElementById('footer');
-            var chrome = (toolbar ? toolbar.offsetHeight : 40) + (footer ? footer.offsetHeight : 24);
+            var chrome = toolbarChromeHeight() + (footer ? footer.offsetHeight : 24);
             var available = window.innerHeight - chrome;
             var defaultMapHeight = Math.round(available * 2 / 3);
             localStorage.setItem(MAP_HEIGHT_KEY, defaultMapHeight + 'px');
@@ -5351,11 +5360,10 @@
         }
 
         function doResize(clientY) {
-            var toolbar = document.getElementById('toolbar');
             var footer = document.getElementById('footer');
             var minMap = 150;
             var minLog = 80;
-            var maxMap = window.innerHeight - (toolbar ? toolbar.offsetHeight : 40) - (footer ? footer.offsetHeight : 24) - minLog;
+            var maxMap = window.innerHeight - toolbarChromeHeight() - (footer ? footer.offsetHeight : 24) - minLog;
             var newHeight = Math.max(minMap, Math.min(maxMap, startHeight + (clientY - startY)));
             mapContainer.style.height = newHeight + 'px';
             map.resize();
@@ -7146,4 +7154,18 @@
         });
     }
 
+
+    // Toolbar bridge (issue #218): expose the main map and station registry to
+    // the top-toolbar controls (Find + station count).
+    window.__dwToolbar = {
+        getStation: function (cs) { return stations[cs] || null; },
+        flyTo: function (lat, lng, zoom) { mapFlyTo(lat, lng, zoom); },
+        stationCount: function () {
+            var n = 0;
+            for (var k in stations) {
+                if (Object.prototype.hasOwnProperty.call(stations, k)) n++;
+            }
+            return n;
+        },
+    };
 })();
