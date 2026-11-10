@@ -75,7 +75,8 @@ def test_toolpanel_never_over_the_top_bands():
         "map container must create a stacking context that confines the panel "
         "below the two top bands"
     )
-    band_z = lambda sel: int(re.search(r"z-index:\s*(\d+)", _block(css, sel)).group(1))
+    def band_z(sel):
+        return int(re.search(r"z-index:\s*(\d+)", _block(css, sel)).group(1))
     assert band_z("#topnav") == 110 and band_z("#toolrow") == 110, (
         "both top bands must stay at z-index 110"
     )
