@@ -67,6 +67,11 @@
             <button id="btn-mobile-menu" title="Menu" class="mobile-only">&#8942;</button>
         </div>
     </div>
+    <!-- Issue #218 round 14: the waiting message is a row of the page's own
+         layout, not a floating box. Every floated position it could take on a
+         phone window covered a map control, so it now takes space under the
+         tool row and overlaps nothing at any size. -->
+    <div id="waiting-toast" class="toast hidden">Waiting for first position packet...</div>
     <!-- Mobile dropdown menu -->
     <div id="mobile-menu" class="mobile-menu hidden">
         <div class="mobile-menu-buttons">
@@ -246,7 +251,6 @@
             </div>
         </div>
     </div>
-    <div id="waiting-toast" class="toast hidden">Waiting for first position packet...</div>
 
     <!-- Decode APRS Packet Modal -->
     <div id="decode-modal" class="modal hidden">

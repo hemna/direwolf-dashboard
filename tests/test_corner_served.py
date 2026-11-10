@@ -18,6 +18,11 @@ pixels for the same head (172/172 with no bar, 172/184 with a 12px one), so
 the page hides the platform bar and paints its own track and thumb. The tests
 below assert that no platform gutter is reserved at all, that the drawn
 indicator exists in a gutter clear of the rows, and that it moves on scroll.
+Round 13 swept eleven viewports and named its pairs by hand, so both reviewers
+still found seven overlaps at that head. Round 14 sweeps the whole reviewed
+matrix (11 widths x 8 heights plus 560x720 and 560x800) in both themes with
+the reviewers' 170px-wide legend, hits every control centre, and reads the
+waiting message from the page's own layout.
 """
 import json
 import shutil
@@ -33,7 +38,6 @@ import httpx
 import pytest
 import uvicorn
 from websockets.sync.client import connect
-
 
 CHROMIUM = (
     shutil.which("chromium")
@@ -336,115 +340,34 @@ def test_served_open_card_stays_inside_the_map_and_hides_the_other(served):
 # both placements are computed by app.js. The weather-legend body is filled
 # here with a 480px block (the dev data's own row is 480px) so the check does
 # not depend on the throwaway data directory having weather stations.
-TOAST_AND_LEGEND = r"""
+# --- Round 14 -------------------------------------------------------------
+# Round 13's guard swept eleven viewports and only asserted pairs it named.
+# Both reviewers found seven more defects at that head, so this guard measures
+# the real served page at every viewport the issue reviews (11 widths x 8
+# heights plus 560x720 and 560x800) in both themes, with a weather-legend body
+# at the 170px width both reviewers measured. It fails on any pair a person can
+# see, on any control whose centre a click does not reach, on a left column that
+# scrolls, or on a waiting message that is not a row of the layout.
+ROUND14_VIEWPORTS = [
+    (w, h)
+    for w in (320, 344, 360, 375, 400, 480, 560, 1024, 1100, 1280, 1600)
+    for h in (400, 432, 480, 568, 600, 720, 800, 900)
+] + [(560, 720), (560, 800)]
+
+ROUND14_FIXTURE = r"""
 (() => {
-  const r = (el) => { if (!el) return null; const b = el.getBoundingClientRect();
-    return {top: +b.top.toFixed(1), bottom: +b.bottom.toFixed(1),
-            left: +b.left.toFixed(1), right: +b.right.toFixed(1),
-            width: +b.width.toFixed(1), height: +b.height.toFixed(1)}; };
-  const share = (a, b) => {
-    if (!a || !b) return 0;
-    const w = Math.min(a.right, b.right) - Math.max(a.left, b.left);
-    const h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
-    return (w > 0 && h > 0) ? +(w * h).toFixed(1) : 0;
-  };
-  const toast = document.getElementById('waiting-toast');
-  // A viewport change repositions a toast that is showing; this is the same
-  // path a person's resize takes.
-  toast.classList.remove('hidden');
-  window.dispatchEvent(new Event('resize'));
+  // Content only: the weather rows the dev page shows (480px tall) at a width
+  // that holds the legend at its 170px max-width — the size at which both
+  // reviewers measured 1836.0 / 3120.8 / 2988.0 / 1568.8. Every position is
+  // still the page's own decision; nothing here places a box.
   const wx = document.getElementById('legend-wx-body');
-  if (wx) wx.innerHTML = '<div style="height:480px">weather legend</div>';
-  const rail = document.querySelector('.maplibregl-ctrl-top-left');
-  const legend = document.querySelector('.map-legend');
-  const filter = document.querySelector('.filter-overlay');
-  const myloc = document.querySelector('.my-location-overlay');
-  const zoom = document.querySelector(
-    '.maplibregl-ctrl-top-left .maplibregl-ctrl-group');
-  const attrib = document.querySelector(
-    '.maplibregl-ctrl-bottom-right .maplibregl-ctrl-attrib');
-  return {
-    viewport: [innerWidth, innerHeight],
-    bandsBottom: Math.max(...['topnav', 'toolrow'].map((id) => {
-      const el = document.getElementById(id);
-      return el ? r(el).bottom : 0; })),
-    map: r(document.getElementById('map-container')),
-    toast: r(toast),
-    legend: r(legend),
-    legendMax: legend ? getComputedStyle(legend).maxHeight : null,
-    toastFilter: share(r(toast), r(filter)),
-    toastMyloc: share(r(toast), r(myloc)),
-    legendRail: share(r(legend), r(rail)),
-    legendZoom: share(r(legend), r(zoom)),
-    legendAttrib: share(r(legend), r(attrib)),
-  };
-})()
-"""
-
-
-def test_served_waiting_toast_clears_the_corner_cards(served):
-    """Round 12 / defect A: centred at 560px wide, the toast's right edge
-    reached 43.6px into the Filters card (2092.8 px² measured at 560x800).
-    It must sit beside the cards at narrow widths, still under both bands and
-    fully inside the viewport at a 400px window, and must not move at all on a
-    wide map."""
-    for w, h in ((560, 800), (560, 400), (1280, 800)):
-        with _page(served, w, h) as cdp:
-            data = cdp.eval(TOAST_AND_LEGEND)
-        assert data["toastFilter"] == 0, (w, h, data)
-        assert data["toastMyloc"] == 0, (w, h, data)
-        assert data["toast"]["top"] >= data["bandsBottom"], (w, h, data)
-        assert data["toast"]["left"] >= 8, (w, h, data)
-        assert data["toast"]["right"] <= data["viewport"][0] - 8, (w, h, data)
-
-
-def test_served_legend_clears_the_left_control_rail(served):
-    """Round 12 / defect B: the 911px legend rose 374px above the map and sat
-    behind the zoom buttons (29 x 58 px shared box, 1682 px²) and the rest of
-    the left rail. It must clear the whole rail - zoom, readout, stats and GPX
-    - stay inside the map, and stay off the map credit strip in the
-    bottom-right corner, on a tall map and on a short one. The strip sits at
-    x 75.9-350 on a 560px window, so at that width it shares the legend's own
-    corner: on the served fixture the legend covered 1492.8 px² of it
-    (2258.4 px² against the dev data, whose legend has more rows)."""
-    for w, h in ((1280, 800), (1100, 400), (560, 800)):
-        with _page(served, w, h) as cdp:
-            data = cdp.eval(TOAST_AND_LEGEND)
-        assert data["legendRail"] == 0, (w, h, data)
-        assert data["legendZoom"] == 0, (w, h, data)
-        assert data["legendAttrib"] == 0, (w, h, data)
-        assert data["legendMax"] != "none", (w, h, data)
-        assert data["legend"]["top"] >= data["map"]["top"] - 0.5, (w, h, data)
-        assert data["legend"]["bottom"] <= data["map"]["bottom"] + 0.5, (
-            w, h, data)
-# Round 13: the round-12 guards above asked only about the card column, so a
-# 360x800 window passed with 715 px^2 of toast over the GPX panel, and the
-# legend was checked only where its body had room. These two guards sweep the
-# narrow widths (320 included) and the bottom-left column against the 8px
-# resize strip, and they hit-test each control's centre, because a box the
-# toast covers is a control a person cannot click.
-ROUND13_VIEWPORTS = (
-    (320, 568), (320, 800), (360, 800), (400, 800), (480, 800),
-    (560, 720), (560, 800), (1100, 432), (1100, 480), (1100, 560),
-    (1280, 800),
-)
-
-ROUND13_SETUP = r"""
-(() => {
-  const btn = document.getElementById('btn-close-waiting');
-  const modal = document.getElementById('waiting-modal');
-  // Dismissing the modal is the real path that shows the toast.
-  if (modal && !modal.classList.contains('hidden')) { btn && btn.click(); }
-  const toast = document.getElementById('waiting-toast');
-  if (toast) toast.classList.remove('hidden');
-  const wx = document.getElementById('legend-wx-body');
-  if (wx) wx.innerHTML = '<div style="height:480px">weather legend</div>';
+  if (wx) wx.innerHTML = '<div style="width:146px;height:480px">weather</div>';
   window.dispatchEvent(new Event('resize'));
   return true;
 })()
 """
 
-ROUND13 = r"""
+ROUND14 = r"""
 (() => {
   const r = (el) => { if (!el) return null; const b = el.getBoundingClientRect();
     return {top: +b.top.toFixed(1), bottom: +b.bottom.toFixed(1),
@@ -474,31 +397,33 @@ ROUND13 = r"""
     zoom: document.querySelector(
       '.maplibregl-ctrl-top-left .maplibregl-ctrl-group'),
     readout: document.querySelector('.map-zoom-readout'),
-    credit: document.querySelector(
+    attrib: document.querySelector(
       '.maplibregl-ctrl-bottom-right .maplibregl-ctrl-attrib'),
     stats: document.querySelector('.stats-overlay'),
     strip: document.getElementById('map-resize-handle'),
     fabClear: document.getElementById('btn-clear-data'),
     fabCenter: document.getElementById('btn-center-my-pos'),
     map: document.getElementById('map-container'),
+    toolrow: document.getElementById('toolrow'),
+    toolsRight: document.querySelector('.toolrow-right'),
+    find: document.getElementById('dw-find'),
+    btnTools: document.getElementById('btn-tools'),
   };
   const b = {};
   for (const k in el) b[k] = r(el[k]);
-  // What a click at a control's own centre reaches. `elementFromPoint` is the
-  // browser's answer, so a box painted over a control is caught even when the
-  // two boxes barely touch.
+  // What a click at a control's own centre reaches.
   const hits = {};
-  // Only real controls: the zoom readout is a label with pointer-events:none,
-  // and the attribution is a link that already sits behind nothing.
-  const hitKeys = ['filter', 'myloc', 'gpx', 'loadGpx', 'legend', 'stats',
-                   'zoom', 'fabClear', 'fabCenter'];
-  for (const k of hitKeys) {
+  const hitWhat = {};
+  for (const k of ['filter', 'myloc', 'gpx', 'loadGpx', 'legend', 'stats',
+                   'zoom', 'fabClear', 'fabCenter', 'find', 'btnTools']) {
     if (!vis(el[k])) { hits[k] = null; continue; }
     const box = b[k];
     const top = document.elementFromPoint(
       Math.round((box.left + box.right) / 2),
       Math.round((box.top + box.bottom) / 2));
-    hits[k] = !!top && (el[k] === top || el[k].contains(top));
+    hits[k] = !!top && (el[k] === top || el[k].contains(top)
+                        || top.contains(el[k]));
+    hitWhat[k] = top ? (top.id || top.className || top.tagName) : null;
   }
   const pairs = {
     toast_filter: share(b.toast, b.filter),
@@ -506,148 +431,390 @@ ROUND13 = r"""
     toast_gpx: share(b.toast, b.gpx),
     toast_loadGpx: share(b.toast, b.loadGpx),
     toast_legend: share(b.toast, b.legend),
+    toast_stats: share(b.toast, b.stats),
+    toast_fabClear: share(b.toast, b.fabClear),
+    toast_fabCenter: share(b.toast, b.fabCenter),
+    toast_strip: share(b.toast, b.strip),
+    toast_toolrow: share(b.toast, b.toolrow),
     legend_zoom: share(b.legend, b.zoom),
     legend_readout: share(b.legend, b.readout),
     legend_rail: share(b.legend, b.rail),
     legend_gpx: share(b.legend, b.gpx),
-    legend_credit: share(b.legend, b.credit),
-    stats_strip: share(b.stats, b.strip),
+    legend_stats: share(b.legend, b.stats),
+    legend_filter: share(b.legend, b.filter),
+    legend_myloc: share(b.legend, b.myloc),
+    legend_attrib: share(b.legend, b.attrib),
+    legend_fabClear: share(b.legend, b.fabClear),
+    legend_fabCenter: share(b.legend, b.fabCenter),
+    legend_strip: share(b.legend, b.strip),
     gpx_strip: share(b.gpx, b.strip),
+    gpx_stats: share(b.gpx, b.stats),
     loadGpx_strip: share(b.loadGpx, b.strip),
+    stats_strip: share(b.stats, b.strip),
+    stats_myloc: share(b.stats, b.myloc),
     fab_filter: share(b.fabClear, b.filter) + share(b.fabCenter, b.filter),
     fab_myloc: share(b.fabClear, b.myloc) + share(b.fabCenter, b.myloc),
+    fab_attrib: share(b.fabClear, b.attrib) + share(b.fabCenter, b.attrib),
+    fab_strip: share(b.fabClear, b.strip) + share(b.fabCenter, b.strip),
+    fab_legend: share(b.fabClear, b.legend) + share(b.fabCenter, b.legend),
+    find_tools: share(b.find, b.toolsRight),
   };
+  const toastCS = el.toast ? getComputedStyle(el.toast) : null;
   return {
+    viewport: [innerWidth, innerHeight],
     boxes: b,
     hits: hits,
+    hitWhat: hitWhat,
     pairs: pairs,
     bandsBottom: Math.max(...['topnav', 'toolrow'].map((id) => {
       const band = document.getElementById(id);
       return band ? r(band).bottom : 0; })),
+    toastPosition: toastCS ? toastCS.position : null,
     statsTight: el.map.classList.contains('stats-tight'),
     legendTight: el.legend.classList.contains('legend-tight'),
+    legendHidden: el.legend.classList.contains('legend-hidden'),
     fabRow: el.map.classList.contains('fab-row'),
     railScroll: [el.rail.clientHeight, el.rail.scrollHeight],
     shown: {toast: vis(el.toast), gpx: vis(el.gpx), legend: vis(el.legend),
-            stats: vis(el.stats), fabClear: vis(el.fabClear)},
+            stats: vis(el.stats), fabClear: vis(el.fabClear),
+            find: vis(el.find), btnTools: vis(el.btnTools)},
   };
 })()
 """
 
-
-def _round13(served, width, height, theme):
-    with _page(served, width, height, theme=theme) as cdp:
-        cdp.eval(ROUND13_SETUP)
-        # The placements run from a ResizeObserver, which is delivered before
-        # the next frame; give the layout that long to settle.
-        time.sleep(0.45)
-        return cdp.eval(ROUND13)
+_CELL = {"n": 0}
 
 
-@pytest.mark.parametrize("width,height", ROUND13_VIEWPORTS)
-def test_served_no_control_is_covered_at_any_reviewed_size(served, width, height):
-    """Round 13: 0 px^2 for every pair a person can see, in both themes.
+@pytest.fixture(scope="module")
+def browser():
+    """One headless Chromium for every cell of the round-14 matrix.
 
-    Round 12 asserted card clearance only (:391), so 360x800 passed with 715
-    px^2 of toast over the GPX panel, and the legend was never measured against
-    the GPX control. The sweep also covers 320px wide and the bottom-left
-    column against the resize strip."""
+    Round 13 opened a browser per viewport; the matrix is 90 windows in two
+    themes, so one page is reused and only the viewport, the theme and the
+    page storage change between cells. Clearing the storage is what a fresh
+    browser profile does: the app remembers its map view, and a remembered view
+    skips the cold-start waiting message that half of these checks are about.
+    """
+    profile = tempfile.mkdtemp(prefix="cdp-round14-")
+    port = _free_port()
+    proc = subprocess.Popen(
+        [CHROMIUM, "--headless=new", "--no-sandbox", "--disable-gpu",
+         "--disable-dev-shm-usage",
+         f"--remote-debugging-port={port}", f"--user-data-dir={profile}",
+         "about:blank"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        ws_url = None
+        deadline = time.time() + 20
+        while time.time() < deadline and ws_url is None:
+            try:
+                with urllib.request.urlopen(
+                        f"http://127.0.0.1:{port}/json/list", timeout=1) as fh:
+                    pages = [t for t in json.load(fh) if t["type"] == "page"]
+                if pages:
+                    ws_url = pages[0]["webSocketDebuggerUrl"]
+                    break
+            except Exception:
+                pass
+            time.sleep(0.1)
+        assert ws_url, "Chromium never exposed a debugging target"
+        with connect(ws_url, max_size=64 * 1024 * 1024) as ws:
+            cdp = _CDP(ws)
+            cdp.call("Page.enable")
+            cdp.call("Runtime.enable")
+            yield cdp
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        shutil.rmtree(profile, ignore_errors=True)
+
+
+def _cell(cdp, url, width, height, theme="dark"):
+    """One reviewed cell, retried once if the waiting message never appeared.
+
+    The cold-start modal is shown by the page's own boot sequence, so a slow
+    first paint can leave it later than the one fixed settle used here. A cell
+    that really never shows it fails twice.
+    """
+    for _ in range(2):
+        data = _cell_once(cdp, url, width, height, theme)
+        if data["shown"]["toast"]:
+            break
+    return data
+
+
+def _cell_once(cdp, url, width, height, theme="dark"):
+    """One reviewed cell: the served page at an exact viewport, measured."""
+    # Stop the old page first: it keeps writing dw-map-lat/lng, and a remembered
+    # map view skips the cold-start modal — and with it the waiting message
+    # every one of these cells is about.
+    cdp.call("Page.navigate", url="about:blank")
+    cdp.call("Storage.clearDataForOrigin", origin=url.rstrip("/"),
+             storageTypes="local_storage")
+    cdp.call("Emulation.setDeviceMetricsOverride", width=width, height=height,
+             deviceScaleFactor=1, mobile=False)
+    _CELL["n"] += 1
+    mark = f"?cell={_CELL['n']}"
+    cdp.call("Page.navigate", url=url + mark)
+    deadline = time.time() + 40
+    ready = False
+    while time.time() < deadline:
+        try:
+            if cdp.eval(f"location.search === {mark!r} && "
+                        "document.readyState === 'complete' && " + READY):
+                ready = True
+                break
+        except Exception:
+            pass
+        time.sleep(0.05)
+    assert ready, f"{width}x{height}: the page never built the map cards"
+    # The modal appears once the map has initialised; a person waits for it and
+    # closes it, and that is what shows the waiting message.
+    deadline = time.time() + 20
+    while time.time() < deadline:
+        try:
+            if cdp.eval(
+                    "(() => { const m = document.getElementById("
+                    "'waiting-modal'); return !!m && "
+                    "!m.classList.contains('hidden'); })()"):
+                break
+        except Exception:
+            pass
+        time.sleep(0.05)
+    cdp.eval(
+        "(() => { const m = document.getElementById('waiting-modal');"
+        " if (m && !m.classList.contains('hidden')) {"
+        " const b = document.getElementById('btn-close-waiting');"
+        " if (b) b.click(); } })()")
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        try:
+            if cdp.eval(
+                    "(() => { const t = document.getElementById("
+                    "'waiting-toast'); return !!t && "
+                    "!t.classList.contains('hidden'); })()"):
+                break
+        except Exception:
+            pass
+        time.sleep(0.05)
+    cdp.eval(
+        f"document.documentElement.setAttribute('data-theme', {theme!r})")
+    cdp.eval(ROUND14_FIXTURE)
+    time.sleep(0.35)
+    return cdp.eval(ROUND14)
+
+
+def _corner_failures(data, where):
+    """Everything visibly wrong in one cell, as sentences."""
+    bad = []
+    for pair, value in data["pairs"].items():
+        if value:
+            bad.append(f"{where}: {pair} = {value} px2")
+    for key, ok in data["hits"].items():
+        if ok is False:
+            bad.append(f"{where}: a click at the {key} centre reaches "
+                       f"{data['hitWhat'][key]} instead")
+    if data["shown"]["toast"] is not True:
+        bad.append(f"{where}: the waiting message is not shown")
+    if data["railScroll"][0] != data["railScroll"][1]:
+        bad.append(f"{where}: the left column scrolls "
+                   f"({data['railScroll'][0]} of {data['railScroll'][1]})")
+    if data["boxes"]["gpx"]["bottom"] > data["boxes"]["map"]["bottom"]:
+        bad.append(f"{where}: the GPX control ends at "
+                   f"{data['boxes']['gpx']['bottom']} against a map bottom of "
+                   f"{data['boxes']['map']['bottom']}")
+    return bad
+
+
+@pytest.mark.parametrize("theme", ("dark", "light"))
+def test_served_nothing_is_covered_at_any_reviewed_size(served, browser, theme):
+    """Round 14: the full matrix, both themes, nothing covered anywhere.
+
+    The seven defects both reviewers found at 12edb83 are all in this sweep: a
+    waiting message over the GPX panel and its Load button (802.2 / 330.2 at
+    344x800, 715 / 279 at 360x800, 632.2 / 230.4 at 375x800), the same message
+    over the legend (3120.8 / 2988.0 / 1568.8 at the same sizes), the legend
+    over My Location (1836.0 at 320x568 with Stats collapsed), the GPX panel
+    over the 8px resize strip (315.8 at 1024x400 and 1100x400), the two round
+    map buttons over the credit pill (141 at 560x400 and 560x480), the Find
+    input under the tool buttons (1488) and the TOOLS button off the 320px
+    window.
+    """
     failures = []
-    for theme in ("dark", "light"):
-        data = _round13(served, width, height, theme)
+    for width, height in ROUND14_VIEWPORTS:
+        data = _cell(browser, served, width, height, theme)
         where = f"{width}x{height} {theme}"
-        for pair, value in data["pairs"].items():
-            if value:
-                failures.append(f"{where}: {pair} = {value} px2")
-        for key, ok in data["hits"].items():
-            if ok is False:
-                failures.append(
-                    f"{where}: a click at the {key} centre does not reach it "
-                    f"({data['boxes'][key]})")
-        assert data["shown"]["toast"] is True, where
-        assert data["shown"]["gpx"] is True, (where, data["boxes"]["gpx"])
-        # The left column must never grow a scrollbar: round 12's reviewers
-        # rejected a panel whose last row sat below an almost invisible bar.
-        assert data["railScroll"][0] == data["railScroll"][1], (
-            f"{where}: the left column scrolls "
-            f"({data['railScroll'][0]} of {data['railScroll'][1]} visible); "
-            f"stats-tight={data['statsTight']}")
-        assert data["boxes"]["gpx"]["bottom"] <= data["boxes"]["map"]["bottom"], (
-            f"{where}: the GPX control ends "
-            f"{data['boxes']['gpx']['bottom']} against a map bottom of "
-            f"{data['boxes']['map']['bottom']}")
-        assert data["boxes"]["legend"]["top"] >= data["boxes"]["map"]["top"] - 0.5
-        assert (data["boxes"]["legend"]["bottom"]
-                <= data["boxes"]["map"]["bottom"] + 0.5), (where, data["boxes"])
-    assert not failures, failures
-
-
-def test_served_toast_is_placed_by_measurement_on_a_narrow_window(served):
-    """D-1: at 320px wide the toast is 160x63 and the round-12 fallback put it
-    on the left control rail - 933 px^2 over the GPX panel and 407 over Load
-    GPX. It must land in the one clear strip between the card column, the GPX
-    panel, the legend and the trash button, and stay under both bands."""
-    for theme in ("dark", "light"):
-        data = _round13(served, 320, 568, theme)
+        failures += _corner_failures(data, where)
+        # The waiting message is a row of the layout: it spans the page under
+        # both bands and ends where the map starts, in every window.
         toast = data["boxes"]["toast"]
-        assert data["pairs"]["toast_gpx"] == 0, (theme, data["pairs"])
-        assert data["pairs"]["toast_loadGpx"] == 0, (theme, data["pairs"])
-        assert data["pairs"]["toast_legend"] == 0, (theme, data["pairs"])
-        assert data["pairs"]["toast_filter"] == 0, (theme, data["pairs"])
-        assert data["pairs"]["toast_myloc"] == 0, (theme, data["pairs"])
-        assert toast["left"] >= 8, (theme, toast)
-        assert toast["right"] <= 320 - 8, (theme, toast)
-        assert toast["top"] >= data["bandsBottom"], (theme, toast)
+        if data["toastPosition"] != "static":
+            failures.append(f"{where}: the waiting message floats "
+                            f"({data['toastPosition']})")
+        if toast["left"] != 0 or toast["right"] != data["viewport"][0]:
+            failures.append(f"{where}: the waiting message spans "
+                            f"{toast['left']}..{toast['right']} of "
+                            f"{data['viewport'][0]}")
+        if toast["top"] < data["bandsBottom"] - 0.5:
+            failures.append(f"{where}: the waiting message starts at "
+                            f"{toast['top']}, above the bands at "
+                            f"{data['bandsBottom']}")
+        if toast["bottom"] > data["boxes"]["map"]["top"] + 0.5:
+            failures.append(f"{where}: the waiting message ends at "
+                            f"{toast['bottom']}, below the map top at "
+                            f"{data['boxes']['map']['top']}")
+        if data["shown"]["legend"]:
+            legend = data["boxes"]["legend"]
+            if legend["top"] < data["boxes"]["map"]["top"] - 0.5:
+                failures.append(f"{where}: the legend starts above the map "
+                                f"({legend['top']})")
+            if legend["bottom"] > data["boxes"]["map"]["bottom"] + 0.5:
+                failures.append(f"{where}: the legend ends below the map "
+                                f"({legend['bottom']})")
+    assert not failures, "\n".join(failures)
 
 
-def test_served_legend_collapses_instead_of_covering_the_gpx_panel(served):
-    """D-2: the 120px floor painted the legend over the GPX panel at 320x568
-    (6407 px^2, header underneath). Too little room for a body means the
-    header alone, and the body comes back at 320x800."""
-    for theme in ("dark", "light"):
-        short = _round13(served, 320, 568, theme)
-        assert short["legendTight"] is True, (theme, short["boxes"]["legend"])
-        assert short["pairs"]["legend_gpx"] == 0, (theme, short["pairs"])
-        assert short["pairs"]["legend_rail"] == 0, (theme, short["pairs"])
-        assert short["pairs"]["legend_credit"] == 0, (theme, short["pairs"])
-        assert short["boxes"]["legend"]["height"] <= 60, (
-            theme, short["boxes"]["legend"])
-        tall = _round13(served, 320, 800, theme)
-        assert tall["legendTight"] is False, (theme, tall["boxes"]["legend"])
-        assert tall["boxes"]["legend"]["height"] > 120, (
-            theme, tall["boxes"]["legend"])
+def _open_stats(cdp):
+    """Click the Stats header the way a person does, then reach its rows."""
+    cdp.eval("document.querySelector('.stats-overlay-header').click()")
+    time.sleep(0.25)
+    cdp.eval("(() => { const rail = document.querySelector("
+             "'.maplibregl-ctrl-top-left');"
+             " if (rail) rail.scrollTop = rail.scrollHeight; })()")
+    time.sleep(0.2)
+    return cdp.eval(r"""
+(() => {
+  const rail = document.querySelector('.maplibregl-ctrl-top-left');
+  const card = document.querySelector('.stats-overlay');
+  const rb = rail.getBoundingClientRect();
+  const rows = [...document.querySelectorAll('.stats-overlay-row')];
+  return {
+    open: card.classList.contains('stats-open'),
+    card: card.getBoundingClientRect().toJSON(),
+    rail: {top: rb.top, bottom: rb.bottom},
+    scroll: [rail.clientHeight, rail.scrollHeight],
+    rows: rows.map((row) => {
+      const b = row.getBoundingClientRect();
+      const cx = Math.round((b.left + b.right) / 2);
+      const cy = Math.round((b.top + b.bottom) / 2);
+      const top = document.elementFromPoint(cx, cy);
+      return {text: row.textContent.trim(),
+              inside: cy > rb.top && cy < rb.bottom,
+              hit: !!top && row.contains(top)};
+    }),
+  };
+})()
+""")
 
 
-def test_served_left_column_clears_the_resize_strip(served):
-    """D-3: the bottom-left column ran past the map bottom, so at 1100x432 the
-    Stats box lay 880 px^2 over the 8px resize strip and at 1100x480 the GPX
-    panel sat entirely below the map (Load GPX unreachable). Every control in
-    the column must end above the strip, with no scrollbar to hide it."""
-    for width, height in ((1100, 432), (1100, 480), (1100, 560), (1280, 800)):
+def test_served_stats_shows_its_values_in_a_short_window(served, browser):
+    """Item 5: at 1100x432 and 1024x400 the Stats box was a 110x32 header with
+    four values nobody could reach, and the header click only toggled a class.
+    The header now opens the body; the column scrolls and the card stays inside
+    its own cap, so no value is painted over the resize strip."""
+    for width, height in ((1100, 432), (1100, 480), (1100, 560), (1024, 400),
+                          (320, 568)):
         for theme in ("dark", "light"):
-            data = _round13(served, width, height, theme)
             where = f"{width}x{height} {theme}"
-            assert data["pairs"]["stats_strip"] == 0, (where, data["pairs"])
+            data = _cell(browser, served, width, height, theme)
+            assert data["statsTight"] is True, where
+            assert data["boxes"]["stats"]["height"] <= 40, (where, data)
+            opened = _open_stats(browser)
+            assert opened["open"] is True, where
+            assert len(opened["rows"]) == 4, (where, opened)
+            for row in opened["rows"]:
+                assert row["inside"], (where, row, opened)
+                assert row["hit"], (where, row, opened)
+            assert opened["card"]["bottom"] <= opened["rail"]["bottom"] + 0.5, (
+                where, opened)
+
+
+def test_served_waiting_message_is_a_row_of_the_layout(served, browser):
+    """Item 1: a floating box has no clear spot at 344-375px wide or at
+    320x400, so it covered the GPX panel, its Load button and the legend in
+    both themes. It is a row of the page now, under the tool row."""
+    for width, height in ((320, 400), (320, 568), (344, 800), (360, 720),
+                          (360, 800), (375, 800), (560, 720), (560, 800)):
+        for theme in ("dark", "light"):
+            data = _cell(browser, served, width, height, theme)
+            where = f"{width}x{height} {theme}"
+            assert data["toastPosition"] == "static", (where, data)
+            for pair in ("toast_filter", "toast_myloc", "toast_gpx",
+                         "toast_loadGpx", "toast_legend", "toast_stats",
+                         "toast_strip"):
+                assert data["pairs"][pair] == 0, (where, pair, data["pairs"])
+
+
+def test_served_legend_yields_instead_of_covering_a_control(served, browser):
+    """Item 2: on a 320x568 window with the reviewers' 170px-wide legend there
+    is no 42px band left that is clear of the corner cards, so the passive key
+    is hidden rather than painted over My Location (1836.0 px^2). Where there
+    is room, the body is shown and clear of every control."""
+    short = _cell(browser, served, 320, 568, "dark")
+    assert short["legendHidden"] is True, short["boxes"]["legend"]
+    assert short["hits"]["myloc"] is True, short["hitWhat"]
+    for width, height in ((344, 800), (560, 800), (1280, 800)):
+        for theme in ("dark", "light"):
+            data = _cell(browser, served, width, height, theme)
+            where = f"{width}x{height} {theme}"
+            assert data["shown"]["legend"] is True, (where, data)
+            assert data["boxes"]["legend"]["height"] > 42, (where, data)
+            for pair in ("legend_zoom", "legend_readout", "legend_rail",
+                         "legend_gpx", "legend_stats", "legend_filter",
+                         "legend_myloc", "legend_attrib"):
+                assert data["pairs"][pair] == 0, (where, pair, data["pairs"])
+
+
+def test_served_left_column_clears_the_resize_strip(served, browser):
+    """Item 3: the GPX panel met the 8px resize strip at 1024x400 and 1100x400
+    (315.8 px^2). Every control in the column ends above the strip, with no
+    scrollbar to hide the last row."""
+    for width, height in ((1024, 400), (1100, 400), (1100, 432), (1100, 480),
+                          (1100, 560), (1280, 800)):
+        for theme in ("dark", "light"):
+            data = _cell(browser, served, width, height, theme)
+            where = f"{width}x{height} {theme}"
             assert data["pairs"]["gpx_strip"] == 0, (where, data["pairs"])
+            assert data["pairs"]["stats_strip"] == 0, (where, data["pairs"])
             assert data["pairs"]["loadGpx_strip"] == 0, (where, data["pairs"])
             assert data["railScroll"][0] == data["railScroll"][1], (
-                f"{where}: the column scrolls; stats-tight={data['statsTight']}")
-            assert data["hits"]["gpx"] is True, (where, data["boxes"]["gpx"])
-            assert data["hits"]["loadGpx"] is True, (
-                where, data["boxes"]["loadGpx"])
+                f"{where}: the column scrolls ({data['railScroll']})")
+            assert data["hits"]["gpx"] is True, (where, data["hitWhat"])
+            assert data["hits"]["loadGpx"] is True, (where, data["hitWhat"])
 
 
-def test_served_map_buttons_step_aside_for_the_corner_cards(served):
-    """D-4: the two round map buttons stacked 88px up the right edge and met
-    the card column at 1100x560 (1080 px^2 over the Filters card, 360 over My
-    Location). They move into a row clear of the cards, and keep their usual
-    stacked corner where there is room."""
-    for theme in ("dark", "light"):
-        short = _round13(served, 1100, 560, theme)
-        assert short["fabRow"] is True, theme
-        assert short["pairs"]["fab_filter"] == 0, (theme, short["pairs"])
-        assert short["pairs"]["fab_myloc"] == 0, (theme, short["pairs"])
-        assert short["hits"]["fabClear"] is True, (theme, short["boxes"])
-        tall = _round13(served, 1280, 800, theme)
-        assert tall["fabRow"] is False, theme
-        assert tall["pairs"]["fab_filter"] == 0, (theme, tall["pairs"])
+def test_served_map_buttons_clear_the_credit_pill(served, browser):
+    """Item 7: in row mode the two round buttons met the map credit pill at
+    560x400 and 560x480 (141 px^2 into its rounded corner). They keep their
+    size and order and lift clear of it."""
+    for width, height in ((560, 400), (560, 480), (560, 720), (1100, 560),
+                          (1280, 800)):
+        for theme in ("dark", "light"):
+            data = _cell(browser, served, width, height, theme)
+            where = f"{width}x{height} {theme}"
+            assert data["pairs"]["fab_attrib"] == 0, (where, data["pairs"])
+            assert data["pairs"]["fab_filter"] == 0, (where, data["pairs"])
+            assert data["pairs"]["fab_myloc"] == 0, (where, data["pairs"])
+            assert data["pairs"]["fab_strip"] == 0, (where, data["pairs"])
+            assert data["hits"]["fabClear"] is True, (where, data["hitWhat"])
+            assert data["hits"]["fabCenter"] is True, (where, data["hitWhat"])
+
+
+def test_served_tool_row_keeps_every_control_reachable(served, browser):
+    """Items 4 and 6: below 600px the tool buttons were wider than the window,
+    so the TOOLS button sat 8px past the right edge and the overflow painted
+    over the Find input (1488 px^2; a click at its centre reached the
+    station-list button instead)."""
+    for width, height in ((320, 568), (320, 400), (344, 800), (360, 720),
+                          (375, 800), (400, 400), (480, 568), (560, 400)):
+        for theme in ("dark", "light"):
+            data = _cell(browser, served, width, height, theme)
+            where = f"{width}x{height} {theme}"
+            assert data["pairs"]["find_tools"] == 0, (where, data["pairs"])
+            assert data["hits"]["find"] is True, (where, data["hitWhat"])
+            assert data["shown"]["btnTools"] is True, (where, data)
+            assert data["hits"]["btnTools"] is True, (where, data["hitWhat"])
+            assert data["boxes"]["btnTools"]["right"] <= width, (where, data)

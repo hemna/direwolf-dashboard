@@ -465,9 +465,13 @@ body.embedded #btn-theme {
 #map-container.fab-row .fab-center {
     left: 12px;
     right: auto;
+    /* Round 14 / item 7: in row mode the pair met the map credit pill at
+     * 560x400 and 560x480 (141 px^2 into its rounded corner). app.js sets
+     * --fab-lift to the pixels needed to clear it. */
+    bottom: calc(24px + var(--fab-lift, 0px));
 }
 #map-container.fab-row .fab-clear {
-    bottom: 24px;
+    bottom: calc(24px + var(--fab-lift, 0px));
     left: 60px;
     right: auto;
 }
@@ -1127,6 +1131,9 @@ a.secondary.btn-as-link:hover {
  * 320x568 window leaves 55.2px under the left control column) shows the header
  * only, instead of a 120px box painted over the GPX panel. The body returns as
  * soon as there is room for it. */
+/* Round 14 / item 2: set by app.js when the key cannot be placed without
+ * covering a control (320x568 with the real 170px-wide legend). */
+.map-legend.legend-hidden { display: none; }
 .map-legend.legend-tight .legend-body {
     display: none;
 }
@@ -1619,22 +1626,18 @@ a.secondary.btn-as-link:hover {
     to { transform: scale(1.1); }
 }
 
-/* Toast notification */
+/* Waiting-message row (issue #218 round 14). Round 13 floated this box and
+ * measured a clear spot for it, but at 344-375px wide and at 320x400 no clear
+ * spot exists: it landed on the GPX panel, on its Load GPX button and on the
+ * legend, in both themes. It is a row of the layout instead, under the tool
+ * row, so it can only take its own space and never paints over a control. */
 .toast {
-    position: fixed;
-    /* Issue #218: fallback only — app.js sets the real top from the measured
-     * bottom of #topnav + #toolrow; 78px is that combined height + 8px. */
-    top: 78px;
-    left: 50%;
-    transform: translateX(-50%);
     background: var(--modal-bg);
     color: var(--text-primary);
-    border: 1px solid var(--border);
-    padding: 8px 20px;
-    border-radius: 6px;
+    border-bottom: 1px solid var(--border);
+    padding: 6px 12px;
     font-size: 13px;
-    z-index: 2000;
-    box-shadow: 0 2px 8px var(--shadow-toast);
+    text-align: center;
 }
 
 /* Waiting modal */
@@ -2799,7 +2802,9 @@ kbd {
     border-radius: 6px;
 }
 #map-container.stats-tight .maplibregl-ctrl-top-left .maplibregl-ctrl {
-    margin-top: 3px;
+    /* Round 14 / item 3: 3px still left the column 3px past its cap at
+     * 1024x400 and 1100x400, so the GPX panel met the 8px resize strip. */
+    margin-top: 1px;
 }
 #map-container.stats-tight .stats-overlay-body {
     display: none;
@@ -2809,6 +2814,21 @@ kbd {
 }
 #map-container.stats-tight .stats-collapse-icon {
     display: none;
+}
+/* Round 14 / item 5: the rules above used to be the end of the story — the four
+ * values were unreachable and the header click only toggled a class. The header
+ * now opens the body. A 400-432px window has no room for it under the column,
+ * so the column itself scrolls (it is already capped, styled and scrollable
+ * since round 13) and every value stays reachable; nothing can paint on the 8px
+ * resize strip because the column clips its own content. */
+#map-container.stats-tight .stats-overlay.stats-open .stats-overlay-body {
+    display: block;
+}
+#map-container.stats-tight .stats-overlay.stats-open .stats-overlay-header {
+    border-bottom: 1px solid var(--overlay-border);
+}
+#map-container.stats-tight .stats-overlay.stats-open .stats-collapse-icon {
+    display: inline;
 }
 /* Issue #218 round 7: at 1100x560 the two-band header leaves a 308px map. The
  * two card paddings below are tightened so the Filters card plus the full My
@@ -3192,4 +3212,25 @@ kbd {
     .tagline, .topnav-nav { display: none; }
     #dw-find { width: 120px; }
     #toolpanel { width: 220px; }
+}
+
+/* Issue #218 round 14 / items 4 and 6: below 600px the tool row's controls are
+ * wider than the window, so #btn-tools sat 8px past the right edge (with no
+ * horizontal scroll, the drawer could not be opened at all) and the overflow
+ * painted over the Find input — a click at the input's centre reached the
+ * station-list button instead. The row now wraps by itself, the count moves to
+ * the Stations panel it duplicates, and below 440px the Find field takes its
+ * own line so every button keeps its 26px target. */
+@media (max-width: 600px) {
+    #toolrow { flex-wrap: wrap; row-gap: 4px; }
+    .toolrow-right { flex-wrap: wrap; row-gap: 4px; }
+    #dw-find { flex: 1 1 120px; width: auto; min-width: 0; max-width: none; }
+    .station-count { display: none; }
+}
+@media (max-width: 440px) {
+    .toolrow-left { flex: 1 1 100%; }
+}
+/* A phone has no keyboard shortcuts: one button less keeps 320px on one line. */
+@media (max-width: 360px) {
+    #btn-keyboard-help { display: none; }
 }

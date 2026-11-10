@@ -559,6 +559,19 @@
         var statsHeader = container.querySelector('.stats-overlay-header');
         var statsIcon = container.querySelector('.stats-collapse-icon');
         statsHeader.addEventListener('click', function () {
+            // Round 14 / item 5: a capped column shows the header only, so a
+            // click opens the body (the column scrolls to it). A tall column
+            // keeps the round-9 behaviour: collapse, and remember it.
+            var tight = cornerMapContainer() &&
+                cornerMapContainer().classList.contains('stats-tight');
+            if (tight) {
+                container.classList.toggle('stats-open');
+                var open = container.classList.contains('stats-open');
+                statsIcon.textContent = open ? '\u25B2' : '\u25BC';
+                updateLeftColumnFit();
+                placeTrailPanel();
+                return;
+            }
             container.classList.toggle('collapsed');
             var isCollapsed = container.classList.contains('collapsed');
             statsIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
@@ -686,10 +699,85 @@
     // at 320x568. The floor is gone: a map too short for a body gets the header
     // only, and the beside-the-column window is used only when nothing in it is
     // covered.
+    // Controls a passive legend may never cover. The control *containers* are
+    // excluded on purpose: a corner box is as big as its last child, so a
+    // transparent container that the legend already sits inside would read as
+    // a collision everywhere.
+    var LEGEND_OBSTACLES = (
+        '.maplibregl-ctrl-top-left .maplibregl-ctrl,' +
+        '.filter-overlay,.my-location-overlay,' +
+        '#btn-clear-data,#btn-center-my-pos,' +
+        '.maplibregl-ctrl-bottom-right .maplibregl-ctrl-attrib,' +
+        '#map-resize-handle');
+    function legendCoversControl(box) {
+        var nodes = document.querySelectorAll(LEGEND_OBSTACLES);
+        for (var i = 0; i < nodes.length; i++) {
+            var el = nodes[i];
+            var cs = getComputedStyle(el);
+            if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+            var b = el.getBoundingClientRect();
+            if (b.width <= 1 || b.height <= 1) continue;
+            if (rectsOverlap(box, b, 0)) return true;
+        }
+        return false;
+    }
+    // Round 14 / item 2: a key that cannot be placed clear is hidden, not
+    // painted over a control. On a 320x568 window the two corner cards, the
+    // four-control rail, the two round buttons and the credit pill leave no
+    // 42px band for even the header, so the passive element is the one that
+    // gives way; it returns as soon as the window leaves it room.
+    function setLegendCap() {
+        placeLegend();
+        stepLegendAside();
+        var legend = document.querySelector('.map-legend');
+        if (!legend) return;
+        legend.classList.toggle(
+            'legend-hidden', legendCoversControl(legend.getBoundingClientRect()));
+    }
+    // Round 14: in row mode the two round map buttons take the bottom-left
+    // corner, which is where the legend lives: at 1280x600 the pair moved left
+    // to clear My Location and then pushed the weather key out entirely. Step
+    // the key to the pair's right instead; when the cards leave no room there,
+    // the obstacle check above still hides it.
+    function stepLegendAside() {
+        var mc = cornerMapContainer();
+        var legend = document.querySelector('.map-legend');
+        var clear = document.getElementById('btn-clear-data');
+        var mine = document.getElementById('btn-center-my-pos');
+        if (!mc || !legend || !clear || !mine) return;
+        if (!mc.classList.contains('fab-row')) return;
+        var lb = legend.getBoundingClientRect();
+        var a = clear.getBoundingClientRect();
+        var b = mine.getBoundingClientRect();
+        if (!lb.width || !a.width || !b.width) return;
+        var right = Math.max(a.right, b.right);
+        var top = Math.min(a.top, b.top);
+        var bottom = Math.max(a.bottom, b.bottom);
+        if (right <= lb.left) return;
+        if (lb.top >= bottom || lb.bottom <= top) return;
+        var shift = right + 10 - lb.left;
+        var have = parseFloat(mc.style.getPropertyValue('--legend-shift')) || 0;
+        mc.style.setProperty('--legend-shift', (have + shift) + 'px');
+    }
     var LEGEND_MIN_CLEAR = 120;
     var LEGEND_SHORT_MAX = 160;
+    // The map credit strip is inset 210px from the right, so on a 560px window
+    // it sits at x 75.9-350 — over the legend's own corner, where the legend
+    // covered 94.1 x 24 = 2258.4 px^2 of it. A bottom-left legend is lifted
+    // above that strip; both the legend cap and the left column need the same
+    // number, so it is measured in one place.
+    function legendLift(mapBox, naturalLeft, legendRight) {
+        var strip = document.querySelector(
+            '.maplibregl-ctrl-bottom-right .maplibregl-ctrl-attrib');
+        if (!strip) return 0;
+        var box = strip.getBoundingClientRect();
+        if (!box.width || box.left >= legendRight || box.right <= naturalLeft) {
+            return 0;
+        }
+        return Math.max(0, mapBox.bottom - 10 - box.top + 8);
+    }
 
-    function setLegendCap() {
+    function placeLegend() {
         var mc = cornerMapContainer();
         var legend = document.querySelector('.map-legend');
         var rail = document.querySelector('.maplibregl-ctrl-top-left');
@@ -711,22 +799,26 @@
         mc.style.removeProperty('--legend-shift');
         mc.style.removeProperty('--legend-lift');
         mc.style.removeProperty('--legend-max');
-        legend.classList.remove('legend-tight');
+        legend.classList.remove('legend-tight', 'legend-hidden');
         var naturalLeft = legend.getBoundingClientRect().left;
         var legendRight = naturalLeft + legend.getBoundingClientRect().width;
-        // The map credit strip is inset 210px from the right, so on a 560px
-        // window it sits at x 75.9-350 — over the legend's own corner, where the
-        // legend covered 94.1 x 24 = 2258.4 px^2 of it. Lift the legend above
-        // the strip when the two share that corner.
-        var lift = 0;
-        var strip = document.querySelector(
-            '.maplibregl-ctrl-bottom-right .maplibregl-ctrl-attrib');
-        if (strip) {
-            var stripBox = strip.getBoundingClientRect();
-            if (stripBox.width && stripBox.left < legendRight &&
-                stripBox.right > naturalLeft) {
-                lift = Math.max(0, mapBox.bottom - 10 - stripBox.top + 8);
-            }
+        var lift = legendLift(mapBox, naturalLeft, legendRight);
+        // Round 14 / item 2: the legend is bottom-anchored, so a shorter cap
+        // lowers its top. At 320x568 with the Stats box collapsed it rose into
+        // the top-right card column (1836.0 px^2 over My Location, measured by
+        // both reviewers). Whatever cap was chosen, if the box still meets that
+        // column, cut the cap to the room between the column and the box's own
+        // bottom; under 30px the header-only branch below takes over.
+        var cards = document.querySelector('.maplibregl-ctrl-top-right');
+        function capUnderCards() {
+            if (!cards) return;
+            var colBox = cards.getBoundingClientRect();
+            var box = legend.getBoundingClientRect();
+            if (!colBox.height || !box.height) return;
+            if (box.right <= colBox.left || box.left >= colBox.right) return;
+            if (box.top >= colBox.bottom + 8) return;
+            var room = box.bottom - colBox.bottom - 8;
+            if (room >= 30) mc.style.setProperty('--legend-max', room + 'px');
         }
         var clear = mapBox.bottom - lift - railBottom - 18;
         if (clear >= LEGEND_MIN_CLEAR) {
@@ -735,6 +827,7 @@
             // painting over the control above it.
             mc.style.setProperty('--legend-max', clear + 'px');
             if (lift) mc.style.setProperty('--legend-lift', lift + 'px');
+            capUnderCards();
             return;
         }
         // Too short for a body under the column: try the window beside it, and
@@ -744,6 +837,7 @@
         mc.style.setProperty('--legend-shift', shift + 'px');
         mc.style.setProperty('--legend-max', shortMax + 'px');
         if (lift) mc.style.setProperty('--legend-lift', lift + 'px');
+        capUnderCards();
         if (!collides(legend.getBoundingClientRect(), legend, 0)) return;
         legend.classList.add('legend-tight');
         mc.style.removeProperty('--legend-max');
@@ -765,6 +859,8 @@
     // strip; when the capped column cannot hold its full content, the Stats
     // body collapses to its header so the cap never becomes a scrollbar.
     var COLUMN_STRIP = 8;
+    // The header-only legend measures 42px; 46 leaves it a gap to the column.
+    var LEGEND_HEADER_H = 46;
 
     function updateLeftColumnFit() {
         var mc = cornerMapContainer();
@@ -772,8 +868,26 @@
         if (!mc || !rail) return;
         mc.classList.remove('stats-tight');
         var have = mc.getBoundingClientRect().height - COLUMN_STRIP;
+        // Round 14: the column and the legend share the bottom-left corner. A
+        // full Stats body reached 490.8 on a 320x568 window and left the
+        // header-only legend nowhere to go but on top of the GPX panel
+        // (2494.8 px^2). The column stops where the legend's own band starts,
+        // and a column that cannot hold the Stats body keeps its header only
+        // (the header still opens the four values, see initStatsOverlay).
+        var mapBox = mc.getBoundingClientRect();
+        var legend = document.querySelector('.map-legend');
+        if (legend) {
+            var naturalLeft = legend.getBoundingClientRect().left;
+            var band = mapBox.bottom
+                - legendLift(mapBox, naturalLeft, naturalLeft + legend.offsetWidth)
+                - LEGEND_HEADER_H - COLUMN_STRIP - mapBox.top;
+            have = Math.min(have, band);
+        }
         if (rail.scrollHeight <= have + 1) return;
         mc.classList.add('stats-tight');
+        // Round 14 / item 5: the card shows its header only here, and the header
+        // click opens the body (style.css). The column scrolls to reach it; the
+        // cap above keeps the column's own box off the resize strip.
     }
 
     // Round 13 / D-4: the two round map buttons stack 88px up the right edge,
@@ -789,6 +903,7 @@
         var mine = document.getElementById('btn-center-my-pos');
         if (!mc || !clear || !mine || !cards.length) return;
         mc.classList.remove('fab-row');
+        mc.style.removeProperty('--fab-lift');
         var a = clear.getBoundingClientRect();
         var b = mine.getBoundingClientRect();
         for (var i = 0; i < cards.length; i++) {
@@ -796,6 +911,23 @@
             if (!card.width || !card.height) continue;
             if (rectsOverlap(card, a, 4) || rectsOverlap(card, b, 4)) {
                 mc.classList.add('fab-row');
+                // Round 14 / item 7: in row mode the pair sat on the map credit
+                // pill at 560x400 and 560x480 (141 px^2 into its rounded
+                // corner). Raise it by the pixels that clear the strip; the
+                // buttons keep their size and order.
+                var attrib = document.querySelector(
+                    '.maplibregl-ctrl-bottom-right .maplibregl-ctrl-attrib');
+                if (attrib) {
+                    // Measure again: the class just moved the pair into a row,
+                    // and the boxes read before that are the stacked pair.
+                    var ra = clear.getBoundingClientRect();
+                    var rb = mine.getBoundingClientRect();
+                    var limit = attrib.getBoundingClientRect();
+                    if (rectsOverlap(ra, limit, 4) || rectsOverlap(rb, limit, 4)) {
+                        mc.style.setProperty('--fab-lift', Math.max(0,
+                            Math.round(Math.max(ra.bottom, rb.bottom) - limit.top + 4)) + 'px');
+                    }
+                }
                 return;
             }
         }
@@ -886,12 +1018,11 @@
             var geometry = new ResizeObserver(function () {
                 updateCornerMode();
                 updateLeftColumnFit();
-                setLegendCap();
+                // The round buttons move into the legend's own corner in row
+                // mode, so that decision has to land before the legend is
+                // placed (round 14).
                 updateFabStack();
-                var toast = document.getElementById('waiting-toast');
-                if (toast && !toast.classList.contains('hidden')) {
-                    positionWaitingToast(toast);
-                }
+                setLegendCap();
             });
             geometry.observe(cornerMapContainer());
             var rail = document.querySelector('.maplibregl-ctrl-top-left');
@@ -5832,149 +5963,16 @@
         }
     }
 
-    // Issue #218: the toast is position:fixed, so measure the real bottom of
-    // the two header bands (#topnav + #toolrow) and place it just below them.
-    // A fixed 50px top (written for the old single 40px #toolbar) painted the
-    // toast over the tool row.
-    // Round 13 / D-1: at 320px wide the toast is 160x63 and the round-12
-    // fallback (`top = column bottom + 8`) dropped it on the left control rail
-    // — 933 px^2 over the GPX panel and 407 over Load GPX, with no dismiss
-    // control to click away. Place it by measurement instead: keep the centred
-    // spot under the bands when it is clear, otherwise scan the map box on a
-    // 1px grid down and 2px across for the nearest clear spot, preferring the
-    // top. A 4px gap is required first and 0px second, because the free strip
-    // on a 320x568 window is only just tall enough for the box.
-    function toastSpot(toast, preferred, gap) {
-        var mc = cornerMapContainer();
-        if (!mc) return null;
-        var mapBox = mc.getBoundingClientRect();
-        var w = toast.offsetWidth;
-        var h = toast.offsetHeight;
-        if (!w || !h) return null;
-        var obstacles = overlayObstacles(toast);
-        var minX = 8;
-        var maxX = Math.max(minX, document.documentElement.clientWidth - w - 8);
-        var minY = preferred.top;
-        var maxY = Math.max(minY, mapBox.bottom - h - 2);
-        var probe = { left: 0, right: 0, top: 0, bottom: 0 };
-        for (var y = minY; y <= maxY; y += 1) {
-            for (var d = 0; d <= maxX - minX; d += 2) {
-                for (var side = -1; side <= 1; side += 2) {
-                    var x = preferred.left + side * d;
-                    if (x < minX || x > maxX) continue;
-                    probe.left = x; probe.right = x + w;
-                    probe.top = y; probe.bottom = y + h;
-                    var clear = true;
-                    for (var k = 0; k < obstacles.length; k++) {
-                        if (rectsOverlap(probe, obstacles[k], gap)) {
-                            clear = false;
-                            break;
-                        }
-                    }
-                    if (clear) return { left: x, top: y };
-                }
-            }
-        }
-        return null;
-    }
-
-    function positionWaitingToast(toast) {
-        var bottom = 0;
-        var bands = ['topnav', 'toolrow'];
-        for (var i = 0; i < bands.length; i++) {
-            var el = document.getElementById(bands[i]);
-            if (el) bottom = Math.max(bottom, el.getBoundingClientRect().bottom);
-        }
-        toast.style.left = '';
-        toast.style.right = '';
-        toast.style.transform = '';
-        toast.style.width = '';
-        toast.style.maxWidth = '';
-        toast.style.top = (bottom + 8) + 'px';
-        var box = toast.getBoundingClientRect();
-        if (!box.width) return;
-        // `left: 50%` squeezes the box to the half viewport, so it wraps. Pin
-        // the width the probe measured before moving it: an explicit `left`
-        // would otherwise let it grow and re-wrap into a box nothing checked.
-        toast.style.width = box.width + 'px';
-        var view = document.documentElement.clientWidth;
-        var preferred = {
-            left: Math.round((view - box.width) / 2),
-            top: Math.round(box.top)
-        };
-        // The centred spot under the bands is what 1280 and 1600 keep.
-        if (!collides(box, toast, 4)) return;
-        // Round 12's placement: right-anchored beside the top-right card
-        // column, still under the bands. Kept as the first alternative so a
-        // 560px window looks like it did in round 12.
-        var col = document.querySelector('.maplibregl-ctrl-top-right');
-        var colBox = col ? col.getBoundingClientRect() : null;
-        if (colBox) {
-            toast.style.left = 'auto';
-            toast.style.right = (view - colBox.left + 8) + 'px';
-            toast.style.transform = 'none';
-            var beside = toast.getBoundingClientRect();
-            if (beside.left >= 8 && !collides(beside, toast, 4)) return;
-            toast.style.left = '';
-            toast.style.right = '';
-            toast.style.transform = '';
-        }
-        var spot = null;
-        // Step 3: too narrow to sit beside the cards at its own width, so take
-        // the strip between the left control corner and the cards at a smaller
-        // width. Every control's centre must still be clickable, so the toast
-        // may not overlap the corner box itself.
-        var rail = document.querySelector('.maplibregl-ctrl-top-left');
-        if (colBox && rail) {
-            var railRight = rail.getBoundingClientRect().right;
-            var avail = Math.floor(colBox.left - railRight - 16);
-            if (avail >= 120) {
-                toast.style.width = '';
-                toast.style.maxWidth = avail + 'px';
-                toast.style.left = (railRight + 8) + 'px';
-                toast.style.top = (bottom + 8) + 'px';
-                toast.style.transform = 'none';
-                var narrow = toast.getBoundingClientRect();
-                if (!collides(narrow, toast, 4)) {
-                    toast.style.width = narrow.width + 'px';
-                    return;
-                }
-                toast.style.maxWidth = '';
-                toast.style.left = '';
-                toast.style.transform = '';
-                toast.style.width = box.width + 'px';
-            }
-        }
-        spot = toastSpot(toast, preferred, 4) || toastSpot(toast, preferred, 0);
-        if (spot) {
-            toast.style.left = spot.left + 'px';
-            toast.style.top = spot.top + 'px';
-            toast.style.transform = 'none';
-            return;
-        }
-        // Nothing clear on the map at all: fall back to below the column when
-        // the window has room for it.
-        if (!colBox) return;
-        toast.style.left = 'auto';
-        toast.style.right = (view - colBox.left + 8) + 'px';
-        toast.style.transform = 'none';
-        box = toast.getBoundingClientRect();
-        if (box.left >= 8) return;
-        toast.style.left = '';
-        toast.style.right = '';
-        toast.style.transform = '';
-        if (colBox.bottom + 8 + box.height <= window.innerHeight - 8) {
-            toast.style.top = (colBox.bottom + 8) + 'px';
-        }
-    }
-
+    // Issue #218 round 14: the waiting message is a row of the layout (see style.css .toast), so
+    // nothing here computes a position. Round 13 measured a clear spot and
+    // still lost at 344-375px wide and 320x400, where no clear spot exists:
+    // 802.2 / 330.2 / 3120.8 px^2 at 344x800, 715 / 279 / 2988 at 360x800,
+    // 632.2 / 230.4 / 1568.8 at 375x800, all over the GPX panel, its Load GPX
+    // button and the legend. A row cannot overlap anything it does not float
+    // over, which is also why this needs no collision check at all.
     function showWaitingToast() {
         const toast = document.getElementById('waiting-toast');
-        if (toast) {
-            // A display:none box measures 0x0, so unhide before positioning it.
-            toast.classList.remove('hidden');
-            positionWaitingToast(toast);
-        }
+        if (toast) toast.classList.remove('hidden');
     }
 
     function dismissWaiting() {
@@ -5985,11 +5983,6 @@
         if (toast) toast.classList.add('hidden');
     }
 
-    // Keep the toast clear of the bands if the viewport changes while it shows.
-    window.addEventListener('resize', function () {
-        var toast = document.getElementById('waiting-toast');
-        if (toast && !toast.classList.contains('hidden')) positionWaitingToast(toast);
-    });
 
     // --- My Position Marker ---
     function updateMyPositionMarker() {
