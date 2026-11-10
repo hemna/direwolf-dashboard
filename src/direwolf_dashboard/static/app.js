@@ -664,16 +664,34 @@
         // Measure the legend where the stylesheet puts it, not where a previous
         // call moved it, or the shift would compound on every resize.
         mc.style.removeProperty('--legend-shift');
+        mc.style.removeProperty('--legend-lift');
         var naturalLeft = legend.getBoundingClientRect().left;
+        var legendRight = naturalLeft + legend.getBoundingClientRect().width;
         var clear = mapBox.bottom - railBottom - 18;
-        if (clear >= LEGEND_MIN_CLEAR) {
-            mc.style.setProperty('--legend-max', clear + 'px');
-            return;
+        var shift = 0;
+        if (clear < LEGEND_MIN_CLEAR) {
+            clear = Math.min(LEGEND_SHORT_MAX, Math.max(120, mapBox.height - 26));
+            shift = Math.max(0, railRight + 10 - naturalLeft);
+            legendRight += shift;
         }
-        mc.style.setProperty('--legend-max',
-            Math.min(LEGEND_SHORT_MAX, Math.max(120, mapBox.height - 26)) + 'px');
-        mc.style.setProperty('--legend-shift',
-            Math.max(0, railRight + 10 - naturalLeft) + 'px');
+        // The map credit strip is inset 210px from the right, so on a 560px
+        // window it sits at x 75.9-350 — over the legend's own corner, where the
+        // legend covered 94.1 x 24 = 2258.4 px^2 of it. Lift the legend above
+        // the strip when the two share that corner, and take the same amount
+        // off the cap so the legend's top does not rise into the rail.
+        var lift = 0;
+        var strip = document.querySelector(
+            '.maplibregl-ctrl-bottom-right .maplibregl-ctrl-attrib');
+        if (strip) {
+            var stripBox = strip.getBoundingClientRect();
+            if (stripBox.width && stripBox.left < legendRight &&
+                stripBox.right > naturalLeft + shift) {
+                lift = Math.max(0, mapBox.bottom - 10 - stripBox.top + 8);
+            }
+        }
+        mc.style.setProperty('--legend-max', Math.max(120, clear - lift) + 'px');
+        if (shift) mc.style.setProperty('--legend-shift', shift + 'px');
+        if (lift) mc.style.setProperty('--legend-lift', lift + 'px');
     }
 
     function closeCornerCards() {

@@ -361,6 +361,8 @@ TOAST_AND_LEGEND = r"""
   const myloc = document.querySelector('.my-location-overlay');
   const zoom = document.querySelector(
     '.maplibregl-ctrl-top-left .maplibregl-ctrl-group');
+  const attrib = document.querySelector(
+    '.maplibregl-ctrl-bottom-right .maplibregl-ctrl-attrib');
   return {
     viewport: [innerWidth, innerHeight],
     bandsBottom: Math.max(...['topnav', 'toolrow'].map((id) => {
@@ -374,6 +376,7 @@ TOAST_AND_LEGEND = r"""
     toastMyloc: share(r(toast), r(myloc)),
     legendRail: share(r(legend), r(rail)),
     legendZoom: share(r(legend), r(zoom)),
+    legendAttrib: share(r(legend), r(attrib)),
   };
 })()
 """
@@ -399,12 +402,17 @@ def test_served_legend_clears_the_left_control_rail(served):
     """Round 12 / defect B: the 911px legend rose 374px above the map and sat
     behind the zoom buttons (29 x 58 px shared box, 1682 px²) and the rest of
     the left rail. It must clear the whole rail - zoom, readout, stats and GPX
-    - and stay inside the map, on a tall map and on a short one."""
-    for w, h in ((1280, 800), (1100, 400)):
+    - stay inside the map, and stay off the map credit strip in the
+    bottom-right corner, on a tall map and on a short one. The strip sits at
+    x 75.9-350 on a 560px window, so at that width it shares the legend's own
+    corner: on the served fixture the legend covered 1492.8 px² of it
+    (2258.4 px² against the dev data, whose legend has more rows)."""
+    for w, h in ((1280, 800), (1100, 400), (560, 800)):
         with _page(served, w, h) as cdp:
             data = cdp.eval(TOAST_AND_LEGEND)
         assert data["legendRail"] == 0, (w, h, data)
         assert data["legendZoom"] == 0, (w, h, data)
+        assert data["legendAttrib"] == 0, (w, h, data)
         assert data["legendMax"] != "none", (w, h, data)
         assert data["legend"]["top"] >= data["map"]["top"] - 0.5, (w, h, data)
         assert data["legend"]["bottom"] <= data["map"]["bottom"] + 0.5, (

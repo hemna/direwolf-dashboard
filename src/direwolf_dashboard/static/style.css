@@ -1092,7 +1092,8 @@ a.secondary.btn-as-link:hover {
     max-height: var(--legend-max, none);
     overflow-y: auto;
     overscroll-behavior: contain;
-    transform: translateX(var(--legend-shift, 0));
+    transform: translate(var(--legend-shift, 0px),
+                        calc(0px - var(--legend-lift, 0px)));
 }
 .map-legend-header {
     cursor: pointer;
