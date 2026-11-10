@@ -1560,7 +1560,9 @@ a.secondary.btn-as-link:hover {
 /* Toast notification */
 .toast {
     position: fixed;
-    top: 50px;
+    /* Issue #218: fallback only — app.js sets the real top from the measured
+     * bottom of #topnav + #toolrow; 78px is that combined height + 8px. */
+    top: 78px;
     left: 50%;
     transform: translateX(-50%);
     background: var(--modal-bg);

@@ -116,3 +116,61 @@ def test_toggle_buttons_are_distinguishable():
     log_icon = html[html.index(log_btn):html.index("</button>", html.index(log_btn))]
     tools_icon = html[html.index(tools_btn):html.index("</button>", html.index(tools_btn))]
     assert log_icon != tools_icon, "packet-log and tools toggles must show different icons"
+
+
+def _js_function(js: str, name: str) -> str:
+    """Extract one function body, balanced by braces."""
+    start = js.index(f"function {name}(")
+    depth = 0
+    for i in range(js.index("{", start), len(js)):
+        if js[i] == "{":
+            depth += 1
+        elif js[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return js[start:i + 1]
+    raise AssertionError(f"unbalanced braces in {name}")
+
+
+def test_waiting_toast_never_intersects_the_top_bands():
+    """Issue #218 round 5: the waiting toast is position:fixed; its top is
+    derived at runtime from the real bottom of #topnav + #toolrow. A fixed
+    50px top (written for the old single #toolbar) painted it over the tool
+    row. Rect check: the toast must start at or below both bands' bottoms."""
+    import json
+    import subprocess
+
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    func = _js_function(js, "positionWaitingToast")
+    for topnav_bottom, toolrow_bottom in ((36, 70), (44, 82)):
+        harness = f"""
+const bands = {{topnav: {{top: 0, bottom: {topnav_bottom}}},
+                toolrow: {{top: {topnav_bottom}, bottom: {toolrow_bottom}}}}};
+global.document = {{ getElementById(id) {{
+  return (id === 'topnav' || id === 'toolrow')
+    ? {{ getBoundingClientRect: () => ({{...bands[id]}}) }} : null;
+}} }};
+{func}
+const toast = {{ style: {{}},
+  getBoundingClientRect() {{
+    const top = parseFloat(this.style.top);
+    return {{top, bottom: top + 32}};
+  }} }};
+positionWaitingToast(toast);
+const r = toast.getBoundingClientRect();
+console.log(JSON.stringify({{toast: r, topnav: bands.topnav, toolrow: bands.toolrow}}));
+"""
+        out = subprocess.run(["node", "-e", harness], capture_output=True, text=True)
+        assert out.returncode == 0, out.stderr
+        data = json.loads(out.stdout)
+        assert data["toast"]["top"] >= data["topnav"]["bottom"], (
+            f"toast overlaps #topnav: {data}"
+        )
+        assert data["toast"]["top"] >= data["toolrow"]["bottom"], (
+            f"toast overlaps #toolrow: {data}"
+        )
+
+    css_block = _block(_css(), ".toast")
+    assert "top: 50px" not in css_block, (
+        "the fixed 50px top painted the toast over the tool row"
+    )

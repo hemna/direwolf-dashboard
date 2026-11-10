@@ -5513,9 +5513,26 @@
         }
     }
 
+    // Issue #218: the toast is position:fixed, so measure the real bottom of
+    // the two header bands (#topnav + #toolrow) and place it just below them.
+    // A fixed 50px top (written for the old single 40px #toolbar) painted the
+    // toast over the tool row.
+    function positionWaitingToast(toast) {
+        var bottom = 0;
+        var bands = ['topnav', 'toolrow'];
+        for (var i = 0; i < bands.length; i++) {
+            var el = document.getElementById(bands[i]);
+            if (el) bottom = Math.max(bottom, el.getBoundingClientRect().bottom);
+        }
+        toast.style.top = (bottom + 8) + 'px';
+    }
+
     function showWaitingToast() {
         const toast = document.getElementById('waiting-toast');
-        if (toast) toast.classList.remove('hidden');
+        if (toast) {
+            positionWaitingToast(toast);
+            toast.classList.remove('hidden');
+        }
     }
 
     function dismissWaiting() {
@@ -5525,6 +5542,12 @@
         const toast = document.getElementById('waiting-toast');
         if (toast) toast.classList.add('hidden');
     }
+
+    // Keep the toast clear of the bands if the viewport changes while it shows.
+    window.addEventListener('resize', function () {
+        var toast = document.getElementById('waiting-toast');
+        if (toast && !toast.classList.contains('hidden')) positionWaitingToast(toast);
+    });
 
     // --- My Position Marker ---
     function updateMyPositionMarker() {
