@@ -600,6 +600,73 @@
     }
 
     // --- Filter Overlay ---
+    // Issue #218 round 8: the two corner cards need 293px and a short window
+    // leaves a 255px map, so below 300px they collapse to header-only cards
+    // (see the .corner-compact rules in style.css). Opening one hides the
+    // other. At 308px and taller nothing here changes.
+    var CORNER_COMPACT_MAX_MAP_HEIGHT = 300;
+
+    function cornerMapContainer() {
+        return document.getElementById('map-container');
+    }
+
+    function syncCornerIcon(el) {
+        var icon = el.querySelector('.filter-collapse-icon, .my-location-collapse-icon');
+        if (!icon) return;
+        var mc = cornerMapContainer();
+        var compact = mc && mc.classList.contains('corner-compact');
+        var closed = compact
+            ? !el.classList.contains('corner-open')
+            : el.classList.contains('collapsed');
+        icon.textContent = closed ? '\u25BC' : '\u25B2';
+    }
+
+    function closeCornerCards() {
+        var mc = cornerMapContainer();
+        if (!mc) return;
+        mc.classList.remove('corner-filter-open', 'corner-myloc-open');
+        ['.filter-overlay', '.my-location-overlay'].forEach(function (sel) {
+            var el = document.querySelector(sel);
+            if (!el) return;
+            el.classList.remove('corner-open');
+            syncCornerIcon(el);
+        });
+    }
+
+    // Returns true when the click was a compact-corner open/close, so the
+    // tall-map collapse behaviour is left untouched.
+    function toggleCornerCard(which) {
+        var mc = cornerMapContainer();
+        if (!mc || !mc.classList.contains('corner-compact')) return false;
+        var el = document.querySelector(
+            which === 'filter' ? '.filter-overlay' : '.my-location-overlay');
+        var open = !(el && el.classList.contains('corner-open'));
+        closeCornerCards();
+        if (open && el) {
+            el.classList.add('corner-open');
+            mc.classList.add(which === 'filter' ? 'corner-filter-open' : 'corner-myloc-open');
+            syncCornerIcon(el);
+        }
+        placeTrailPanel();
+        return true;
+    }
+
+    function updateCornerMode() {
+        var mc = cornerMapContainer();
+        if (!mc) return;
+        var compact = mc.clientHeight < CORNER_COMPACT_MAX_MAP_HEIGHT;
+        if (compact === mc.classList.contains('corner-compact')) return;
+        mc.classList.toggle('corner-compact', compact);
+        closeCornerCards();
+    }
+
+    function initCornerMode() {
+        updateCornerMode();
+        if (window.ResizeObserver && cornerMapContainer()) {
+            new ResizeObserver(updateCornerMode).observe(cornerMapContainer());
+        }
+    }
+
     function initFilterOverlay() {
         if (!map) return;
         var container = mlCreate('filter-overlay');
@@ -670,6 +737,7 @@
         var filterHeader = container.querySelector('.filter-overlay-header');
         var filterIcon = container.querySelector('.filter-collapse-icon');
         filterHeader.addEventListener('click', function () {
+            if (toggleCornerCard('filter')) return;
             container.classList.toggle('collapsed');
             var isCollapsed = container.classList.contains('collapsed');
             filterIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
@@ -736,6 +804,7 @@
         var myLocIcon = container.querySelector('.my-location-collapse-icon');
         myLocHeader.addEventListener('click', function (e) {
             if (e.target.closest('.my-location-btn')) return;
+            if (toggleCornerCard('myloc')) return;
             container.classList.toggle('collapsed');
             var isCollapsed = container.classList.contains('collapsed');
             myLocIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
@@ -1156,6 +1225,7 @@
         initStatsOverlay();
         initFilterOverlay();
         initMyLocationOverlay();
+        initCornerMode();
         initGpxOverlay();
         await loadStations();
         loadStationPositions();

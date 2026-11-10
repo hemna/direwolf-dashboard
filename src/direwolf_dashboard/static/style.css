@@ -2745,6 +2745,60 @@ kbd {
     border-radius: 6px;
 }
 
+/* Issue #218 round 8: the corner collapses on short maps instead of getting
+ * smaller again. The card pair needs 293px and a 1100x480 window leaves a
+ * 255px map, which no padding can fix. updateCornerMode() adds
+ * #map-container.corner-compact below a 300px map: both cards are then a
+ * single-line header (<=44px each, column <=96px wide) and opening one hides
+ * the other completely. At 308px and taller (1100x560, 1280x800, 1600x1000)
+ * the round-7 layout is untouched. */
+.corner-compact .maplibregl-ctrl-top-right .maplibregl-ctrl {
+    margin-right: 2px;
+}
+.corner-compact .filter-overlay:not(.corner-open),
+.corner-compact .my-location-overlay:not(.corner-open) {
+    /* the cards carry min-width:160px for the tall layout; a collapsed header
+     * must be able to shrink to 92px (column 96px with the 4px margin). */
+    min-width: 0;
+    width: 94px;
+}
+.corner-compact .filter-overlay .filter-overlay-body,
+.corner-compact .my-location-overlay .my-location-body {
+    display: none;
+}
+.corner-compact .filter-overlay.corner-open .filter-overlay-body,
+.corner-compact .my-location-overlay.corner-open .my-location-body {
+    display: block;
+}
+.corner-compact .filter-overlay .filter-overlay-header,
+.corner-compact .my-location-overlay .my-location-header {
+    padding: 4px 6px;
+    white-space: nowrap;
+    border-bottom: none;
+}
+.corner-compact .filter-overlay.corner-open .filter-overlay-header,
+.corner-compact .my-location-overlay.corner-open .my-location-header {
+    border-bottom: 1px solid var(--overlay-border);
+}
+.corner-compact .my-location-title {
+    font-size: 9px;
+    letter-spacing: 0;
+}
+.corner-compact .my-location-btn {
+    display: none;
+}
+.corner-compact .my-location-collapse-icon {
+    margin-left: 0;
+}
+.corner-compact.corner-filter-open .my-location-overlay,
+.corner-compact.corner-myloc-open .filter-overlay {
+    display: none;
+}
+
+/* shortcut: below 1024x480 an open card scrolls inside itself, revisit if
+ * smaller windows matter. The column keeps its round-6 height cap and
+ * overflow for that floor; at 1024x480 and larger nothing overflows. */
+
 /* Issue #218 round 7: the top-right card column reaches the map's bottom on
  * a short map, where MapLibre's bottom-right attribution strip used to paint
  * across the My Location card. Keep the strip clear of the column; it stays

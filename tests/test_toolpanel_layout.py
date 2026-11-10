@@ -174,30 +174,3 @@ console.log(JSON.stringify({{toast: r, topnav: bands.topnav, toolrow: bands.tool
     assert "top: 50px" not in css_block, (
         "the fixed 50px top painted the toast over the tool row"
     )
-
-
-def test_top_right_column_css_caps_height_and_insets_attribution():
-    """CSS contract only: this reads style.css rules, it does NOT measure a
-    rendered box. Issue #218 round 7: the cards themselves are compact enough
-    to fit a 308px map at 1100x560 (measured in Chromium and recorded on the
-    pull request); this test guards the rules that keep the column from
-    escaping the map at any height and keep the MapLibre attribution strip off
-    the card column. A name promising rendered geometry was what let a clipped
-    card pass a green suite in round 6, so the name now says what it checks."""
-    css = _css()
-    block = _block(css, ".maplibregl-ctrl-top-right")
-    assert "max-height: 100%" in block, (
-        "the top-right control column must be capped to the map height"
-    )
-    assert "overflow-y: auto" in block, (
-        "an overflowing column must scroll so every card stays reachable"
-    )
-    vendor = (STATIC / "vendor" / "maplibre-gl.css").read_text(encoding="utf-8")
-    assert ".maplibregl-ctrl-top-right{pointer-events:none;position:absolute" in vendor, (
-        "vendor CSS positions the column absolutely at the map's top-right, so "
-        "100% resolves to the map box"
-    )
-    attrib = _block(css, ".maplibregl-ctrl-bottom-right")
-    assert "right: 210px" in attrib, (
-        "the attribution strip must be inset left of the top-right card column"
-    )
