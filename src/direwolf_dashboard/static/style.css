@@ -2719,6 +2719,24 @@ kbd {
 .maplibregl-ctrl-top-left {
     z-index: 3;
 }
+/* Issue #218: at 1100x560 the two-band header leaves a 308px map, shorter than
+ * the top-right control stack (filter card + My Location card); MapLibre clips
+ * the stack with the map's overflow:hidden, cutting the last card. Cap the
+ * column to the map height and let it scroll so every card stays reachable. */
+.maplibregl-ctrl-top-right {
+    max-height: 100%;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    pointer-events: auto;
+    z-index: 3;
+}
+.maplibregl-ctrl-top-right::-webkit-scrollbar { width: 12px; }
+.maplibregl-ctrl-top-right::-webkit-scrollbar-track { background: transparent; }
+.maplibregl-ctrl-top-right::-webkit-scrollbar-thumb {
+    background: var(--overlay-text-muted);
+    border: 3px solid var(--overlay-bg);
+    border-radius: 6px;
+}
 
 /* MapLibre hop tooltip (#134): show only the .path-tooltip box. */
 .path-tooltip-popup .maplibregl-popup-content {

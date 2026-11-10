@@ -174,3 +174,26 @@ console.log(JSON.stringify({{toast: r, topnav: bands.topnav, toolrow: bands.tool
     assert "top: 50px" not in css_block, (
         "the fixed 50px top painted the toast over the tool row"
     )
+
+
+def test_top_right_control_column_stays_inside_the_map():
+    """Issue #218 round 6: at 1100x560 the two-band header leaves a 308px map,
+    shorter than the top-right control stack (filter card + My Location card).
+    MapLibre clips that stack with the map's overflow:hidden (vendor CSS), which
+    cut the last card's body and 10px of its header. Our rule caps the column to
+    the map height (100% of its containing block, which sits inside
+    #map-container) and scrolls it, so the column box can never pass the map's
+    bottom edge and every card can be scrolled fully into view."""
+    css = _css()
+    block = _block(css, ".maplibregl-ctrl-top-right")
+    assert "max-height: 100%" in block, (
+        "the top-right control column must be capped to the map height"
+    )
+    assert "overflow-y: auto" in block, (
+        "an overflowing column must scroll so every card stays reachable"
+    )
+    vendor = (STATIC / "vendor" / "maplibre-gl.css").read_text(encoding="utf-8")
+    assert ".maplibregl-ctrl-top-right{pointer-events:none;position:absolute" in vendor, (
+        "vendor CSS positions the column absolutely at the map's top-right, so "
+        "100% resolves to the map box"
+    )
