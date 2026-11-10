@@ -176,14 +176,14 @@ console.log(JSON.stringify({{toast: r, topnav: bands.topnav, toolrow: bands.tool
     )
 
 
-def test_top_right_control_column_stays_inside_the_map():
-    """Issue #218 round 6: at 1100x560 the two-band header leaves a 308px map,
-    shorter than the top-right control stack (filter card + My Location card).
-    MapLibre clips that stack with the map's overflow:hidden (vendor CSS), which
-    cut the last card's body and 10px of its header. Our rule caps the column to
-    the map height (100% of its containing block, which sits inside
-    #map-container) and scrolls it, so the column box can never pass the map's
-    bottom edge and every card can be scrolled fully into view."""
+def test_top_right_column_css_caps_height_and_insets_attribution():
+    """CSS contract only: this reads style.css rules, it does NOT measure a
+    rendered box. Issue #218 round 7: the cards themselves are compact enough
+    to fit a 308px map at 1100x560 (measured in Chromium and recorded on the
+    pull request); this test guards the rules that keep the column from
+    escaping the map at any height and keep the MapLibre attribution strip off
+    the card column. A name promising rendered geometry was what let a clipped
+    card pass a green suite in round 6, so the name now says what it checks."""
     css = _css()
     block = _block(css, ".maplibregl-ctrl-top-right")
     assert "max-height: 100%" in block, (
@@ -196,4 +196,8 @@ def test_top_right_control_column_stays_inside_the_map():
     assert ".maplibregl-ctrl-top-right{pointer-events:none;position:absolute" in vendor, (
         "vendor CSS positions the column absolutely at the map's top-right, so "
         "100% resolves to the map box"
+    )
+    attrib = _block(css, ".maplibregl-ctrl-bottom-right")
+    assert "right: 210px" in attrib, (
+        "the attribution strip must be inset left of the top-right card column"
     )

@@ -1207,7 +1207,7 @@ a.secondary.btn-as-link:hover {
     font-size: 10px;
     color: var(--overlay-text-muted);
     border-bottom: 1px solid var(--overlay-border);
-    padding: 5px 10px;
+    padding: 4px 10px;
     user-select: none;
     display: flex;
     justify-content: space-between;
@@ -1217,7 +1217,8 @@ a.secondary.btn-as-link:hover {
     color: var(--overlay-text);
 }
 .filter-overlay-body {
-    padding: 4px 10px 6px;
+    /* issue #218 round 7: the whole right column must fit a 308px map */
+    padding: 2px 10px 6px;
 }
 .filter-overlay.collapsed .filter-overlay-body {
     display: none;
@@ -1229,7 +1230,7 @@ a.secondary.btn-as-link:hover {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 2px 0;
+    padding: 0;
 }
 .filter-overlay-label {
     color: var(--overlay-text-muted);
@@ -1242,7 +1243,7 @@ a.secondary.btn-as-link:hover {
     background: var(--bg-secondary);
     border: 1px solid var(--overlay-border);
     color: var(--text-primary);
-    padding: 3px 6px;
+    padding: 2px 6px;
     border-radius: 3px;
     font-family: inherit;
     font-size: 11px;
@@ -2719,10 +2720,16 @@ kbd {
 .maplibregl-ctrl-top-left {
     z-index: 3;
 }
-/* Issue #218: at 1100x560 the two-band header leaves a 308px map, shorter than
- * the top-right control stack (filter card + My Location card); MapLibre clips
- * the stack with the map's overflow:hidden, cutting the last card. Cap the
- * column to the map height and let it scroll so every card stays reachable. */
+/* Issue #218 round 7: at 1100x560 the two-band header leaves a 308px map. The
+ * two card paddings below are tightened so the Filters card plus the full My
+ * Location card fit that box without a scrollbar. The cap stays as a safety net
+ * for even shorter maps: MapLibre clips with overflow:hidden, so the column may
+ * never pass the map's bottom edge. */
+.maplibregl-ctrl-top-right .maplibregl-ctrl {
+    /* 4px top margin instead of the vendor 10px: the card stack starts and
+     * spaces 4px so it fits the shortest reviewed map (1100x560, 308px). */
+    margin-top: 4px;
+}
 .maplibregl-ctrl-top-right {
     max-height: 100%;
     overflow-y: auto;
@@ -2736,6 +2743,14 @@ kbd {
     background: var(--overlay-text-muted);
     border: 3px solid var(--overlay-bg);
     border-radius: 6px;
+}
+
+/* Issue #218 round 7: the top-right card column reaches the map's bottom on
+ * a short map, where MapLibre's bottom-right attribution strip used to paint
+ * across the My Location card. Keep the strip clear of the column; it stays
+ * inside the map at 1100x560, 1280x800 and 1600x1000. */
+.maplibregl-ctrl-bottom-right {
+    right: 210px;
 }
 
 /* MapLibre hop tooltip (#134): show only the .path-tooltip box. */
