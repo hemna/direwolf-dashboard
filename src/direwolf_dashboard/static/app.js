@@ -498,6 +498,7 @@
         map.addControl(mlControl(function () { return container; }, 'bottom-left'));
         setWxLegendVisible(wxStationEnabled());
         initWxLegend();
+        setLegendCap();
     }
 
     /** Show/hide the "Weather stations" legend section with the Station plots toggle. */
@@ -636,6 +637,45 @@
         });
     }
 
+    // Round 12 / defect B: the weather legend is 911px tall, and a bottom-left
+    // control may not put its top above the map's bottom edge, so its top rose
+    // 374px above the map and sat behind the zoom buttons, the zoom readout,
+    // the stats overlay and the GPX control — every control shares the left
+    // edge. Cap the legend to the space under that column and scroll inside it;
+    // a short map leaves no space under the column, so there the legend moves
+    // beside the column instead and keeps a readable 160px window.
+    var LEGEND_MIN_CLEAR = 120;
+    var LEGEND_SHORT_MAX = 160;
+
+    function setLegendCap() {
+        var mc = cornerMapContainer();
+        var legend = document.querySelector('.map-legend');
+        var rail = document.querySelector('.maplibregl-ctrl-top-left');
+        if (!mc || !legend || !rail) return;
+        var mapBox = mc.getBoundingClientRect();
+        var railBottom = 0;
+        var railRight = 0;
+        for (var i = 0; i < rail.children.length; i++) {
+            var box = rail.children[i].getBoundingClientRect();
+            if (box.height <= 0) continue;
+            railBottom = Math.max(railBottom, box.bottom);
+            railRight = Math.max(railRight, box.right);
+        }
+        // Measure the legend where the stylesheet puts it, not where a previous
+        // call moved it, or the shift would compound on every resize.
+        mc.style.removeProperty('--legend-shift');
+        var naturalLeft = legend.getBoundingClientRect().left;
+        var clear = mapBox.bottom - railBottom - 18;
+        if (clear >= LEGEND_MIN_CLEAR) {
+            mc.style.setProperty('--legend-max', clear + 'px');
+            return;
+        }
+        mc.style.setProperty('--legend-max',
+            Math.min(LEGEND_SHORT_MAX, Math.max(120, mapBox.height - 26)) + 'px');
+        mc.style.setProperty('--legend-shift',
+            Math.max(0, railRight + 10 - naturalLeft) + 'px');
+    }
+
     function closeCornerCards() {
         var mc = cornerMapContainer();
         if (!mc) return;
@@ -714,7 +754,15 @@
             if (el) syncCornerIcon(el);
         });
         if (window.ResizeObserver && cornerMapContainer()) {
-            new ResizeObserver(updateCornerMode).observe(cornerMapContainer());
+            // Round 12: the legend cap depends on the map box and on how tall
+            // the left control column is, so watch both.
+            var geometry = new ResizeObserver(function () {
+                updateCornerMode();
+                setLegendCap();
+            });
+            geometry.observe(cornerMapContainer());
+            var rail = document.querySelector('.maplibregl-ctrl-top-left');
+            if (rail) geometry.observe(rail);
         }
     }
 
@@ -5660,14 +5708,42 @@
             var el = document.getElementById(bands[i]);
             if (el) bottom = Math.max(bottom, el.getBoundingClientRect().bottom);
         }
+        // Round 12 / defect A: the toast is centred, so at 560px wide its right
+        // edge (420) reached 43.6px into the top-right card column (376.4) and
+        // covered the Filters card. Put it beside the column, and below it only
+        // when the window is too narrow to hold it beside. The anchor is the
+        // right edge, not the left: `left: 50%` squeezes the box to the half
+        // viewport, so moving `left` would let it grow back into the column.
+        toast.style.left = '';
+        toast.style.right = '';
+        toast.style.transform = '';
         toast.style.top = (bottom + 8) + 'px';
+        var col = document.querySelector('.maplibregl-ctrl-top-right');
+        var box = toast.getBoundingClientRect();
+        if (!col || !box.width) return;
+        var colBox = col.getBoundingClientRect();
+        if (box.right <= colBox.left || box.left >= colBox.right ||
+            box.top >= colBox.bottom) return;
+        toast.style.left = 'auto';
+        toast.style.right =
+            (document.documentElement.clientWidth - colBox.left + 8) + 'px';
+        toast.style.transform = 'none';
+        box = toast.getBoundingClientRect();
+        if (box.left >= 8) return;
+        toast.style.left = '';
+        toast.style.right = '';
+        toast.style.transform = '';
+        if (colBox.bottom + 8 + box.height <= window.innerHeight - 8) {
+            toast.style.top = (colBox.bottom + 8) + 'px';
+        }
     }
 
     function showWaitingToast() {
         const toast = document.getElementById('waiting-toast');
         if (toast) {
-            positionWaitingToast(toast);
+            // A display:none box measures 0x0, so unhide before positioning it.
             toast.classList.remove('hidden');
+            positionWaitingToast(toast);
         }
     }
 

@@ -149,7 +149,8 @@ const bands = {{topnav: {{top: 0, bottom: {topnav_bottom}}},
 global.document = {{ getElementById(id) {{
   return (id === 'topnav' || id === 'toolrow')
     ? {{ getBoundingClientRect: () => ({{...bands[id]}}) }} : null;
-}} }};
+}},
+  querySelector() {{ return null; }} }};
 {func}
 const toast = {{ style: {{}},
   getBoundingClientRect() {{

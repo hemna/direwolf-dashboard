@@ -1,4 +1,4 @@
-"""Served-page geometry for the map's top-right corner (issue #218 round 11).
+"""Served-page geometry for the map's corners (issue #218 rounds 11 and 12).
 
 Round 9's guard rendered only ``style.css`` in a stitched fixture, so it never
 saw two things the browser really does:
@@ -330,3 +330,82 @@ def test_served_open_card_stays_inside_the_map_and_hides_the_other(served):
         data = cdp.eval(MEASURE)
     assert data["card"]["bottom"] <= data["map"]["bottom"] - 4, data
     assert data["mylocHeight"] == 0, "opening Filters must hide My Location"
+
+
+# Round 12: two overlaps a person can see, measured on the served page because
+# both placements are computed by app.js. The weather-legend body is filled
+# here with a 480px block (the dev data's own row is 480px) so the check does
+# not depend on the throwaway data directory having weather stations.
+TOAST_AND_LEGEND = r"""
+(() => {
+  const r = (el) => { if (!el) return null; const b = el.getBoundingClientRect();
+    return {top: +b.top.toFixed(1), bottom: +b.bottom.toFixed(1),
+            left: +b.left.toFixed(1), right: +b.right.toFixed(1),
+            width: +b.width.toFixed(1), height: +b.height.toFixed(1)}; };
+  const share = (a, b) => {
+    if (!a || !b) return 0;
+    const w = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+    const h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+    return (w > 0 && h > 0) ? +(w * h).toFixed(1) : 0;
+  };
+  const toast = document.getElementById('waiting-toast');
+  // A viewport change repositions a toast that is showing; this is the same
+  // path a person's resize takes.
+  toast.classList.remove('hidden');
+  window.dispatchEvent(new Event('resize'));
+  const wx = document.getElementById('legend-wx-body');
+  if (wx) wx.innerHTML = '<div style="height:480px">weather legend</div>';
+  const rail = document.querySelector('.maplibregl-ctrl-top-left');
+  const legend = document.querySelector('.map-legend');
+  const filter = document.querySelector('.filter-overlay');
+  const myloc = document.querySelector('.my-location-overlay');
+  const zoom = document.querySelector(
+    '.maplibregl-ctrl-top-left .maplibregl-ctrl-group');
+  return {
+    viewport: [innerWidth, innerHeight],
+    bandsBottom: Math.max(...['topnav', 'toolrow'].map((id) => {
+      const el = document.getElementById(id);
+      return el ? r(el).bottom : 0; })),
+    map: r(document.getElementById('map-container')),
+    toast: r(toast),
+    legend: r(legend),
+    legendMax: legend ? getComputedStyle(legend).maxHeight : null,
+    toastFilter: share(r(toast), r(filter)),
+    toastMyloc: share(r(toast), r(myloc)),
+    legendRail: share(r(legend), r(rail)),
+    legendZoom: share(r(legend), r(zoom)),
+  };
+})()
+"""
+
+
+def test_served_waiting_toast_clears_the_corner_cards(served):
+    """Round 12 / defect A: centred at 560px wide, the toast's right edge
+    reached 43.6px into the Filters card (2092.8 px² measured at 560x800).
+    It must sit beside the cards at narrow widths, still under both bands and
+    fully inside the viewport at a 400px window, and must not move at all on a
+    wide map."""
+    for w, h in ((560, 800), (560, 400), (1280, 800)):
+        with _page(served, w, h) as cdp:
+            data = cdp.eval(TOAST_AND_LEGEND)
+        assert data["toastFilter"] == 0, (w, h, data)
+        assert data["toastMyloc"] == 0, (w, h, data)
+        assert data["toast"]["top"] >= data["bandsBottom"], (w, h, data)
+        assert data["toast"]["left"] >= 8, (w, h, data)
+        assert data["toast"]["right"] <= data["viewport"][0] - 8, (w, h, data)
+
+
+def test_served_legend_clears_the_left_control_rail(served):
+    """Round 12 / defect B: the 911px legend rose 374px above the map and sat
+    behind the zoom buttons (29 x 58 px shared box, 1682 px²) and the rest of
+    the left rail. It must clear the whole rail - zoom, readout, stats and GPX
+    - and stay inside the map, on a tall map and on a short one."""
+    for w, h in ((1280, 800), (1100, 400)):
+        with _page(served, w, h) as cdp:
+            data = cdp.eval(TOAST_AND_LEGEND)
+        assert data["legendRail"] == 0, (w, h, data)
+        assert data["legendZoom"] == 0, (w, h, data)
+        assert data["legendMax"] != "none", (w, h, data)
+        assert data["legend"]["top"] >= data["map"]["top"] - 0.5, (w, h, data)
+        assert data["legend"]["bottom"] <= data["map"]["bottom"] + 0.5, (
+            w, h, data)

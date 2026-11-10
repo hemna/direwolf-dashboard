@@ -1085,6 +1085,14 @@ a.secondary.btn-as-link:hover {
     border: 1px solid var(--overlay-border);
     pointer-events: auto;
     max-width: 170px;
+    /* Issue #218 round 12 / defect B: app.js keeps this box clear of the left
+     * control column — --legend-max is the height available under that column
+     * (the body scrolls inside it) and --legend-shift moves the whole box
+     * beside the column when a short map leaves no room under it. */
+    max-height: var(--legend-max, none);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    transform: translateX(var(--legend-shift, 0));
 }
 .map-legend-header {
     cursor: pointer;
