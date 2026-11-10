@@ -2841,13 +2841,12 @@ kbd {
 [data-theme="light"] .tool-toggle { border-color: #2E69F2; color: #1c2333; }
 [data-theme="light"] .tool-toggle.on { background: #dbe7ff; }
 #toolpanel {
-    position: absolute;
-    top: 8px;
-    left: 8px;
-    bottom: 8px;
+    /* issue #218 rework (2026-11-09): the panel is a normal-flow child of the
+     * <body> flex column, sitting BELOW the two toolbar bands (#topnav, #toolrow).
+     * It must never cover either band when open, so it is not positioned. */
+    align-self: flex-start;
+    margin: 8px 0 0 8px;
     width: 254px;
-    /* above #topnav/#toolrow (both z-index 110) so the TOOLS header and close stay clickable */
-    z-index: 120;
     background: var(--overlay-bg);
     border: 1px solid var(--overlay-border);
     border-radius: 8px;
