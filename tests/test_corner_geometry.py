@@ -102,28 +102,24 @@ def _myloc_card() -> str:
     )
 
 
-def _measure(map_height: int, compact: bool, opened: str | None = None,
-             cap: bool = True) -> dict:
-    """Lay the real stylesheet out in Chromium and return the box rects."""
+def _measure(map_height: int, compact: bool) -> dict:
+    """Lay the real stylesheet out in Chromium and return the box rects.
+
+    Round 10: the fixture no longer supplies ``--corner-open-max``. app.js sets
+    that from the live map box, so a fixture that invented it hid a broken
+    page (NB-2). The opened-card checks now live in tests/test_corner_served.py
+    and run against the served page.
+    """
     classes = "corner-compact" if compact else ""
-    if opened:
-        classes = (classes + f" corner-{opened}-open").strip()
-    # app.js sets this inline from the measured map height (4px margin + 8px).
-    cap_style = f"--corner-open-max:{map_height - 12}px;" if compact and opened and cap else ""
-    filter_cls = "filter-overlay corner-open" if opened == "filter" else "filter-overlay"
-    myloc_cls = ("my-location-overlay corner-open" if opened == "myloc"
-                 else "my-location-overlay")
-    filter_html = _filter_card().replace(
-        'class="filter-overlay"', f'class="{filter_cls}"', 1)
-    myloc_html = _myloc_card().replace(
-        'class="my-location-overlay"', f'class="{myloc_cls}"', 1)
+    filter_html = _filter_card()
+    myloc_html = _myloc_card()
 
     page = f"""<!doctype html><html><head><meta charset="utf-8">
 <link rel="stylesheet" href="file://{STATIC / 'vendor' / 'maplibre-gl.css'}">
 <link rel="stylesheet" href="file://{STATIC / 'style.css'}">
 <style>body {{ margin: 0; }}</style></head><body>
 <div id="map-container" class="{classes}"
-     style="position:relative;height:{map_height}px;overflow:hidden;width:1100px;{cap_style}">
+     style="position:relative;height:{map_height}px;overflow:hidden;width:1100px;">
   <div id="map" class="maplibregl-map"
        style="position:absolute;top:0;left:0;right:0;bottom:0;overflow:hidden">
     <div class="maplibregl-ctrl-top-right">
@@ -200,31 +196,6 @@ def test_compact_corner_fits_a_255px_map():
             f"{name} header text is clipped: {card}")
 
 
-def test_opened_filter_stays_inside_and_hides_my_location():
-    data = _measure(255, compact=_compact(255), opened="filter")
-    map_box = data["map"]
-    flt = _card(data, "filter-overlay")
-    myloc = _card(data, "my-location-overlay")
-
-    assert flt["body"] == "block", flt
-    assert flt["rect"]["bottom"] <= map_box["bottom"] - 4, (
-        f"open Filters leaves the map box: {flt['rect']} vs {map_box}")
-    assert myloc["body"] is not None
-    assert myloc["rect"]["height"] == 0, "opening Filters must hide My Location"
-
-
-def test_opened_my_location_stays_inside_and_hides_filter():
-    data = _measure(255, compact=_compact(255), opened="myloc")
-    map_box = data["map"]
-    flt = _card(data, "filter-overlay")
-    myloc = _card(data, "my-location-overlay")
-
-    assert myloc["body"] == "block", myloc
-    assert myloc["rect"]["bottom"] <= map_box["bottom"] - 4, (
-        f"open My Location leaves the map box: {myloc['rect']} vs {map_box}")
-    assert flt["rect"]["height"] == 0, "opening My Location must hide Filters"
-
-
 def test_round7_layout_is_untouched_on_a_308px_map():
     """1100x560 keeps round 7 exactly: both cards open, bodies visible, both
     inside the map with clearance, at the measured 219px and 66px heights."""
@@ -261,25 +232,16 @@ def test_compact_engages_at_a_255px_map_and_not_at_308():
         "the taller map must keep the round-7 cards")
 
 
-def test_opened_filter_scrolls_inside_the_card_on_a_201px_map():
-    """1100x400 leaves a ~201px map: the card stops at the map box and its
-    body scrolls inside itself with a real scrollbar gutter, instead of the
-    card being cut by the map's bottom edge (round 9, item B-2)."""
-    data = _measure(201, compact=_compact(201), opened="filter")
-    map_box = data["map"]
-    flt = _card(data, "filter-overlay")
-
-    assert flt["rect"]["bottom"] <= map_box["bottom"] - 4, (
-        f"open Filters leaves the map box: {flt['rect']} vs {map_box}")
-    assert flt["bodyScrollH"] > flt["bodyClientH"], (
-        f"the body must scroll inside the card: {flt}")
-    assert flt["bodyOffsetW"] > flt["bodyClientW"], (
-        f"the scrollbar must take a visible gutter: {flt}")
-
-
-def test_corner_rules_that_cannot_be_seen_in_the_fixture():
-    """Two rules the fixture cannot show: the attribution strip must stay
-    inset left of the column, and the real fallback condition must be stated."""
+def test_attribution_strip_insets_both_resting_and_open():
+    """Round 10 / defect A: the round-7 guard only looked for the resting
+    ``right: 210px`` string, so it could not see that an opened card (which
+    steps 56px left of the button rail) covers the strip. Assert both insets;
+    the measured clearance is checked on the served page."""
     css = (STATIC / "style.css").read_text(encoding="utf-8")
     assert ".maplibregl-ctrl-bottom-right {\n    right: 210px;\n}" in css
+    assert (
+        ".corner-compact.corner-filter-open .maplibregl-ctrl-bottom-right,\n"
+        ".corner-compact.corner-myloc-open .maplibregl-ctrl-bottom-right {\n"
+        "    right: 250px;\n}"
+    ) in css, "the opened compact card needs its own, wider strip inset"
     assert "when the map is shorter than the opened card" in css

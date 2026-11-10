@@ -2809,7 +2809,10 @@ kbd {
 .corner-compact .filter-overlay.corner-open .filter-overlay-body,
 .corner-compact .my-location-overlay.corner-open .my-location-body {
     display: block;
-    overflow-y: auto;
+    /* Round 10: `auto` let Chromium paint an overlay bar at short windows, so
+     * the clipped last row had no visible gutter. `scroll` always reserves
+     * the 12px bar and paints the track and thumb below. */
+    overflow-y: scroll;
     min-height: 0;
 }
 .corner-compact .filter-overlay.corner-open .filter-overlay-body::-webkit-scrollbar,
@@ -2818,7 +2821,8 @@ kbd {
 }
 .corner-compact .filter-overlay.corner-open .filter-overlay-body::-webkit-scrollbar-track,
 .corner-compact .my-location-overlay.corner-open .my-location-body::-webkit-scrollbar-track {
-    background: transparent;
+    /* Round 10: a visible track, not just a thumb, in both themes. */
+    background: var(--overlay-divider);
 }
 .corner-compact .filter-overlay.corner-open .filter-overlay-body::-webkit-scrollbar-thumb,
 .corner-compact .my-location-overlay.corner-open .my-location-body::-webkit-scrollbar-thumb {
@@ -2863,6 +2867,14 @@ kbd {
  * inside the map at 1100x560, 1280x800 and 1600x1000. */
 .maplibregl-ctrl-bottom-right {
     right: 210px;
+}
+/* Round 10 / defect A: an opened compact card steps 56px left of the map
+ * button rail, so the 210px resting inset no longer clears it — at 1100 wide
+ * the strip's right edge (890) sat 31.6px inside the card (left 858.4).
+ * 250px puts the strip at 850, an 8px+ gap at 1100 and 1024 wide. */
+.corner-compact.corner-filter-open .maplibregl-ctrl-bottom-right,
+.corner-compact.corner-myloc-open .maplibregl-ctrl-bottom-right {
+    right: 250px;
 }
 
 /* MapLibre hop tooltip (#134): show only the .path-tooltip box. */
