@@ -1191,6 +1191,26 @@ a.secondary.btn-as-link:hover {
     font-variant-numeric: tabular-nums;
 }
 
+/* Issue #218 round 9: the two card headers are real buttons so the keyboard
+ * and a screen reader can open them. Strip the browser button chrome; the
+ * card rules below keep their own padding and divider. */
+.filter-overlay-header,
+.my-location-header {
+    background: transparent;
+    border: 0;
+    width: 100%;
+    text-align: left;
+    font-family: inherit;
+    font-size: inherit;
+    line-height: inherit;
+    color: inherit;
+}
+.filter-overlay-header:focus-visible,
+.my-location-header:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
 /* --- Filter Overlay --- */
 .filter-overlay {
     background: var(--overlay-bg);
@@ -2755,6 +2775,14 @@ kbd {
 .corner-compact .maplibregl-ctrl-top-right .maplibregl-ctrl {
     margin-right: 2px;
 }
+/* Issue #218 round 9: the round map buttons (z-index 1000) float over the
+ * corner. A collapsed header is clear of them; an opened card was not, and
+ * the trash button covered the "Packet paths" checkbox. While a card is open
+ * the column steps left of the 52px button rail. */
+.corner-compact.corner-filter-open .maplibregl-ctrl-top-right .maplibregl-ctrl,
+.corner-compact.corner-myloc-open .maplibregl-ctrl-top-right .maplibregl-ctrl {
+    margin-right: 56px;
+}
 .corner-compact .filter-overlay:not(.corner-open),
 .corner-compact .my-location-overlay:not(.corner-open) {
     /* the cards carry min-width:160px for the tall layout; a collapsed header
@@ -2766,9 +2794,37 @@ kbd {
 .corner-compact .my-location-overlay .my-location-body {
     display: none;
 }
+/* An opened card may never pass the map's bottom edge. app.js sets
+ * --corner-open-max from the measured map height, so the card stops there and
+ * its body scrolls inside itself with a visible scrollbar. Driven by map
+ * height: at 1100 wide the open card touched the map bottom at a 432px window
+ * and was cut from 431px down. */
+.corner-compact .filter-overlay.corner-open,
+.corner-compact .my-location-overlay.corner-open {
+    display: flex;
+    flex-direction: column;
+    max-height: var(--corner-open-max, none);
+    overflow: hidden;
+}
 .corner-compact .filter-overlay.corner-open .filter-overlay-body,
 .corner-compact .my-location-overlay.corner-open .my-location-body {
     display: block;
+    overflow-y: auto;
+    min-height: 0;
+}
+.corner-compact .filter-overlay.corner-open .filter-overlay-body::-webkit-scrollbar,
+.corner-compact .my-location-overlay.corner-open .my-location-body::-webkit-scrollbar {
+    width: 12px;
+}
+.corner-compact .filter-overlay.corner-open .filter-overlay-body::-webkit-scrollbar-track,
+.corner-compact .my-location-overlay.corner-open .my-location-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+.corner-compact .filter-overlay.corner-open .filter-overlay-body::-webkit-scrollbar-thumb,
+.corner-compact .my-location-overlay.corner-open .my-location-body::-webkit-scrollbar-thumb {
+    background: var(--overlay-text-muted);
+    border: 3px solid var(--overlay-bg);
+    border-radius: 6px;
 }
 .corner-compact .filter-overlay .filter-overlay-header,
 .corner-compact .my-location-overlay .my-location-header {
@@ -2779,6 +2835,7 @@ kbd {
 .corner-compact .filter-overlay.corner-open .filter-overlay-header,
 .corner-compact .my-location-overlay.corner-open .my-location-header {
     border-bottom: 1px solid var(--overlay-border);
+    flex: 0 0 auto;
 }
 .corner-compact .my-location-title {
     font-size: 9px;
@@ -2795,9 +2852,10 @@ kbd {
     display: none;
 }
 
-/* shortcut: below 1024x480 an open card scrolls inside itself, revisit if
- * smaller windows matter. The column keeps its round-6 height cap and
- * overflow for that floor; at 1024x480 and larger nothing overflows. */
+/* shortcut: when the map is shorter than the opened card, the card's body
+ * scrolls inside itself with a visible scrollbar (see --corner-open-max
+ * above); revisit if windows below 400px tall matter. The driver is map
+ * height, not window width. */
 
 /* Issue #218 round 7: the top-right card column reaches the map's bottom on
  * a short map, where MapLibre's bottom-right attribution strip used to paint

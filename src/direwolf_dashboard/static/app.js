@@ -611,14 +611,25 @@
     }
 
     function syncCornerIcon(el) {
-        var icon = el.querySelector('.filter-collapse-icon, .my-location-collapse-icon');
-        if (!icon) return;
         var mc = cornerMapContainer();
         var compact = mc && mc.classList.contains('corner-compact');
         var closed = compact
             ? !el.classList.contains('corner-open')
             : el.classList.contains('collapsed');
-        icon.textContent = closed ? '\u25BC' : '\u25B2';
+        var icon = el.querySelector('.filter-collapse-icon, .my-location-collapse-icon');
+        if (icon) icon.textContent = closed ? '\u25BC' : '\u25B2';
+        var header = el.querySelector('.filter-overlay-header, .my-location-header');
+        if (header) header.setAttribute('aria-expanded', closed ? 'false' : 'true');
+    }
+
+    // Issue #218 round 9: an opened card may not pass the map's bottom edge.
+    // The CSS caps the card at this height and scrolls its body inside itself
+    // (4px top margin + 8px clearance from the map's bottom).
+    function setCornerBodyCap() {
+        var mc = cornerMapContainer();
+        if (!mc) return;
+        mc.style.setProperty('--corner-open-max',
+            Math.max(60, mc.clientHeight - 12) + 'px');
     }
 
     function closeCornerCards() {
@@ -638,6 +649,7 @@
     function toggleCornerCard(which) {
         var mc = cornerMapContainer();
         if (!mc || !mc.classList.contains('corner-compact')) return false;
+        setCornerBodyCap();
         var el = document.querySelector(
             which === 'filter' ? '.filter-overlay' : '.my-location-overlay');
         var open = !(el && el.classList.contains('corner-open'));
@@ -654,6 +666,7 @@
     function updateCornerMode() {
         var mc = cornerMapContainer();
         if (!mc) return;
+        setCornerBodyCap();
         var compact = mc.clientHeight < CORNER_COMPACT_MAX_MAP_HEIGHT;
         if (compact === mc.classList.contains('corner-compact')) return;
         mc.classList.toggle('corner-compact', compact);
@@ -662,6 +675,10 @@
 
     function initCornerMode() {
         updateCornerMode();
+        ['.filter-overlay', '.my-location-overlay'].forEach(function (sel) {
+            var el = document.querySelector(sel);
+            if (el) syncCornerIcon(el);
+        });
         if (window.ResizeObserver && cornerMapContainer()) {
             new ResizeObserver(updateCornerMode).observe(cornerMapContainer());
         }
@@ -671,8 +688,10 @@
         if (!map) return;
         var container = mlCreate('filter-overlay');
         container.innerHTML =
-            '<div class="filter-overlay-header">Filters <span class="filter-collapse-icon">\u25B2</span></div>' +
-            '<div class="filter-overlay-body">' +
+            '<button type="button" class="filter-overlay-header" aria-expanded="true"' +
+                ' aria-controls="filter-overlay-body">Filters ' +
+                '<span class="filter-collapse-icon">\u25B2</span></button>' +
+            '<div class="filter-overlay-body" id="filter-overlay-body">' +
             '<div class="filter-overlay-row">' +
                 '<label class="filter-overlay-label" for="filter-callsign">Callsign</label>' +
                 '<input type="text" id="filter-callsign" placeholder="Filter..." />' +
@@ -735,18 +754,16 @@
             '</div>' +
             '</div>';
         var filterHeader = container.querySelector('.filter-overlay-header');
-        var filterIcon = container.querySelector('.filter-collapse-icon');
         filterHeader.addEventListener('click', function () {
             if (toggleCornerCard('filter')) return;
             container.classList.toggle('collapsed');
-            var isCollapsed = container.classList.contains('collapsed');
-            filterIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
-            localStorage.setItem('dw-filter-collapsed', isCollapsed ? '1' : '0');
+            localStorage.setItem('dw-filter-collapsed',
+                container.classList.contains('collapsed') ? '1' : '0');
+            syncCornerIcon(container);
             placeTrailPanel();
         });
         if (localStorage.getItem('dw-filter-collapsed') === '1') {
             container.classList.add('collapsed');
-            filterIcon.textContent = '\u25BC';
         }
         // Station plots toggle: repaint models or fall back to sprites, and
         // show/hide the weather legend section (issue #152).
@@ -775,15 +792,16 @@
         if (!map) return;
         var container = mlCreate('my-location-overlay');
         container.innerHTML =
-            '<div class="my-location-header">' +
+            '<button type="button" class="my-location-header" aria-expanded="true"' +
+                ' aria-controls="my-location-body">' +
                 '<span class="my-location-title">My Location</span>' +
                 '<span class="my-location-actions">' +
                     '<span class="my-location-btn my-location-center" title="Center map on my location">&#8982;</span>' +
                     '<span class="my-location-btn my-location-clear hidden" title="Clear my location">&times;</span>' +
                     '<span class="my-location-collapse-icon">\u25B2</span>' +
                 '</span>' +
-            '</div>' +
-            '<div class="my-location-body">' +
+            '</button>' +
+            '<div class="my-location-body" id="my-location-body">' +
                 '<div class="my-location-type">Not set</div>' +
                 '<div class="my-location-coords"></div>' +
             '</div>';
@@ -801,19 +819,17 @@
         });
         // Wire up collapse toggle
         var myLocHeader = container.querySelector('.my-location-header');
-        var myLocIcon = container.querySelector('.my-location-collapse-icon');
         myLocHeader.addEventListener('click', function (e) {
             if (e.target.closest('.my-location-btn')) return;
             if (toggleCornerCard('myloc')) return;
             container.classList.toggle('collapsed');
-            var isCollapsed = container.classList.contains('collapsed');
-            myLocIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
-            localStorage.setItem('dw-myloc-collapsed', isCollapsed ? '1' : '0');
+            localStorage.setItem('dw-myloc-collapsed',
+                container.classList.contains('collapsed') ? '1' : '0');
+            syncCornerIcon(container);
             placeTrailPanel();
         });
         if (localStorage.getItem('dw-myloc-collapsed') === '1') {
             container.classList.add('collapsed');
-            myLocIcon.textContent = '\u25BC';
         }
         myLocationOverlayEl = container;
         map.addControl(mlControl(function () { return container; }, 'top-right'));
