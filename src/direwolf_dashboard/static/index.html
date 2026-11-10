@@ -63,11 +63,21 @@
             </button>
             <button id="btn-toggle-log" class="tool-toggle" title="Toggle packet log">&#9776;</button>
             <button id="btn-settings" class="tool-toggle" title="Settings">&#9881;</button>
-            <button id="btn-tools" class="tool-toggle" title="Toggle tool panel">&#9776;</button>
+            <button id="btn-tools" class="tool-toggle" title="Toggle tool panel">&#128295;</button>
             <button id="btn-mobile-menu" title="Menu" class="mobile-only">&#8942;</button>
         </div>
     </div>
-    <!-- Collapsible left tool panel (issue #218) -->
+    <!-- Mobile dropdown menu -->
+    <div id="mobile-menu" class="mobile-menu hidden">
+        <div class="mobile-menu-buttons">
+            <button id="mobile-btn-drop-pin">Drop Pin</button>
+            <button id="mobile-btn-toggle-log">Toggle Log</button>
+            <button id="mobile-btn-settings">Settings</button>
+        </div>
+    </div>
+    <!-- Map -->
+    <div id="map-container">
+    <!-- Collapsible left tool panel (issue #218): floats over the map region only, below the two top bands -->
     <div id="toolpanel" class="hidden">
         <div class="toolpanel-header">
             <span>TOOLS</span>
@@ -97,16 +107,6 @@
             </section>
         </div>
     </div>
-    <!-- Mobile dropdown menu -->
-    <div id="mobile-menu" class="mobile-menu hidden">
-        <div class="mobile-menu-buttons">
-            <button id="mobile-btn-drop-pin">Drop Pin</button>
-            <button id="mobile-btn-toggle-log">Toggle Log</button>
-            <button id="mobile-btn-settings">Settings</button>
-        </div>
-    </div>
-    <!-- Map -->
-    <div id="map-container">
         <div id="map"></div>
         <button id="btn-center-my-pos" class="fab-center" title="Center on my position">&#x2316;</button>
         <button id="btn-clear-data" class="fab-clear" title="Clear all stations and packets">&#x1F5D1;</button>
