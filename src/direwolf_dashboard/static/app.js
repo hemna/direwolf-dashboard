@@ -637,6 +637,43 @@
         });
     }
 
+    // Round 13: four placements below are decided by measurement instead of by
+    // arithmetic on one control's box, because every overlay they may cover is
+    // a box that can be measured. One pair of helpers keeps that in one place.
+    function rectsOverlap(a, b, gap) {
+        gap = gap || 0;
+        return a.left < b.right + gap && a.right + gap > b.left &&
+               a.top < b.bottom + gap && a.bottom + gap > b.top;
+    }
+
+    // Every visible overlay box a floating element may not cover. The control
+    // corners are containers, so page them by child: MapLibre stamps
+    // `.maplibregl-ctrl` on every control it hosts. The left corner is listed
+    // as well, so neither the legend nor the toast ever sits over it.
+    function overlayObstacles(except) {
+        var out = [];
+        var nodes = document.querySelectorAll(
+            '.maplibregl-ctrl,.maplibregl-ctrl-top-left,.fab-center' +
+            ',.fab-clear,#map-resize-handle,#log-header');
+        for (var i = 0; i < nodes.length; i++) {
+            var el = nodes[i];
+            if (el === except || (except && except.contains(el))) continue;
+            var cs = getComputedStyle(el);
+            if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+            var box = el.getBoundingClientRect();
+            if (box.width > 1 && box.height > 1) out.push(box);
+        }
+        return out;
+    }
+
+    function collides(box, except, gap) {
+        var obs = overlayObstacles(except);
+        for (var i = 0; i < obs.length; i++) {
+            if (rectsOverlap(box, obs[i], gap)) return true;
+        }
+        return false;
+    }
+
     // Round 12 / defect B: the weather legend is 911px tall, and a bottom-left
     // control may not put its top above the map's bottom edge, so its top rose
     // 374px above the map and sat behind the zoom buttons, the zoom readout,
@@ -644,6 +681,11 @@
     // edge. Cap the legend to the space under that column and scroll inside it;
     // a short map leaves no space under the column, so there the legend moves
     // beside the column instead and keeps a readable 160px window.
+    // Round 13 / D-2: that branch still forced a 120px floor while the real
+    // space below the column was 55.2px, so the box painted over the GPX panel
+    // at 320x568. The floor is gone: a map too short for a body gets the header
+    // only, and the beside-the-column window is used only when nothing in it is
+    // covered.
     var LEGEND_MIN_CLEAR = 120;
     var LEGEND_SHORT_MAX = 160;
 
@@ -653,8 +695,11 @@
         var rail = document.querySelector('.maplibregl-ctrl-top-left');
         if (!mc || !legend || !rail) return;
         var mapBox = mc.getBoundingClientRect();
-        var railBottom = 0;
-        var railRight = 0;
+        var railBox = rail.getBoundingClientRect();
+        // The cap on the rail can be shorter than its content, so clear the
+        // larger of the corner box and its last control.
+        var railBottom = railBox.bottom;
+        var railRight = railBox.right;
         for (var i = 0; i < rail.children.length; i++) {
             var box = rail.children[i].getBoundingClientRect();
             if (box.height <= 0) continue;
@@ -665,33 +710,95 @@
         // call moved it, or the shift would compound on every resize.
         mc.style.removeProperty('--legend-shift');
         mc.style.removeProperty('--legend-lift');
+        mc.style.removeProperty('--legend-max');
+        legend.classList.remove('legend-tight');
         var naturalLeft = legend.getBoundingClientRect().left;
         var legendRight = naturalLeft + legend.getBoundingClientRect().width;
-        var clear = mapBox.bottom - railBottom - 18;
-        var shift = 0;
-        if (clear < LEGEND_MIN_CLEAR) {
-            clear = Math.min(LEGEND_SHORT_MAX, Math.max(120, mapBox.height - 26));
-            shift = Math.max(0, railRight + 10 - naturalLeft);
-            legendRight += shift;
-        }
         // The map credit strip is inset 210px from the right, so on a 560px
         // window it sits at x 75.9-350 — over the legend's own corner, where the
         // legend covered 94.1 x 24 = 2258.4 px^2 of it. Lift the legend above
-        // the strip when the two share that corner, and take the same amount
-        // off the cap so the legend's top does not rise into the rail.
+        // the strip when the two share that corner.
         var lift = 0;
         var strip = document.querySelector(
             '.maplibregl-ctrl-bottom-right .maplibregl-ctrl-attrib');
         if (strip) {
             var stripBox = strip.getBoundingClientRect();
             if (stripBox.width && stripBox.left < legendRight &&
-                stripBox.right > naturalLeft + shift) {
+                stripBox.right > naturalLeft) {
                 lift = Math.max(0, mapBox.bottom - 10 - stripBox.top + 8);
             }
         }
-        mc.style.setProperty('--legend-max', Math.max(120, clear - lift) + 'px');
-        if (shift) mc.style.setProperty('--legend-shift', shift + 'px');
+        var clear = mapBox.bottom - lift - railBottom - 18;
+        if (clear >= LEGEND_MIN_CLEAR) {
+            // Round 13: no 120px floor. The cap is the room that really exists
+            // under the column, less the lift, so the body scrolls instead of
+            // painting over the control above it.
+            mc.style.setProperty('--legend-max', clear + 'px');
+            if (lift) mc.style.setProperty('--legend-lift', lift + 'px');
+            return;
+        }
+        // Too short for a body under the column: try the window beside it, and
+        // show the header alone when that window would cover a control.
+        var shift = Math.max(0, railRight + 10 - naturalLeft);
+        var shortMax = Math.min(LEGEND_SHORT_MAX, Math.max(120, mapBox.height - 26));
+        mc.style.setProperty('--legend-shift', shift + 'px');
+        mc.style.setProperty('--legend-max', shortMax + 'px');
         if (lift) mc.style.setProperty('--legend-lift', lift + 'px');
+        if (!collides(legend.getBoundingClientRect(), legend, 0)) return;
+        legend.classList.add('legend-tight');
+        mc.style.removeProperty('--legend-max');
+        mc.style.removeProperty('--legend-shift');
+        if (lift) mc.style.setProperty('--legend-lift', lift + 'px');
+        // A header alone fits the plain corner whenever the column ends above
+        // it; beside the column is the fallback when the column reaches down
+        // (1100x400) and the corner is taken.
+        if (!collides(legend.getBoundingClientRect(), legend, 0)) return;
+        mc.style.setProperty('--legend-shift', shift + 'px');
+        if (!collides(legend.getBoundingClientRect(), legend, 0)) return;
+        mc.style.removeProperty('--legend-shift');
+    }
+
+    // Round 13 / D-3: the left column is a float stack with no height limit, so
+    // at 1100x432 it ran 99.9px past the map's bottom edge: the Stats box lay
+    // over the 8px resize strip and the GPX control sat entirely below the map,
+    // unreachable. The stylesheet caps the column at the map height less that
+    // strip; when the capped column cannot hold its full content, the Stats
+    // body collapses to its header so the cap never becomes a scrollbar.
+    var COLUMN_STRIP = 8;
+
+    function updateLeftColumnFit() {
+        var mc = cornerMapContainer();
+        var rail = document.querySelector('.maplibregl-ctrl-top-left');
+        if (!mc || !rail) return;
+        mc.classList.remove('stats-tight');
+        var have = mc.getBoundingClientRect().height - COLUMN_STRIP;
+        if (rail.scrollHeight <= have + 1) return;
+        mc.classList.add('stats-tight');
+    }
+
+    // Round 13 / D-4: the two round map buttons stack 88px up the right edge,
+    // and at 1100x560 their top met the corner-card column (1080 px^2 over the
+    // Filters card, 360 over My Location). Put them side by side when they
+    // would meet a card; nothing else about them changes.
+    function updateFabStack() {
+        var mc = cornerMapContainer();
+        var cards = document.querySelectorAll(
+            '.maplibregl-ctrl-top-right .filter-overlay,' +
+            '.maplibregl-ctrl-top-right .my-location-overlay');
+        var clear = document.getElementById('btn-clear-data');
+        var mine = document.getElementById('btn-center-my-pos');
+        if (!mc || !clear || !mine || !cards.length) return;
+        mc.classList.remove('fab-row');
+        var a = clear.getBoundingClientRect();
+        var b = mine.getBoundingClientRect();
+        for (var i = 0; i < cards.length; i++) {
+            var card = cards[i].getBoundingClientRect();
+            if (!card.width || !card.height) continue;
+            if (rectsOverlap(card, a, 4) || rectsOverlap(card, b, 4)) {
+                mc.classList.add('fab-row');
+                return;
+            }
+        }
     }
 
     function closeCornerCards() {
@@ -774,13 +881,23 @@
         if (window.ResizeObserver && cornerMapContainer()) {
             // Round 12: the legend cap depends on the map box and on how tall
             // the left control column is, so watch both.
+            // Round 13: the column fit, the button row and the toast depend on
+            // the same boxes, so all four run from one observer.
             var geometry = new ResizeObserver(function () {
                 updateCornerMode();
+                updateLeftColumnFit();
                 setLegendCap();
+                updateFabStack();
+                var toast = document.getElementById('waiting-toast');
+                if (toast && !toast.classList.contains('hidden')) {
+                    positionWaitingToast(toast);
+                }
             });
             geometry.observe(cornerMapContainer());
             var rail = document.querySelector('.maplibregl-ctrl-top-left');
             if (rail) geometry.observe(rail);
+            var right = document.querySelector('.maplibregl-ctrl-top-right');
+            if (right) geometry.observe(right);
         }
     }
 
@@ -5719,6 +5836,48 @@
     // the two header bands (#topnav + #toolrow) and place it just below them.
     // A fixed 50px top (written for the old single 40px #toolbar) painted the
     // toast over the tool row.
+    // Round 13 / D-1: at 320px wide the toast is 160x63 and the round-12
+    // fallback (`top = column bottom + 8`) dropped it on the left control rail
+    // — 933 px^2 over the GPX panel and 407 over Load GPX, with no dismiss
+    // control to click away. Place it by measurement instead: keep the centred
+    // spot under the bands when it is clear, otherwise scan the map box on a
+    // 1px grid down and 2px across for the nearest clear spot, preferring the
+    // top. A 4px gap is required first and 0px second, because the free strip
+    // on a 320x568 window is only just tall enough for the box.
+    function toastSpot(toast, preferred, gap) {
+        var mc = cornerMapContainer();
+        if (!mc) return null;
+        var mapBox = mc.getBoundingClientRect();
+        var w = toast.offsetWidth;
+        var h = toast.offsetHeight;
+        if (!w || !h) return null;
+        var obstacles = overlayObstacles(toast);
+        var minX = 8;
+        var maxX = Math.max(minX, document.documentElement.clientWidth - w - 8);
+        var minY = preferred.top;
+        var maxY = Math.max(minY, mapBox.bottom - h - 2);
+        var probe = { left: 0, right: 0, top: 0, bottom: 0 };
+        for (var y = minY; y <= maxY; y += 1) {
+            for (var d = 0; d <= maxX - minX; d += 2) {
+                for (var side = -1; side <= 1; side += 2) {
+                    var x = preferred.left + side * d;
+                    if (x < minX || x > maxX) continue;
+                    probe.left = x; probe.right = x + w;
+                    probe.top = y; probe.bottom = y + h;
+                    var clear = true;
+                    for (var k = 0; k < obstacles.length; k++) {
+                        if (rectsOverlap(probe, obstacles[k], gap)) {
+                            clear = false;
+                            break;
+                        }
+                    }
+                    if (clear) return { left: x, top: y };
+                }
+            }
+        }
+        return null;
+    }
+
     function positionWaitingToast(toast) {
         var bottom = 0;
         var bands = ['topnav', 'toolrow'];
@@ -5726,25 +5885,78 @@
             var el = document.getElementById(bands[i]);
             if (el) bottom = Math.max(bottom, el.getBoundingClientRect().bottom);
         }
-        // Round 12 / defect A: the toast is centred, so at 560px wide its right
-        // edge (420) reached 43.6px into the top-right card column (376.4) and
-        // covered the Filters card. Put it beside the column, and below it only
-        // when the window is too narrow to hold it beside. The anchor is the
-        // right edge, not the left: `left: 50%` squeezes the box to the half
-        // viewport, so moving `left` would let it grow back into the column.
         toast.style.left = '';
         toast.style.right = '';
         toast.style.transform = '';
+        toast.style.width = '';
+        toast.style.maxWidth = '';
         toast.style.top = (bottom + 8) + 'px';
-        var col = document.querySelector('.maplibregl-ctrl-top-right');
         var box = toast.getBoundingClientRect();
-        if (!col || !box.width) return;
-        var colBox = col.getBoundingClientRect();
-        if (box.right <= colBox.left || box.left >= colBox.right ||
-            box.top >= colBox.bottom) return;
+        if (!box.width) return;
+        // `left: 50%` squeezes the box to the half viewport, so it wraps. Pin
+        // the width the probe measured before moving it: an explicit `left`
+        // would otherwise let it grow and re-wrap into a box nothing checked.
+        toast.style.width = box.width + 'px';
+        var view = document.documentElement.clientWidth;
+        var preferred = {
+            left: Math.round((view - box.width) / 2),
+            top: Math.round(box.top)
+        };
+        // The centred spot under the bands is what 1280 and 1600 keep.
+        if (!collides(box, toast, 4)) return;
+        // Round 12's placement: right-anchored beside the top-right card
+        // column, still under the bands. Kept as the first alternative so a
+        // 560px window looks like it did in round 12.
+        var col = document.querySelector('.maplibregl-ctrl-top-right');
+        var colBox = col ? col.getBoundingClientRect() : null;
+        if (colBox) {
+            toast.style.left = 'auto';
+            toast.style.right = (view - colBox.left + 8) + 'px';
+            toast.style.transform = 'none';
+            var beside = toast.getBoundingClientRect();
+            if (beside.left >= 8 && !collides(beside, toast, 4)) return;
+            toast.style.left = '';
+            toast.style.right = '';
+            toast.style.transform = '';
+        }
+        var spot = null;
+        // Step 3: too narrow to sit beside the cards at its own width, so take
+        // the strip between the left control corner and the cards at a smaller
+        // width. Every control's centre must still be clickable, so the toast
+        // may not overlap the corner box itself.
+        var rail = document.querySelector('.maplibregl-ctrl-top-left');
+        if (colBox && rail) {
+            var railRight = rail.getBoundingClientRect().right;
+            var avail = Math.floor(colBox.left - railRight - 16);
+            if (avail >= 120) {
+                toast.style.width = '';
+                toast.style.maxWidth = avail + 'px';
+                toast.style.left = (railRight + 8) + 'px';
+                toast.style.top = (bottom + 8) + 'px';
+                toast.style.transform = 'none';
+                var narrow = toast.getBoundingClientRect();
+                if (!collides(narrow, toast, 4)) {
+                    toast.style.width = narrow.width + 'px';
+                    return;
+                }
+                toast.style.maxWidth = '';
+                toast.style.left = '';
+                toast.style.transform = '';
+                toast.style.width = box.width + 'px';
+            }
+        }
+        spot = toastSpot(toast, preferred, 4) || toastSpot(toast, preferred, 0);
+        if (spot) {
+            toast.style.left = spot.left + 'px';
+            toast.style.top = spot.top + 'px';
+            toast.style.transform = 'none';
+            return;
+        }
+        // Nothing clear on the map at all: fall back to below the column when
+        // the window has room for it.
+        if (!colBox) return;
         toast.style.left = 'auto';
-        toast.style.right =
-            (document.documentElement.clientWidth - colBox.left + 8) + 'px';
+        toast.style.right = (view - colBox.left + 8) + 'px';
         toast.style.transform = 'none';
         box = toast.getBoundingClientRect();
         if (box.left >= 8) return;

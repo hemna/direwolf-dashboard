@@ -417,3 +417,237 @@ def test_served_legend_clears_the_left_control_rail(served):
         assert data["legend"]["top"] >= data["map"]["top"] - 0.5, (w, h, data)
         assert data["legend"]["bottom"] <= data["map"]["bottom"] + 0.5, (
             w, h, data)
+# Round 13: the round-12 guards above asked only about the card column, so a
+# 360x800 window passed with 715 px^2 of toast over the GPX panel, and the
+# legend was checked only where its body had room. These two guards sweep the
+# narrow widths (320 included) and the bottom-left column against the 8px
+# resize strip, and they hit-test each control's centre, because a box the
+# toast covers is a control a person cannot click.
+ROUND13_VIEWPORTS = (
+    (320, 568), (320, 800), (360, 800), (400, 800), (480, 800),
+    (560, 720), (560, 800), (1100, 432), (1100, 480), (1100, 560),
+    (1280, 800),
+)
+
+ROUND13_SETUP = r"""
+(() => {
+  const btn = document.getElementById('btn-close-waiting');
+  const modal = document.getElementById('waiting-modal');
+  // Dismissing the modal is the real path that shows the toast.
+  if (modal && !modal.classList.contains('hidden')) { btn && btn.click(); }
+  const toast = document.getElementById('waiting-toast');
+  if (toast) toast.classList.remove('hidden');
+  const wx = document.getElementById('legend-wx-body');
+  if (wx) wx.innerHTML = '<div style="height:480px">weather legend</div>';
+  window.dispatchEvent(new Event('resize'));
+  return true;
+})()
+"""
+
+ROUND13 = r"""
+(() => {
+  const r = (el) => { if (!el) return null; const b = el.getBoundingClientRect();
+    return {top: +b.top.toFixed(1), bottom: +b.bottom.toFixed(1),
+            left: +b.left.toFixed(1), right: +b.right.toFixed(1),
+            width: +b.width.toFixed(1), height: +b.height.toFixed(1)}; };
+  const share = (a, b) => {
+    if (!a || !b) return 0;
+    const w = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+    const h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+    return (w > 0 && h > 0) ? +(w * h).toFixed(1) : 0;
+  };
+  const vis = (el) => {
+    if (!el) return false;
+    const cs = getComputedStyle(el);
+    if (cs.display === 'none' || cs.visibility === 'hidden') return false;
+    const b = el.getBoundingClientRect();
+    return b.width > 0 && b.height > 0;
+  };
+  const el = {
+    toast: document.getElementById('waiting-toast'),
+    filter: document.querySelector('.filter-overlay'),
+    myloc: document.querySelector('.my-location-overlay'),
+    gpx: document.querySelector('.gpx-control'),
+    loadGpx: document.querySelector('.gpx-btn-load'),
+    legend: document.querySelector('.map-legend'),
+    rail: document.querySelector('.maplibregl-ctrl-top-left'),
+    zoom: document.querySelector(
+      '.maplibregl-ctrl-top-left .maplibregl-ctrl-group'),
+    readout: document.querySelector('.map-zoom-readout'),
+    credit: document.querySelector(
+      '.maplibregl-ctrl-bottom-right .maplibregl-ctrl-attrib'),
+    stats: document.querySelector('.stats-overlay'),
+    strip: document.getElementById('map-resize-handle'),
+    fabClear: document.getElementById('btn-clear-data'),
+    fabCenter: document.getElementById('btn-center-my-pos'),
+    map: document.getElementById('map-container'),
+  };
+  const b = {};
+  for (const k in el) b[k] = r(el[k]);
+  // What a click at a control's own centre reaches. `elementFromPoint` is the
+  // browser's answer, so a box painted over a control is caught even when the
+  // two boxes barely touch.
+  const hits = {};
+  // Only real controls: the zoom readout is a label with pointer-events:none,
+  // and the attribution is a link that already sits behind nothing.
+  const hitKeys = ['filter', 'myloc', 'gpx', 'loadGpx', 'legend', 'stats',
+                   'zoom', 'fabClear', 'fabCenter'];
+  for (const k of hitKeys) {
+    if (!vis(el[k])) { hits[k] = null; continue; }
+    const box = b[k];
+    const top = document.elementFromPoint(
+      Math.round((box.left + box.right) / 2),
+      Math.round((box.top + box.bottom) / 2));
+    hits[k] = !!top && (el[k] === top || el[k].contains(top));
+  }
+  const pairs = {
+    toast_filter: share(b.toast, b.filter),
+    toast_myloc: share(b.toast, b.myloc),
+    toast_gpx: share(b.toast, b.gpx),
+    toast_loadGpx: share(b.toast, b.loadGpx),
+    toast_legend: share(b.toast, b.legend),
+    legend_zoom: share(b.legend, b.zoom),
+    legend_readout: share(b.legend, b.readout),
+    legend_rail: share(b.legend, b.rail),
+    legend_gpx: share(b.legend, b.gpx),
+    legend_credit: share(b.legend, b.credit),
+    stats_strip: share(b.stats, b.strip),
+    gpx_strip: share(b.gpx, b.strip),
+    loadGpx_strip: share(b.loadGpx, b.strip),
+    fab_filter: share(b.fabClear, b.filter) + share(b.fabCenter, b.filter),
+    fab_myloc: share(b.fabClear, b.myloc) + share(b.fabCenter, b.myloc),
+  };
+  return {
+    boxes: b,
+    hits: hits,
+    pairs: pairs,
+    bandsBottom: Math.max(...['topnav', 'toolrow'].map((id) => {
+      const band = document.getElementById(id);
+      return band ? r(band).bottom : 0; })),
+    statsTight: el.map.classList.contains('stats-tight'),
+    legendTight: el.legend.classList.contains('legend-tight'),
+    fabRow: el.map.classList.contains('fab-row'),
+    railScroll: [el.rail.clientHeight, el.rail.scrollHeight],
+    shown: {toast: vis(el.toast), gpx: vis(el.gpx), legend: vis(el.legend),
+            stats: vis(el.stats), fabClear: vis(el.fabClear)},
+  };
+})()
+"""
+
+
+def _round13(served, width, height, theme):
+    with _page(served, width, height, theme=theme) as cdp:
+        cdp.eval(ROUND13_SETUP)
+        # The placements run from a ResizeObserver, which is delivered before
+        # the next frame; give the layout that long to settle.
+        time.sleep(0.45)
+        return cdp.eval(ROUND13)
+
+
+@pytest.mark.parametrize("width,height", ROUND13_VIEWPORTS)
+def test_served_no_control_is_covered_at_any_reviewed_size(served, width, height):
+    """Round 13: 0 px^2 for every pair a person can see, in both themes.
+
+    Round 12 asserted card clearance only (:391), so 360x800 passed with 715
+    px^2 of toast over the GPX panel, and the legend was never measured against
+    the GPX control. The sweep also covers 320px wide and the bottom-left
+    column against the resize strip."""
+    failures = []
+    for theme in ("dark", "light"):
+        data = _round13(served, width, height, theme)
+        where = f"{width}x{height} {theme}"
+        for pair, value in data["pairs"].items():
+            if value:
+                failures.append(f"{where}: {pair} = {value} px2")
+        for key, ok in data["hits"].items():
+            if ok is False:
+                failures.append(
+                    f"{where}: a click at the {key} centre does not reach it "
+                    f"({data['boxes'][key]})")
+        assert data["shown"]["toast"] is True, where
+        assert data["shown"]["gpx"] is True, (where, data["boxes"]["gpx"])
+        # The left column must never grow a scrollbar: round 12's reviewers
+        # rejected a panel whose last row sat below an almost invisible bar.
+        assert data["railScroll"][0] == data["railScroll"][1], (
+            f"{where}: the left column scrolls "
+            f"({data['railScroll'][0]} of {data['railScroll'][1]} visible); "
+            f"stats-tight={data['statsTight']}")
+        assert data["boxes"]["gpx"]["bottom"] <= data["boxes"]["map"]["bottom"], (
+            f"{where}: the GPX control ends "
+            f"{data['boxes']['gpx']['bottom']} against a map bottom of "
+            f"{data['boxes']['map']['bottom']}")
+        assert data["boxes"]["legend"]["top"] >= data["boxes"]["map"]["top"] - 0.5
+        assert (data["boxes"]["legend"]["bottom"]
+                <= data["boxes"]["map"]["bottom"] + 0.5), (where, data["boxes"])
+    assert not failures, failures
+
+
+def test_served_toast_is_placed_by_measurement_on_a_narrow_window(served):
+    """D-1: at 320px wide the toast is 160x63 and the round-12 fallback put it
+    on the left control rail - 933 px^2 over the GPX panel and 407 over Load
+    GPX. It must land in the one clear strip between the card column, the GPX
+    panel, the legend and the trash button, and stay under both bands."""
+    for theme in ("dark", "light"):
+        data = _round13(served, 320, 568, theme)
+        toast = data["boxes"]["toast"]
+        assert data["pairs"]["toast_gpx"] == 0, (theme, data["pairs"])
+        assert data["pairs"]["toast_loadGpx"] == 0, (theme, data["pairs"])
+        assert data["pairs"]["toast_legend"] == 0, (theme, data["pairs"])
+        assert data["pairs"]["toast_filter"] == 0, (theme, data["pairs"])
+        assert data["pairs"]["toast_myloc"] == 0, (theme, data["pairs"])
+        assert toast["left"] >= 8, (theme, toast)
+        assert toast["right"] <= 320 - 8, (theme, toast)
+        assert toast["top"] >= data["bandsBottom"], (theme, toast)
+
+
+def test_served_legend_collapses_instead_of_covering_the_gpx_panel(served):
+    """D-2: the 120px floor painted the legend over the GPX panel at 320x568
+    (6407 px^2, header underneath). Too little room for a body means the
+    header alone, and the body comes back at 320x800."""
+    for theme in ("dark", "light"):
+        short = _round13(served, 320, 568, theme)
+        assert short["legendTight"] is True, (theme, short["boxes"]["legend"])
+        assert short["pairs"]["legend_gpx"] == 0, (theme, short["pairs"])
+        assert short["pairs"]["legend_rail"] == 0, (theme, short["pairs"])
+        assert short["pairs"]["legend_credit"] == 0, (theme, short["pairs"])
+        assert short["boxes"]["legend"]["height"] <= 60, (
+            theme, short["boxes"]["legend"])
+        tall = _round13(served, 320, 800, theme)
+        assert tall["legendTight"] is False, (theme, tall["boxes"]["legend"])
+        assert tall["boxes"]["legend"]["height"] > 120, (
+            theme, tall["boxes"]["legend"])
+
+
+def test_served_left_column_clears_the_resize_strip(served):
+    """D-3: the bottom-left column ran past the map bottom, so at 1100x432 the
+    Stats box lay 880 px^2 over the 8px resize strip and at 1100x480 the GPX
+    panel sat entirely below the map (Load GPX unreachable). Every control in
+    the column must end above the strip, with no scrollbar to hide it."""
+    for width, height in ((1100, 432), (1100, 480), (1100, 560), (1280, 800)):
+        for theme in ("dark", "light"):
+            data = _round13(served, width, height, theme)
+            where = f"{width}x{height} {theme}"
+            assert data["pairs"]["stats_strip"] == 0, (where, data["pairs"])
+            assert data["pairs"]["gpx_strip"] == 0, (where, data["pairs"])
+            assert data["pairs"]["loadGpx_strip"] == 0, (where, data["pairs"])
+            assert data["railScroll"][0] == data["railScroll"][1], (
+                f"{where}: the column scrolls; stats-tight={data['statsTight']}")
+            assert data["hits"]["gpx"] is True, (where, data["boxes"]["gpx"])
+            assert data["hits"]["loadGpx"] is True, (
+                where, data["boxes"]["loadGpx"])
+
+
+def test_served_map_buttons_step_aside_for_the_corner_cards(served):
+    """D-4: the two round map buttons stacked 88px up the right edge and met
+    the card column at 1100x560 (1080 px^2 over the Filters card, 360 over My
+    Location). They move into a row clear of the cards, and keep their usual
+    stacked corner where there is room."""
+    for theme in ("dark", "light"):
+        short = _round13(served, 1100, 560, theme)
+        assert short["fabRow"] is True, theme
+        assert short["pairs"]["fab_filter"] == 0, (theme, short["pairs"])
+        assert short["pairs"]["fab_myloc"] == 0, (theme, short["pairs"])
+        assert short["hits"]["fabClear"] is True, (theme, short["boxes"])
+        tall = _round13(served, 1280, 800, theme)
+        assert tall["fabRow"] is False, theme
+        assert tall["pairs"]["fab_filter"] == 0, (theme, tall["pairs"])

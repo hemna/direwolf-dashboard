@@ -456,6 +456,22 @@ body.embedded #btn-theme {
     transform: scale(0.95);
 }
 
+/* Issue #218 round 13 / D-4: the two round map buttons stack 88px up the right
+ * edge and met the corner-card column at 1100x560 (1080 px^2 over the Filters
+ * card). app.js adds .fab-row when they would meet a card; the pair then sits
+ * in a row at the bottom-left, under the control rail and left of the legend,
+ * which is the only corner left free once a 308px map holds a 289px card
+ * column and the attribution strip. */
+#map-container.fab-row .fab-center {
+    left: 12px;
+    right: auto;
+}
+#map-container.fab-row .fab-clear {
+    bottom: 24px;
+    left: 60px;
+    right: auto;
+}
+
 /* Packet Log */
 #log-container {
     flex: 1;
@@ -1106,6 +1122,22 @@ a.secondary.btn-as-link:hover {
 }
 .map-legend-header:hover {
     color: var(--overlay-text);
+}
+/* Issue #218 round 13 / D-2: a map too short for a readable legend body (a
+ * 320x568 window leaves 55.2px under the left control column) shows the header
+ * only, instead of a 120px box painted over the GPX panel. The body returns as
+ * soon as there is room for it. */
+.map-legend.legend-tight .legend-body {
+    display: none;
+}
+.map-legend.legend-tight .map-legend-header {
+    border-bottom: none;
+    padding-bottom: 0;
+    margin-bottom: 0;
+    cursor: default;
+}
+.map-legend.legend-tight .legend-collapse-icon {
+    display: none;
 }
 .legend-section-title {
     font-size: 10px;
@@ -2746,8 +2778,37 @@ kbd {
 
 /* GPX control (top-left, #127) stays above the legend (bottom-left) when a
  * short map viewport makes the two control stacks overlap. */
+/* Issue #218 round 13 / D-3: the left column is a float stack with no height
+ * limit, so at 1100x432 it ran 99.9px past the map bottom: the Stats box lay
+ * over the 8px resize strip and the GPX control sat entirely below the map,
+ * unreachable. Cap it the way the right column is capped; app.js adds
+ * .stats-tight when the column cannot hold its full content in that box, so
+ * the cap does not turn into a scrollbar at the reviewed sizes. */
 .maplibregl-ctrl-top-left {
+    max-height: calc(100% - 8px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    pointer-events: auto;
     z-index: 3;
+}
+.maplibregl-ctrl-top-left::-webkit-scrollbar { width: 12px; }
+.maplibregl-ctrl-top-left::-webkit-scrollbar-track { background: transparent; }
+.maplibregl-ctrl-top-left::-webkit-scrollbar-thumb {
+    background: var(--overlay-text-muted);
+    border: 3px solid var(--overlay-bg);
+    border-radius: 6px;
+}
+#map-container.stats-tight .maplibregl-ctrl-top-left .maplibregl-ctrl {
+    margin-top: 3px;
+}
+#map-container.stats-tight .stats-overlay-body {
+    display: none;
+}
+#map-container.stats-tight .stats-overlay-header {
+    border-bottom: none;
+}
+#map-container.stats-tight .stats-collapse-icon {
+    display: none;
 }
 /* Issue #218 round 7: at 1100x560 the two-band header leaves a 308px map. The
  * two card paddings below are tightened so the Filters card plus the full My
