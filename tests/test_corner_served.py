@@ -1,4 +1,4 @@
-"""Served-page geometry for the map's top-right corner (issue #218 round 10).
+"""Served-page geometry for the map's top-right corner (issue #218 round 11).
 
 Round 9's guard rendered only ``style.css`` in a stitched fixture, so it never
 saw two things the browser really does:
@@ -12,6 +12,12 @@ These tests start the real app with the real ``index.html``, ``app.js`` and
 boxes the browser laid out. Chromium is driven over the DevTools protocol
 (``websockets`` is already a runtime dependency), so continuous integration
 needs only the Chromium binary it already installs.
+
+Round 11 stopped trusting the UA scrollbar: two reviewers read different
+pixels for the same head (172/172 with no bar, 172/184 with a 12px one), so
+the page hides the platform bar and paints its own track and thumb. The tests
+below assert that no platform gutter is reserved at all, that the drawn
+indicator exists in a gutter clear of the rows, and that it moves on scroll.
 """
 import json
 import shutil
@@ -53,9 +59,12 @@ MEASURE = r"""
   const card = document.querySelector('.filter-overlay');
   const body = document.querySelector('.filter-overlay-body');
   const strip = document.querySelector('.maplibregl-ctrl-bottom-right');
+  const track = document.querySelector('.corner-scroll-track');
+  const thumb = document.querySelector('.corner-scroll-thumb');
   const rows = [...document.querySelectorAll(
     '.filter-overlay-body .filter-overlay-row')];
   const cs = body ? getComputedStyle(body) : null;
+  const shown = (el) => !!el && getComputedStyle(el).display !== 'none';
   return {
     inner: [innerWidth, innerHeight],
     map: r(mc),
@@ -68,7 +77,15 @@ MEASURE = r"""
     body: body ? {...r(body), clientH: body.clientHeight,
                   scrollH: body.scrollHeight,
                   clientW: body.clientWidth, offsetW: body.offsetWidth,
-                  overflowY: cs.overflowY, scrollTop: body.scrollTop} : null,
+                  overflowY: cs.overflowY, scrollTop: body.scrollTop,
+                  padRight: cs.paddingRight} : null,
+    scrollable: card ? card.classList.contains('corner-scrollable') : null,
+    track: track && shown(track)
+      ? {...r(track), bg: getComputedStyle(track).backgroundColor} : null,
+    thumb: thumb && shown(thumb)
+      ? {...r(thumb), bg: getComputedStyle(thumb).backgroundColor} : null,
+    cardBg: card ? getComputedStyle(card).backgroundColor : null,
+    rowRight: rows.length ? Math.max(...rows.map((el) => r(el).right)) : null,
     strip: strip ? r(strip) : null,
     lastRowBottom: rows.length ? r(rows[rows.length - 1]).bottom : null,
   };
@@ -246,26 +263,64 @@ def test_served_attribution_strip_clears_the_card_in_light_theme(served):
     assert data["card"]["left"] - data["strip"]["right"] >= 8, data
 
 
-def test_served_filter_body_paints_a_classic_scrollbar(served):
-    """NB-1 / defect B: `overflow-y: auto` let Chromium use an overlay bar, so
-    the clipped last row had no gutter. The served page must reserve one."""
-    for width, height in ((1100, 432), (1100, 400)):
+def test_served_filter_panel_fits_short_windows_without_scrolling(served):
+    """Round 11 / defect B: at 1100x432 and taller the whole panel is present
+    at rest, so nobody meets an indicator there. 9 rows of 19px + 4px of body
+    padding = 175px, which the 180px body of a 432px window holds."""
+    for width, height in ((1100, 432), (1100, 480), (1280, 800)):
+        with _page(served, width, height) as cdp:
+            _open_filters(cdp)
+            data = cdp.eval(MEASURE)
+        body = data["body"]
+        where = f"{width}x{height}"
+        assert body is not None, where
+        assert body["scrollH"] <= body["clientH"], (
+            f"{where}: the panel still overflows "
+            f"({body['scrollH']} > {body['clientH']})")
+        assert data["lastRowBottom"] <= body["bottom"], (
+            f"{where}: last row is cut at rest")
+        assert data["scrollable"] is False, where
+        assert data["track"] is None and data["thumb"] is None, (
+            f"{where}: an indicator shows although nothing scrolls")
+
+
+def test_served_short_window_paints_its_own_scroll_indicator(served):
+    """Defect B: the page never relies on the UA scrollbar. The body reserves
+    no platform gutter (offsetW == clientW), the page paints a track and a
+    thumb into a 16px gutter of its own, the rows stop short of that gutter,
+    and the thumb moves when the body scrolls."""
+    for width, height in ((1100, 420), (1100, 400), (1024, 400)):
         for theme in ("dark", "light"):
+            where = f"{width}x{height} {theme}"
             with _page(served, width, height, theme=theme) as cdp:
                 _open_filters(cdp)
                 data = cdp.eval(MEASURE)
-                body = data["body"]
-                assert body["overflowY"] == "scroll", body
-                assert body["offsetW"] - body["clientW"] >= 12, (
-                    f"{width}x{height} {theme}: no classic gutter: {body}")
-                assert body["scrollH"] > body["clientH"], body
+                assert data["body"]["scrollH"] > data["body"]["clientH"], where
+                assert data["body"]["offsetW"] == data["body"]["clientW"], (
+                    f"{where}: a platform scrollbar reserved "
+                    f"{data['body']['offsetW'] - data['body']['clientW']}px")
+                assert data["scrollable"] is True, where
+                track, thumb = data["track"], data["thumb"]
+                assert track and track["width"] >= 4, (where, track)
+                assert thumb and thumb["height"] >= 18, (where, thumb)
+                assert data["body"]["right"] - data["rowRight"] >= 12, (
+                    f"{where}: no reserved gutter: rows reach "
+                    f"{data['rowRight']} of {data['body']['right']}")
+                assert data["rowRight"] <= track["left"] - 1, (
+                    f"{where}: the indicator would sit on row text")
+                assert thumb["bg"] != data["cardBg"], (where, thumb["bg"])
+                before = thumb["top"]
                 cdp.eval("(() => { const b = document.querySelector("
-                         "'.filter-overlay-body'); b.scrollTop = b.scrollHeight; })()")
+                         "'.filter-overlay-body');"
+                         " b.scrollTop = b.scrollHeight; })()")
                 time.sleep(0.3)
                 after = cdp.eval(MEASURE)
                 assert after["body"]["scrollTop"] > 0, after["body"]
+                assert after["thumb"]["top"] > before, (
+                    f"{where}: the thumb did not move: "
+                    f"{before} -> {after['thumb']['top']}")
                 assert after["lastRowBottom"] <= after["body"]["bottom"] + 0.5, (
-                    f"{width}x{height} {theme}: last row unreachable")
+                    f"{where}: the last row is unreachable")
 
 
 def test_served_open_card_stays_inside_the_map_and_hides_the_other(served):

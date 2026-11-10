@@ -2796,39 +2796,77 @@ kbd {
 }
 /* An opened card may never pass the map's bottom edge. app.js sets
  * --corner-open-max from the measured map height, so the card stops there and
- * its body scrolls inside itself with a visible scrollbar. Driven by map
- * height: at 1100 wide the open card touched the map bottom at a 432px window
- * and was cut from 431px down. */
+ * its body scrolls inside itself. Driven by map height: at 1100 wide the open
+ * card touched the map bottom at a 432px window and was cut from 431px down.
+ * Round 11 / defect B: the UA scrollbar is not used at all. Two reviewers read
+ * different pixels for `overflow-y: scroll` at the same head (172/172 with no
+ * bar, 172/184 with a 12px bar), so whether the platform paints a classic or
+ * an overlay bar may not decide the outcome. The bar is hidden here and
+ * app.js paints .corner-scroll-track/.corner-scroll-thumb into a reserved
+ * gutter instead. */
 .corner-compact .filter-overlay.corner-open,
 .corner-compact .my-location-overlay.corner-open {
     display: flex;
     flex-direction: column;
     max-height: var(--corner-open-max, none);
     overflow: hidden;
+    position: relative;
 }
 .corner-compact .filter-overlay.corner-open .filter-overlay-body,
 .corner-compact .my-location-overlay.corner-open .my-location-body {
     display: block;
-    /* Round 10: `auto` let Chromium paint an overlay bar at short windows, so
-     * the clipped last row had no visible gutter. `scroll` always reserves
-     * the 12px bar and paints the track and thumb below. */
-    overflow-y: scroll;
+    overflow-y: auto;
     min-height: 0;
+    scrollbar-width: none;
 }
 .corner-compact .filter-overlay.corner-open .filter-overlay-body::-webkit-scrollbar,
 .corner-compact .my-location-overlay.corner-open .my-location-body::-webkit-scrollbar {
-    width: 12px;
+    width: 0;
+    height: 0;
 }
-.corner-compact .filter-overlay.corner-open .filter-overlay-body::-webkit-scrollbar-track,
-.corner-compact .my-location-overlay.corner-open .my-location-body::-webkit-scrollbar-track {
-    /* Round 10: a visible track, not just a thumb, in both themes. */
+/* Round 11: the compact-opened Filters card fits a 1100x432 window outright,
+ * so nobody at that size meets an indicator at all. The 19px rows are set
+ * explicitly rather than left to font metrics: 9 rows + 4px of body padding
+ * = 175px of content, against the 180px body a 432px window gives (5px spare),
+ * while a 420px window leaves 168px and genuinely scrolls. */
+.corner-compact .filter-overlay.corner-open .filter-overlay-body {
+    padding: 0 10px 4px;
+}
+.corner-compact .filter-overlay.corner-open .filter-overlay-row {
+    height: 19px;
+}
+.corner-compact .filter-overlay.corner-open .filter-overlay-row input,
+.corner-compact .filter-overlay.corner-open .filter-overlay-row select {
+    height: 17px;
+    padding: 0 4px;
+    line-height: 15px;
+}
+/* The gutter is reserved only while the body really overflows, so a card that
+ * fits keeps its full width and no dead strip shows. app.js toggles
+ * .corner-scrollable on the card and writes the track/thumb boxes; 16px of
+ * body padding keeps both clear of the row text. */
+.corner-compact .filter-overlay.corner-scrollable .filter-overlay-body,
+.corner-compact .my-location-overlay.corner-scrollable .my-location-body {
+    padding-right: 16px;
+}
+.corner-scroll-track,
+.corner-scroll-thumb {
+    display: none;
+}
+.corner-compact .corner-scrollable .corner-scroll-track,
+.corner-compact .corner-scrollable .corner-scroll-thumb {
+    display: block;
+    position: absolute;
+    right: 4px;
+    width: 6px;
+    border-radius: 3px;
+    pointer-events: none;
+}
+.corner-compact .corner-scrollable .corner-scroll-track {
     background: var(--overlay-divider);
 }
-.corner-compact .filter-overlay.corner-open .filter-overlay-body::-webkit-scrollbar-thumb,
-.corner-compact .my-location-overlay.corner-open .my-location-body::-webkit-scrollbar-thumb {
+.corner-compact .corner-scrollable .corner-scroll-thumb {
     background: var(--overlay-text-muted);
-    border: 3px solid var(--overlay-bg);
-    border-radius: 6px;
 }
 .corner-compact .filter-overlay .filter-overlay-header,
 .corner-compact .my-location-overlay .my-location-header {
@@ -2857,9 +2895,9 @@ kbd {
 }
 
 /* shortcut: when the map is shorter than the opened card, the card's body
- * scrolls inside itself with a visible scrollbar (see --corner-open-max
- * above); revisit if windows below 400px tall matter. The driver is map
- * height, not window width. */
+ * scrolls inside itself with the page-drawn indicator (paintCornerScroll in
+ * app.js, see --corner-open-max above); revisit if windows below 400px tall
+ * matter. The driver is map height, not window width. */
 
 /* Issue #218 round 7: the top-right card column reaches the map's bottom on
  * a short map, where MapLibre's bottom-right attribution strip used to paint

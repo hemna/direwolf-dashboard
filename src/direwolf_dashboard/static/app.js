@@ -630,6 +630,10 @@
         if (!mc) return;
         mc.style.setProperty('--corner-open-max',
             Math.max(60, mc.clientHeight - 12) + 'px');
+        ['.filter-overlay', '.my-location-overlay'].forEach(function (sel) {
+            var el = document.querySelector(sel);
+            if (el && el.classList.contains('corner-open')) paintCornerScroll(el);
+        });
     }
 
     function closeCornerCards() {
@@ -639,11 +643,40 @@
         ['.filter-overlay', '.my-location-overlay'].forEach(function (sel) {
             var el = document.querySelector(sel);
             if (!el) return;
-            el.classList.remove('corner-open');
+            el.classList.remove('corner-open', 'corner-scrollable');
             syncCornerIcon(el);
         });
     }
 
+    // Issue #218 round 11 / defect B: the page paints its own scroll indicator
+    // instead of leaning on the UA scrollbar. Two reviewers measured different
+    // bars for the same head (172/172 with no bar vs 172/184 with a 12px one),
+    // so nothing here may depend on whether the platform paints classic or
+    // overlay scrollbars: the bar is hidden in CSS and this draws a track plus
+    // a thumb into a reserved gutter, outside the rows' text.
+    function paintCornerScroll(card) {
+        if (!card) return;
+        var mc = cornerMapContainer();
+        var body = card.querySelector('.filter-overlay-body, .my-location-body');
+        var track = card.querySelector('.corner-scroll-track');
+        var thumb = card.querySelector('.corner-scroll-thumb');
+        if (!mc || !body || !track || !thumb) return;
+        var extra = body.scrollHeight - body.clientHeight;
+        var show = mc.classList.contains('corner-compact') &&
+            card.classList.contains('corner-open') && extra > 1;
+        card.classList.toggle('corner-scrollable', show);
+        if (!show) return;
+        var cardBox = card.getBoundingClientRect();
+        var bodyBox = body.getBoundingClientRect();
+        var visible = body.clientHeight;
+        var thumbH = Math.max(18, Math.round(visible * visible / body.scrollHeight));
+        var top = bodyBox.top - cardBox.top;
+        var offset = Math.round((visible - thumbH) * body.scrollTop / extra);
+        track.style.top = top + 'px';
+        track.style.height = visible + 'px';
+        thumb.style.height = thumbH + 'px';
+        thumb.style.top = (top + offset) + 'px';
+    }
     // Returns true when the click was a compact-corner open/close, so the
     // tall-map collapse behaviour is left untouched.
     function toggleCornerCard(which) {
@@ -658,6 +691,7 @@
             el.classList.add('corner-open');
             mc.classList.add(which === 'filter' ? 'corner-filter-open' : 'corner-myloc-open');
             syncCornerIcon(el);
+            paintCornerScroll(el);
         }
         placeTrailPanel();
         return true;
@@ -752,7 +786,15 @@
                     '<option value="hide">Hide</option>' +
                 '</select>' +
             '</div>' +
-            '</div>';
+            '</div>' +
+            '<div class="corner-scroll-track" aria-hidden="true"></div>' +
+            '<div class="corner-scroll-thumb" aria-hidden="true"></div>';
+        var filterBody = container.querySelector('.filter-overlay-body');
+        if (filterBody) {
+            filterBody.addEventListener('scroll', function () {
+                paintCornerScroll(container);
+            });
+        }
         var filterHeader = container.querySelector('.filter-overlay-header');
         filterHeader.addEventListener('click', function () {
             if (toggleCornerCard('filter')) return;
@@ -804,7 +846,15 @@
             '<div class="my-location-body" id="my-location-body">' +
                 '<div class="my-location-type">Not set</div>' +
                 '<div class="my-location-coords"></div>' +
-            '</div>';
+            '</div>' +
+            '<div class="corner-scroll-track" aria-hidden="true"></div>' +
+            '<div class="corner-scroll-thumb" aria-hidden="true"></div>';
+        var mylocBody = container.querySelector('.my-location-body');
+        if (mylocBody) {
+            mylocBody.addEventListener('scroll', function () {
+                paintCornerScroll(container);
+            });
+        }
         // Wire up center button
         container.querySelector('.my-location-center').addEventListener('click', function () {
             var pos = getMyPosition();
