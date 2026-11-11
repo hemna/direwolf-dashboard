@@ -392,6 +392,20 @@ body.embedded #btn-theme {
     background: var(--accent);
 }
 
+/* #219: the map attribution pill defaults to a bright white box, which glares
+ * on the dark basemap. Match it to the overlay theme (light theme keeps the
+ * default light pill). */
+[data-theme="dark"] #map .maplibregl-ctrl-attrib {
+    background: var(--overlay-bg);
+    color: var(--overlay-text);
+}
+[data-theme="dark"] #map .maplibregl-ctrl-attrib a {
+    color: var(--overlay-text);
+}
+[data-theme="dark"] #map .maplibregl-ctrl-attrib-button {
+    filter: invert(1);
+}
+
 /* FAB - Center on My Position. #219: raised clear of the attribution pill. */
 .fab-center {
     position: absolute;
@@ -1230,6 +1244,15 @@ a.secondary.btn-as-link:hover {
         border-right: none;
         border-top: 1px solid var(--border);
         border-radius: 10px 10px 0 0;
+    }
+}
+
+/* #219: below 1024px the open drawer covers the map (overlay / bottom sheet),
+ * so the locate FAB would sit on the sheet's section chevrons. Hide it while
+ * the drawer is open; at >=1024 the map is pushed, not covered, so it stays. */
+@media (max-width: 1023px) {
+    #map-container.drawer-open .fab-center {
+        display: none;
     }
 }
 
@@ -2769,7 +2792,23 @@ kbd {
     .station-count { display: none; }
     .stats-readout { display: none; }
     #map-drawer { width: 100%; max-width: 100%; }
+    /* #219: keep the header on one clean row. The title ellipsizes instead of
+     * wrapping, and the status keeps a gap from it. */
+    #topnav { flex-wrap: nowrap; gap: 8px; }
+    .topnav-left { flex: 1 1 auto; min-width: 0; overflow: hidden; }
+    .topnav-left .logo {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        display: block;
+        min-width: 0;
+    }
+    .topnav-right { flex: 0 0 auto; gap: 8px; }
+    #status-indicator { gap: 6px; }
 }
 @media (max-width: 440px) {
     .toolrow-left { flex: 1 1 100%; }
+    /* On the smallest phones, collapse the status to the dot + clock only;
+     * the full "Disconnected"/local time would push the title to two lines. */
+    #status-text, .dw-local { display: none; }
 }
