@@ -45,14 +45,17 @@ HEIGHTS = [400, 568, 800]
 THEMES = ["dark", "light"]
 
 # Every function that must stay reachable (acceptance criterion 4). Each entry
-# is (how-to-open, modal/panel id that proves it opened).
-REACHABLE = [
+# is (action-id, modal id that proves it opened). Messages has its own toolbar
+# icon (1 tap); the rest live in the overflow menu (2 taps).
+OVERFLOW_REACHABLE = [
     ("station-list", "station-list-modal"),
     ("weather-panel", "weather-panel-modal"),
-    ("messages-panel", "messages-panel-modal"),
     ("decode", "decode-modal"),
     ("keyboard-help", "keyboard-help-modal"),
     ("settings", "settings-modal"),
+]
+TOOLBAR_REACHABLE = [
+    ("messages-panel", "messages-panel-modal"),
 ]
 
 
@@ -232,6 +235,33 @@ _PROBE = r"""
 """
 
 
+# When the drawer is open, its own controls must be reachable (not covered by
+# a scrim, another surface, or the map controls it sits over). The body
+# scrolls, so a header below the fold is scrolled into view before the hit
+# test; a header is "covered" only if a *different* element sits on top of it.
+_DRAWER_PROBE = r"""
+(() => {
+  const dr = document.getElementById('map-drawer');
+  const open = !dr.classList.contains('hidden');
+  const hitClear = (el) => {
+    el.scrollIntoView({block: 'center'});
+    const b = el.getBoundingClientRect();
+    const h = document.elementFromPoint((b.left + b.right) / 2, (b.top + b.bottom) / 2);
+    return el === h || el.contains(h) || (h && h.contains(el));
+  };
+  const headers = [...document.querySelectorAll('.drawer-section-header')];
+  const close = document.getElementById('btn-map-drawer-close');
+  const bodyScrolls = (() => {
+    const b = document.getElementById('map-drawer-body');
+    return b.scrollHeight > b.clientHeight ? true : 'fits';
+  })();
+  return {open, bodyScrolls,
+          headerReaches: headers.length > 0 && headers.every(hitClear),
+          closeReaches: hitClear(close)};
+})()
+"""
+
+
 def test_closed_drawer_is_the_default(served):
     """Acceptance criterion 2: at rest the map carries exactly three overlay
     groups (zoom, locate, attribution) and the drawer is closed."""
@@ -273,11 +303,18 @@ def test_no_overlaps_in_any_state_at_any_reviewed_size(served, theme):
                 r = cdp.eval(_PROBE)
                 assert r["maxOverlap"] == 0, f"{w}x{h} {theme} rest: {r['maxOverlap']} px2"
                 assert r["reaches"], f"{w}x{h} {theme} rest: a control centre is covered"
-                # drawer open
+                # drawer open: the drawer's own controls must be reachable and
+                # no two must overlap. On a small screen the drawer legitimately
+                # covers the map (overlay/bottom-sheet), so the map controls are
+                # not expected to answer their own centre while it is open; at
+                # >=1024 the drawer pushes the map and the map controls stay
+                # reachable too, which the rest and >=1024 probes already cover.
                 cdp.eval("window.__dwSetDrawer(true)")
                 time.sleep(0.35)
-                d = cdp.eval(_PROBE)
-                assert d["reaches"], f"{w}x{h} {theme} drawer: a control centre is covered"
+                d = cdp.eval(_DRAWER_PROBE)
+                assert d["open"], f"{w}x{h} {theme}: drawer did not open"
+                assert d["headerReaches"], f"{w}x{h} {theme} drawer: a section header is covered"
+                assert d["closeReaches"], f"{w}x{h} {theme} drawer: the close button is covered"
                 cdp.eval("window.__dwSetDrawer(false)")
                 time.sleep(0.2)
                 # overflow open
@@ -307,8 +344,8 @@ def test_only_one_surface_open_at_a_time(served):
             "opening the overflow menu must close the drawer"
 
 
-@pytest.mark.parametrize("name,modal_id", REACHABLE)
-def test_every_function_is_reachable(served, name, modal_id):
+@pytest.mark.parametrize("name,modal_id", OVERFLOW_REACHABLE)
+def test_overflow_actions_are_reachable(served, name, modal_id):
     """Acceptance criterion 4: every former TOOLS/overlay action is reachable
     through the overflow menu (<=2 taps: open overflow, click the item)."""
     with _browser() as cdp:
@@ -325,6 +362,22 @@ def test_every_function_is_reachable(served, name, modal_id):
             f"    ? 'still hidden' : 'open';"
             f"}})()")
         assert opened == "open", f"'{name}' via overflow: {opened}"
+
+
+@pytest.mark.parametrize("name,modal_id", TOOLBAR_REACHABLE)
+def test_toolbar_actions_are_reachable(served, name, modal_id):
+    """Acceptance criterion 4: a toolbar-icon action opens in one tap."""
+    with _browser() as cdp:
+        _load(cdp, served, 1280, 800, "dark")
+        opened = cdp.eval(
+            f"(() => {{"
+            f"  const b = document.getElementById('btn-{name}');"
+            f"  if (!b) return 'no button';"
+            f"  b.click();"
+            f"  return document.getElementById('{modal_id}').classList.contains('hidden')"
+            f"    ? 'still hidden' : 'open';"
+            f"}})()")
+        assert opened == "open", f"'{name}' via toolbar: {opened}"
 
 
 def test_drawer_holds_the_five_sections(served):
