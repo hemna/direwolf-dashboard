@@ -363,6 +363,8 @@ body.embedded #btn-theme {
 /* Map */
 #map-container {
     position: relative;
+    /* stacking context: confines the tool panel below #topnav/#toolrow (both z-index 110) */
+    z-index: 0;
     height: 50%;
     min-height: 150px;
 }
@@ -390,10 +392,24 @@ body.embedded #btn-theme {
     background: var(--accent);
 }
 
-/* FAB - Center on My Position */
+/* #219: the map attribution pill defaults to a bright white box, which glares
+ * on the dark basemap. Match it to the overlay theme (light theme keeps the
+ * default light pill). */
+[data-theme="dark"] #map .maplibregl-ctrl-attrib {
+    background: var(--overlay-bg);
+    color: var(--overlay-text);
+}
+[data-theme="dark"] #map .maplibregl-ctrl-attrib a {
+    color: var(--overlay-text);
+}
+[data-theme="dark"] #map .maplibregl-ctrl-attrib-button {
+    filter: invert(1);
+}
+
+/* FAB - Center on My Position. #219: raised clear of the attribution pill. */
 .fab-center {
     position: absolute;
-    bottom: 24px;
+    bottom: 40px;
     right: 12px;
     z-index: 1000;
     width: 40px;
@@ -419,38 +435,6 @@ body.embedded #btn-theme {
 }
 
 .fab-center:active {
-    transform: scale(0.95);
-}
-
-/* FAB - Clear All Data */
-.fab-clear {
-    position: absolute;
-    bottom: 72px;
-    right: 12px;
-    z-index: 1000;
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    border: 1px solid var(--border);
-    background: var(--modal-bg);
-    color: var(--text-primary);
-    font-size: 16px;
-    line-height: 1;
-    cursor: pointer;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background 0.15s, transform 0.15s;
-}
-
-.fab-clear:hover {
-    background: var(--danger);
-    color: #fff;
-    transform: scale(1.1);
-}
-
-.fab-clear:active {
     transform: scale(0.95);
 }
 
@@ -1073,27 +1057,208 @@ a.secondary.btn-as-link:hover {
     background: var(--text-secondary);
 }
 
-/* Map legend */
-.map-legend {
-    background: var(--overlay-bg);
-    border-radius: 6px;
-    padding: 10px 12px;
+/* ===== Map drawer + toolbar surfaces (#219) ===== */
+
+/* One-line Stats readout in the toolbar */
+.stats-readout {
+    color: var(--text-secondary);
     font-size: 11px;
-    color: var(--overlay-text);
-    border: 1px solid var(--overlay-border);
-    pointer-events: auto;
-    max-width: 170px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    margin-right: 4px;
 }
-.map-legend-header {
+
+/* "Waiting for first packet" header chip (replaces the old full-width row) */
+.status-chip {
+    font-size: 11px;
+    color: var(--text-secondary);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1px 8px;
+    white-space: nowrap;
+}
+.status-chip.hidden {
+    display: none;
+}
+
+/* Overflow menu (replaces the TOOLS drawer) */
+.overflow-menu {
+    position: absolute;
+    top: 100%;
+    right: 8px;
+    z-index: 120;
+    background: var(--modal-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    min-width: 190px;
+}
+.overflow-menu.hidden {
+    display: none;
+}
+.overflow-item {
+    background: transparent;
+    border: 0;
+    color: var(--text-primary);
+    text-align: left;
+    font-family: inherit;
+    font-size: 13px;
+    padding: 7px 10px;
+    border-radius: 4px;
     cursor: pointer;
-    font-size: 10px;
-    color: var(--overlay-text-muted);
-    border-bottom: 1px solid var(--overlay-border);
-    padding-bottom: 6px;
-    margin-bottom: 6px;
+    white-space: nowrap;
+}
+.overflow-item:hover {
+    background: var(--bg-secondary);
+}
+
+/* Scrim shown under the drawer when it overlays the map (< 1024px) */
+#drawer-scrim {
+    position: absolute;
+    inset: 0;
+    z-index: 90;
+    background: rgba(0, 0, 0, 0.35);
+}
+#drawer-scrim.hidden {
+    display: none;
+}
+
+/* The Map drawer itself */
+#map-drawer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 8px; /* clear the resize handle */
+    width: 280px;
+    max-width: 85%;
+    z-index: 100;
+    background: var(--modal-bg);
+    border-right: 1px solid var(--border);
+    box-shadow: 2px 0 12px rgba(0, 0, 0, 0.35);
+    display: flex;
+    flex-direction: column;
+}
+#map-drawer.hidden {
+    display: none;
+}
+.map-drawer-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    flex: 0 0 auto;
+}
+.map-drawer-header button {
+    background: transparent;
+    border: 0;
+    color: var(--text-secondary);
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 4px;
+}
+.map-drawer-header button:hover {
+    color: var(--text-primary);
+}
+.map-drawer-body {
+    flex: 1;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 0 12px 12px;
+}
+.drawer-section {
+    border-bottom: 1px solid var(--overlay-divider);
+}
+.drawer-section:last-child {
+    border-bottom: none;
+}
+.drawer-section-header {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: transparent;
+    border: 0;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    padding: 10px 0 8px;
+    cursor: pointer;
     user-select: none;
 }
-.map-legend-header:hover {
+.drawer-section-header:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+.drawer-section-icon {
+    font-size: 9px;
+    color: var(--text-secondary);
+}
+.drawer-section-body {
+    padding: 0 0 10px;
+}
+.drawer-section.section-collapsed .drawer-section-body {
+    display: none;
+}
+
+/* Responsive drawer modes (#219):
+ *  < 600px  : bottom sheet (max 60vh), scrim behind
+ *  600-1023 : left overlay (scrim behind)
+ *  >= 1024  : pushes the map right instead of covering it (no scrim) */
+@media (min-width: 1024px) {
+    #map-container.drawer-open #map {
+        left: 280px;
+        width: calc(100% - 280px);
+    }
+    #map-container.drawer-open #map-resize-handle {
+        left: 280px;
+    }
+    #map-container.drawer-open #drawer-scrim {
+        display: none;
+    }
+    #map {
+        position: absolute;
+        top: 0;
+        left: 0;
+    }
+}
+@media (max-width: 599px) {
+    #map-drawer {
+        top: auto;
+        bottom: 8px;
+        left: 0;
+        width: 100%;
+        max-width: 100%;
+        max-height: 60vh;
+        border-right: none;
+        border-top: 1px solid var(--border);
+        border-radius: 10px 10px 0 0;
+    }
+}
+
+/* #219: below 1024px the open drawer covers the map (overlay / bottom sheet),
+ * so the locate FAB would sit on the sheet's section chevrons. Hide it while
+ * the drawer is open; at >=1024 the map is pushed, not covered, so it stays. */
+@media (max-width: 1023px) {
+    #map-container.drawer-open .fab-center {
+        display: none;
+    }
+}
+
+/* Map legend (Map-drawer section) */
+.map-legend {
+    font-size: 11px;
     color: var(--overlay-text);
 }
 .legend-section-title {
@@ -1104,6 +1269,11 @@ a.secondary.btn-as-link:hover {
     border-top: 1px solid var(--overlay-divider);
     padding-top: 6px;
 }
+.map-legend .legend-body > .legend-section-title:first-child {
+    margin-top: 0;
+    border-top: none;
+    padding-top: 0;
+}
 .legend-item {
     display: flex;
     align-items: center;
@@ -1113,8 +1283,7 @@ a.secondary.btn-as-link:hover {
 .legend-item:last-child {
     margin-bottom: 0;
 }
-/* Weather-station legend example (issue #152): the barb strokes and fills
-   follow the theme text color. */
+/* Weather-station legend example (issue #152): barb strokes/fills follow theme. */
 #legend-wx .legend-wx-example {
     color: var(--text-primary);
     flex: 0 0 auto;
@@ -1130,50 +1299,14 @@ a.secondary.btn-as-link:hover {
 #legend-wx .legend-wx-example text {
     fill: currentColor;
 }
-.map-legend.collapsed .legend-body {
-    display: none;
-}
-.map-legend.collapsed .map-legend-header {
-    border-bottom: none;
-    padding-bottom: 0;
-    margin-bottom: 0;
-}
 
-/* --- GPX Overlay Control --- */
-
-/* --- Stats Overlay --- */
+/* Stats (Map-drawer section) */
 .stats-overlay {
-    background: var(--overlay-bg);
-    border-radius: 6px;
-    padding: 0;
     font-size: 11px;
-    color: var(--overlay-text);
-    border: 1px solid var(--overlay-border);
-    pointer-events: auto;
-    min-width: 110px;
-}
-.stats-overlay-header {
-    cursor: pointer;
-    font-size: 10px;
-    color: var(--overlay-text-muted);
-    border-bottom: 1px solid var(--overlay-border);
-    padding: 5px 10px;
-    user-select: none;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-.stats-overlay-header:hover {
     color: var(--overlay-text);
 }
 .stats-overlay-body {
-    padding: 4px 10px 6px;
-}
-.stats-overlay.collapsed .stats-overlay-body {
-    display: none;
-}
-.stats-overlay.collapsed .stats-overlay-header {
-    border-bottom: none;
+    padding: 0;
 }
 .stats-overlay-row {
     display: flex;
@@ -1189,39 +1322,13 @@ a.secondary.btn-as-link:hover {
     font-variant-numeric: tabular-nums;
 }
 
-/* --- Filter Overlay --- */
+/* Filter (Map-drawer section) */
 .filter-overlay {
-    background: var(--overlay-bg);
-    border-radius: 6px;
-    padding: 0;
     font-size: 11px;
-    color: var(--overlay-text);
-    border: 1px solid var(--overlay-border);
-    pointer-events: auto;
-    min-width: 160px;
-}
-.filter-overlay-header {
-    cursor: pointer;
-    font-size: 10px;
-    color: var(--overlay-text-muted);
-    border-bottom: 1px solid var(--overlay-border);
-    padding: 5px 10px;
-    user-select: none;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-.filter-overlay-header:hover {
     color: var(--overlay-text);
 }
 .filter-overlay-body {
-    padding: 4px 10px 6px;
-}
-.filter-overlay.collapsed .filter-overlay-body {
-    display: none;
-}
-.filter-overlay.collapsed .filter-overlay-header {
-    border-bottom: none;
+    padding: 0;
 }
 .filter-overlay-row {
     display: flex;
@@ -1231,7 +1338,7 @@ a.secondary.btn-as-link:hover {
 }
 .filter-overlay-label {
     color: var(--overlay-text-muted);
-    min-width: 48px;
+    min-width: 72px;
     font-size: 11px;
 }
 .filter-overlay select,
@@ -1240,14 +1347,15 @@ a.secondary.btn-as-link:hover {
     background: var(--bg-secondary);
     border: 1px solid var(--overlay-border);
     color: var(--text-primary);
-    padding: 3px 6px;
+    padding: 2px 6px;
     border-radius: 3px;
     font-family: inherit;
     font-size: 11px;
     min-width: 0;
 }
-.filter-overlay input {
-    width: 80px;
+.filter-overlay input[type="checkbox"] {
+    flex: 0 0 auto;
+    width: auto;
 }
 .filter-overlay select:focus,
 .filter-overlay input:focus {
@@ -1255,62 +1363,23 @@ a.secondary.btn-as-link:hover {
     border-color: var(--accent);
 }
 
-/* --- My Location Overlay --- */
+/* My Location (Map-drawer section) */
 .my-location-overlay {
-    background: var(--overlay-bg);
-    border-radius: 6px;
-    padding: 0;
     font-size: 11px;
     color: var(--overlay-text);
-    border: 1px solid var(--overlay-border);
-    pointer-events: auto;
-    min-width: 160px;
 }
-.my-location-header {
+.my-location-actions-row {
     display: flex;
-    justify-content: space-between;
+    gap: 6px;
     align-items: center;
-    padding: 6px 10px 3px;
-    border-bottom: 1px solid var(--overlay-divider);
-    margin-bottom: 0;
-    cursor: pointer;
-    user-select: none;
-}
-.my-location-header:hover .my-location-title {
-    color: var(--overlay-text);
-}
-.my-location-body {
-    padding: 4px 10px 6px;
-}
-.my-location-overlay.collapsed .my-location-body {
-    display: none;
-}
-.my-location-overlay.collapsed .my-location-header {
-    border-bottom: none;
-    padding-bottom: 6px;
-}
-.my-location-collapse-icon {
-    font-size: 9px;
-    color: var(--overlay-text-muted);
-    margin-left: 4px;
-}
-.my-location-title {
-    color: var(--overlay-text-muted);
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-.my-location-actions {
-    display: flex;
-    gap: 4px;
-    align-items: center;
+    margin-bottom: 4px;
 }
 .my-location-btn {
     cursor: pointer;
     color: var(--overlay-text-muted);
-    font-size: 14px;
+    font-size: 15px;
     line-height: 1;
-    padding: 0 2px;
+    padding: 0 4px;
     border-radius: 3px;
 }
 .my-location-btn:hover {
@@ -1331,44 +1400,13 @@ a.secondary.btn-as-link:hover {
     padding: 1px 0;
 }
 
+/* GPX (Map-drawer section) */
 .gpx-control {
-    background: var(--overlay-bg);
-    border-radius: 6px;
-    padding: 0;
     font-size: 11px;
     color: var(--overlay-text);
-    border: 1px solid var(--overlay-border);
-    pointer-events: auto;
-    max-width: 170px;
-    overflow: hidden;
-}
-.gpx-control-header {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 7px 10px;
-    cursor: pointer;
-    font-size: 10px;
-    color: var(--gpx-accent);
-    border-bottom: 1px solid var(--overlay-border);
-    user-select: none;
-}
-.gpx-control-header:hover {
-    color: var(--gpx-accent-hover);
-}
-.gpx-control-header .gpx-collapse-icon {
-    margin-left: auto;
-    font-size: 8px;
-    color: var(--overlay-text-dim);
-}
-.gpx-control.collapsed .gpx-control-body {
-    display: none;
-}
-.gpx-control.collapsed .gpx-control-header {
-    border-bottom: none;
 }
 .gpx-control-body {
-    padding: 8px 10px;
+    padding: 0;
 }
 .gpx-control .gpx-stats {
     font-size: 9px;
@@ -1382,7 +1420,7 @@ a.secondary.btn-as-link:hover {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 140px;
+    max-width: 230px;
 }
 .gpx-control .gpx-actions {
     display: flex;
@@ -1390,11 +1428,11 @@ a.secondary.btn-as-link:hover {
 }
 .gpx-control .gpx-actions button {
     flex: 1;
-    padding: 3px 0;
+    padding: 4px 0;
     text-align: center;
     border: none;
     border-radius: 3px;
-    font-size: 9px;
+    font-size: 10px;
     font-family: inherit;
     cursor: pointer;
 }
@@ -1415,13 +1453,13 @@ a.secondary.btn-as-link:hover {
 }
 .gpx-control .gpx-btn-load {
     width: 100%;
-    padding: 4px 0;
+    padding: 5px 0;
     background: var(--gpx-accent);
     color: var(--gpx-btn-text);
     font-weight: bold;
     border: none;
     border-radius: 3px;
-    font-size: 10px;
+    font-size: 11px;
     font-family: inherit;
     cursor: pointer;
 }
@@ -1436,77 +1474,6 @@ a.secondary.btn-as-link:hover {
 .gpx-marker {
     background: none !important;
     border: none !important;
-}
-
-/* --- Mobile menu --- */
-.mobile-only {
-    display: none;
-}
-
-.mobile-menu {
-    background: var(--bg-primary);
-    border-bottom: 1px solid var(--border);
-    padding: 10px 12px;
-    z-index: 99;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-.mobile-menu.hidden {
-    display: none;
-}
-.mobile-menu-buttons {
-    display: flex;
-    gap: 8px;
-}
-.mobile-menu-buttons button {
-    flex: 1;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    color: var(--text-secondary);
-    padding: 8px;
-    border-radius: 3px;
-    cursor: pointer;
-    font-family: inherit;
-    font-size: 12px;
-}
-.mobile-menu-buttons button:hover {
-    color: var(--text-primary);
-    border-color: var(--accent);
-}
-
-/* --- Mobile breakpoint --- */
-@media (max-width: 600px) {
-    .mobile-only {
-        display: inline-block;
-    }
-    #btn-toggle-log,
-    #btn-settings {
-        display: none;
-    }
-    #status-text {
-        display: none;
-    }
-    .logo {
-        font-size: 13px;
-    }
-    .toolbar-left {
-        gap: 8px;
-    }
-    #btn-mobile-menu {
-        background: none;
-        border: 1px solid var(--border);
-        color: var(--text-secondary);
-        padding: 4px 10px;
-        border-radius: 3px;
-        cursor: pointer;
-        font-size: 18px;
-        line-height: 1;
-    }
-    #btn-mobile-menu:hover {
-        color: var(--text-primary);
-        border-color: var(--accent);
-    }
 }
 
 /* Route distance labels on packet route polylines */
@@ -1553,22 +1520,6 @@ a.secondary.btn-as-link:hover {
 @keyframes arc-pulse {
     from { transform: scale(0.75); }
     to { transform: scale(1.1); }
-}
-
-/* Toast notification */
-.toast {
-    position: fixed;
-    top: 50px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: var(--modal-bg);
-    color: var(--text-primary);
-    border: 1px solid var(--border);
-    padding: 8px 20px;
-    border-radius: 6px;
-    font-size: 13px;
-    z-index: 2000;
-    box-shadow: 0 2px 8px var(--shadow-toast);
 }
 
 /* Waiting modal */
@@ -2710,11 +2661,6 @@ kbd {
     }
 }
 
-/* GPX control (top-left, #127) stays above the legend (bottom-left) when a
- * short map viewport makes the two control stacks overlap. */
-.maplibregl-ctrl-top-left {
-    z-index: 3;
-}
 
 /* MapLibre hop tooltip (#134): show only the .path-tooltip box. */
 .path-tooltip-popup .maplibregl-popup-content {
@@ -2726,13 +2672,143 @@ kbd {
     display: none;
 }
 
-/* Current zoom readout (#150) */
-.map-zoom-readout {
-    background: rgba(0, 0, 0, 0.6);
+/* ── Issue #218 — top-level toolbar (two bands) + collapsible tool panel ── */
+#topnav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    background: #12182F;
+    color: #e6e9f2;
+    padding: 6px 14px;
+    z-index: 110;
+}
+[data-theme="light"] #topnav {
+    background: #eef1f7;
+    color: #1c2333;
+    border-bottom: 1px solid var(--border);
+}
+.topnav-left { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.topnav-left .logo { color: #1B8A1C; font-size: 15px; }
+[data-theme="light"] .topnav-left .logo { color: #146414; }
+.tagline { font-size: 11px; color: #9aa3b5; white-space: nowrap; }
+.topnav-nav { display: flex; gap: 4px; align-items: center; }
+.nav-item {
+    appearance: none;
+    background: transparent;
+    border: 1px solid transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 12px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    cursor: pointer;
+}
+.nav-item:hover { color: #fff; }
+[data-theme="light"] .nav-item:hover { color: #000; }
+.nav-item.active { background: #22FF06; color: #0c2310; font-weight: 700; }
+[data-theme="light"] .nav-item.active { background: #1B8A1C; color: #fff; }
+.topnav-right { display: flex; align-items: center; gap: 12px; }
+.utc-clock {
+    color: #20F4F3;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+}
+[data-theme="light"] .utc-clock { color: #0e7c7b; }
+.dw-local { font-size: 12px; }
+.live-badge {
+    font-size: 10px;
+    letter-spacing: 1px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: #1B8A1C;
     color: #fff;
-    font: 12px/1.4 monospace;
-    padding: 2px 6px;
+    opacity: 0.35;
+}
+.live-badge.on { opacity: 1; box-shadow: 0 0 6px rgba(34, 255, 6, 0.6); }
+#toolrow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    background: #15151E;
+    padding: 4px 14px;
+    z-index: 110;
+    position: relative; /* anchors the absolute #overflow-menu under the toolbar */
+}
+[data-theme="light"] #toolrow {
+    background: #f3f5fa;
+    border-bottom: 1px solid var(--border);
+}
+.toolrow-left { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+#toolrow label { color: #9aa3b5; font-size: 12px; white-space: nowrap; }
+#dw-find {
+    background: #1B1B27;
+    border: 1px solid #333;
+    color: #e6e9f2;
     border-radius: 4px;
-    width: fit-content;
-    pointer-events: none;
+    padding: 4px 8px;
+    font-size: 12px;
+    width: 200px;
+}
+[data-theme="light"] #dw-find { background: #fff; color: #1c2333; border-color: var(--border); }
+.toolrow-right { display: flex; align-items: center; gap: 6px; }
+.station-count { color: #22c55e; font-size: 11px; white-space: nowrap; margin-right: 8px; }
+.tool-toggle {
+    width: 26px;
+    height: 26px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px dashed #2E69F2;
+    border-radius: 4px;
+    color: #cdd6e4;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+}
+.tool-toggle.on {
+    background: #182848;
+    border: 1px solid #2E69F2;
+    color: #fff;
+}
+[data-theme="light"] .tool-toggle { border-color: #2E69F2; color: #1c2333; }
+[data-theme="light"] .tool-toggle.on { background: #dbe7ff; }
+@media (max-width: 768px) {
+    .tagline, .topnav-nav { display: none; }
+    #dw-find { width: 120px; }
+}
+
+/* #219: below 600px the toolbar wraps; the station count and the one-line
+ * Stats readout are hidden (both duplicate info reachable in the drawer), so
+ * only Find, the icons and the overflow menu stay on the row. Below 440px the
+ * Find field takes its own line so every button keeps its target size. */
+@media (max-width: 600px) {
+    #toolrow { flex-wrap: wrap; row-gap: 4px; }
+    .toolrow-right { flex-wrap: wrap; row-gap: 4px; }
+    #dw-find { flex: 1 1 120px; width: auto; min-width: 0; max-width: none; }
+    .station-count { display: none; }
+    .stats-readout { display: none; }
+    #map-drawer { width: 100%; max-width: 100%; }
+    /* #219: keep the header on one clean row. The title ellipsizes instead of
+     * wrapping, and the status keeps a gap from it. */
+    #topnav { flex-wrap: nowrap; gap: 8px; }
+    .topnav-left { flex: 1 1 auto; min-width: 0; overflow: hidden; }
+    .topnav-left .logo {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        display: block;
+        min-width: 0;
+    }
+    .topnav-right { flex: 0 0 auto; gap: 8px; }
+    #status-indicator { gap: 6px; }
+}
+@media (max-width: 440px) {
+    .toolrow-left { flex: 1 1 100%; }
+    /* On the smallest phones, collapse the status to the dot + clock only;
+     * the full "Disconnected"/local time would push the title to two lines. */
+    #status-text, .dw-local { display: none; }
 }

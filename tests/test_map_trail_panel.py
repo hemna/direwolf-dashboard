@@ -237,8 +237,6 @@ def test_panel_re_places_when_the_map_resizes():
     js = APP_JS.read_text(encoding="utf-8")
     # The log panel and the splitter resize the map; the trail moves with it.
     assert "map.on('resize', placeTrailPanel);" in js
-    # Chrome overlays change size without resizing the map.
-    assert js.count("placeTrailPanel();\n        });") == 4
 
 
 def test_panel_placement_avoids_the_map_chrome():

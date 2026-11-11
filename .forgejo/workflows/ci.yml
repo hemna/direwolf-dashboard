@@ -29,6 +29,10 @@ jobs:
         run: |
           . .venv/bin/activate
           pip install -e ".[dev]"
+      - name: Install headless Chromium (map layout guard)
+        # tests/test_map_consolidation.py drives the served page in a browser
+        # to measure overlay coverage and overlaps; without one that guard skips.
+        run: apt-get install -y -qq --no-install-recommends chromium fonts-liberation
       - name: Run tests
         run: |
           . .venv/bin/activate

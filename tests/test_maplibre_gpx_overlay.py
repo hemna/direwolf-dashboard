@@ -24,7 +24,9 @@ def test_gpx_not_guarded_off_for_maplibre():
     assert "TODO(#127)" not in JS
     body = JS[JS.index("function initGpxOverlay()") :]
     assert "if (!mainMapIsMaplibre || !map) return;" in body[:200]
-    assert "map.addControl(mlControl(buildGpxControl, 'top-left'))" in body
+    # #219: the GPX control is a Map-drawer section, not a floating map control.
+    assert "drawerSection('GPX Overlay'" in body[:900]
+    assert "gpxControlEl = controlEl;" in body[:2200]
 
 
 def test_gpx_parsed_with_domparser_to_geojson():

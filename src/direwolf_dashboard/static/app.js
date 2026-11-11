@@ -19,6 +19,16 @@
     let wsReconnectDelay = 1000;
     let config = {};
     let stations = {};      // callsign -> { data, popupDiv }
+
+    // Issue #218: total height of the top toolbar chrome (both bands).
+    function toolbarChromeHeight() {
+        var h = 0;
+        var tn = document.getElementById('topnav'); if (tn) h += tn.offsetHeight;
+        var tr = document.getElementById('toolrow'); if (tr) h += tr.offsetHeight;
+        var t = document.getElementById('toolbar'); if (t) h += t.offsetHeight;
+        return h || 82;
+    }
+
     // Main map is MapLibre (issue #125); Leaflet-only paths are guarded on this.
     let mainMapIsMaplibre = false;
     // GeoJSON features (callsign -> Feature) backing the maplibre station layers.
@@ -424,16 +434,14 @@
 
     function initLegend() {
         if (!map) return;
-        const container = mlCreate('map-legend');
+        const container = drawerSection('Legend', false);
+        container.classList.add('map-legend');
         var txColor = themeColor('--route-tx-rf');
         var tcpipColor = themeColor('--route-tx-tcpip');
         var rxColor = themeColor('--route-rx');
         var trackColor = themeColor('--station-track');
         var routeColor = themeColor('--route-tcpip-line');
         container.innerHTML = `
-                    <div class="map-legend-header">
-                        Legend <span class="legend-collapse-icon">&#9650;</span>
-                    </div>
                     <div class="legend-body">
                         <div class="legend-section-title">Animations</div>
                         <div class="legend-item">
@@ -471,21 +479,6 @@
                             <div id="legend-wx-body"></div>
                         </div>
                     </div>`;
-        const header = container.querySelector('.map-legend-header');
-        const legendIcon = container.querySelector('.legend-collapse-icon');
-        header.addEventListener('click', () => {
-            container.classList.toggle('collapsed');
-            const isCollapsed = container.classList.contains('collapsed');
-            legendIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
-            localStorage.setItem('dw-legend-collapsed', isCollapsed ? '1' : '0');
-            // The chrome box just changed size: keep an open trail panel clear.
-            placeTrailPanel();
-        });
-        if (localStorage.getItem('dw-legend-collapsed') === '1') {
-            container.classList.add('collapsed');
-            legendIcon.textContent = '\u25BC';
-        }
-        map.addControl(mlControl(function () { return container; }, 'bottom-left'));
         setWxLegendVisible(wxStationEnabled());
         initWxLegend();
     }
@@ -536,46 +529,39 @@
 
     function initStatsOverlay() {
         if (!map) return;
-        var container = mlCreate('stats-overlay');
+        var container = drawerSection('Stats', false);
+        container.classList.add('stats-overlay');
         container.innerHTML =
-            '<div class="stats-overlay-header">Stats <span class="stats-collapse-icon">\u25B2</span></div>' +
             '<div class="stats-overlay-body">' +
             '<div class="stats-overlay-row"><span class="stats-label">Stations</span><span class="stats-value" id="stats-stations">0</span></div>' +
             '<div class="stats-overlay-row"><span class="stats-label">Packets</span><span class="stats-value" id="stats-packets">0</span></div>' +
             '<div class="stats-overlay-row"><span class="stats-label">Pkts/hr</span><span class="stats-value" id="stats-rate">0</span></div>' +
             '<div class="stats-overlay-row"><span class="stats-label">Uptime</span><span class="stats-value" id="stats-uptime">0s</span></div>' +
             '</div>';
-        var statsHeader = container.querySelector('.stats-overlay-header');
-        var statsIcon = container.querySelector('.stats-collapse-icon');
-        statsHeader.addEventListener('click', function () {
-            container.classList.toggle('collapsed');
-            var isCollapsed = container.classList.contains('collapsed');
-            statsIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
-            localStorage.setItem('dw-stats-collapsed', isCollapsed ? '1' : '0');
-            placeTrailPanel();
-        });
-        if (localStorage.getItem('dw-stats-collapsed') === '1') {
-            container.classList.add('collapsed');
-            statsIcon.textContent = '\u25BC';
-        }
         statsOverlayEl = container;
-        map.addControl(mlControl(function () { return container; }, 'top-left'));
-        if (!showStatsOverlay && statsOverlayEl) {
-            statsOverlayEl.style.display = 'none';
-        }
     }
 
     function updateStatsOverlay(stats) {
+        var stations = stats.stations_active || 0;
+        var packets = stats.packets_total || 0;
+        var rate = stats.packets_last_hour || 0;
+        var uptime = formatUptime(stats.uptime_seconds || 0);
+        // One-line toolbar readout (#219): the always-visible summary.
+        var readout = document.getElementById('stats-readout');
+        if (readout) {
+            readout.textContent = stations + ' stn · ' + packets + ' pkt · ' +
+                rate + '/hr · ' + uptime;
+        }
         if (!statsOverlayEl) return;
         var el;
         el = document.getElementById('stats-stations');
-        if (el) el.textContent = stats.stations_active || 0;
+        if (el) el.textContent = stations;
         el = document.getElementById('stats-packets');
-        if (el) el.textContent = stats.packets_total || 0;
+        if (el) el.textContent = packets;
         el = document.getElementById('stats-rate');
-        if (el) el.textContent = stats.packets_last_hour || 0;
+        if (el) el.textContent = rate;
         el = document.getElementById('stats-uptime');
-        if (el) el.textContent = formatUptime(stats.uptime_seconds || 0);
+        if (el) el.textContent = uptime;
     }
 
     function formatUptime(seconds) {
@@ -589,13 +575,13 @@
         return d + 'd ' + h + 'h';
     }
 
-    // --- Filter Overlay ---
+
     function initFilterOverlay() {
         if (!map) return;
-        var container = mlCreate('filter-overlay');
+        var container = drawerSection('Filters', true);
+        container.classList.add('filter-overlay');
         container.innerHTML =
-            '<div class="filter-overlay-header">Filters <span class="filter-collapse-icon">\u25B2</span></div>' +
-            '<div class="filter-overlay-body">' +
+            '<div class="filter-overlay-body" id="filter-overlay-body">' +
             '<div class="filter-overlay-row">' +
                 '<label class="filter-overlay-label" for="filter-callsign">Callsign</label>' +
                 '<input type="text" id="filter-callsign" placeholder="Filter..." />' +
@@ -657,19 +643,6 @@
                 '</select>' +
             '</div>' +
             '</div>';
-        var filterHeader = container.querySelector('.filter-overlay-header');
-        var filterIcon = container.querySelector('.filter-collapse-icon');
-        filterHeader.addEventListener('click', function () {
-            container.classList.toggle('collapsed');
-            var isCollapsed = container.classList.contains('collapsed');
-            filterIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
-            localStorage.setItem('dw-filter-collapsed', isCollapsed ? '1' : '0');
-            placeTrailPanel();
-        });
-        if (localStorage.getItem('dw-filter-collapsed') === '1') {
-            container.classList.add('collapsed');
-            filterIcon.textContent = '\u25BC';
-        }
         // Station plots toggle: repaint models or fall back to sprites, and
         // show/hide the weather legend section (issue #152).
         const stationModelToggle = container.querySelector('#filter-station-model');
@@ -689,23 +662,19 @@
                 setPacketPathsEnabled(this.checked);
             });
         }
-        map.addControl(mlControl(function () { return container; }, 'top-right'));
     }
 
     // --- My Location Overlay ---
     function initMyLocationOverlay() {
         if (!map) return;
-        var container = mlCreate('my-location-overlay');
+        var container = drawerSection('My Location', false);
+        container.classList.add('my-location-overlay');
         container.innerHTML =
-            '<div class="my-location-header">' +
-                '<span class="my-location-title">My Location</span>' +
-                '<span class="my-location-actions">' +
-                    '<span class="my-location-btn my-location-center" title="Center map on my location">&#8982;</span>' +
-                    '<span class="my-location-btn my-location-clear hidden" title="Clear my location">&times;</span>' +
-                    '<span class="my-location-collapse-icon">\u25B2</span>' +
-                '</span>' +
+            '<div class="my-location-actions-row">' +
+                '<span class="my-location-btn my-location-center" title="Center map on my location">&#8982;</span>' +
+                '<span class="my-location-btn my-location-clear hidden" title="Clear my location">&times;</span>' +
             '</div>' +
-            '<div class="my-location-body">' +
+            '<div class="my-location-body" id="my-location-body">' +
                 '<div class="my-location-type">Not set</div>' +
                 '<div class="my-location-coords"></div>' +
             '</div>';
@@ -721,26 +690,7 @@
         container.querySelector('.my-location-clear').addEventListener('click', function () {
             if (window._removeMyPosition) window._removeMyPosition();
         });
-        // Wire up collapse toggle
-        var myLocHeader = container.querySelector('.my-location-header');
-        var myLocIcon = container.querySelector('.my-location-collapse-icon');
-        myLocHeader.addEventListener('click', function (e) {
-            if (e.target.closest('.my-location-btn')) return;
-            container.classList.toggle('collapsed');
-            var isCollapsed = container.classList.contains('collapsed');
-            myLocIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
-            localStorage.setItem('dw-myloc-collapsed', isCollapsed ? '1' : '0');
-            placeTrailPanel();
-        });
-        if (localStorage.getItem('dw-myloc-collapsed') === '1') {
-            container.classList.add('collapsed');
-            myLocIcon.textContent = '\u25BC';
-        }
         myLocationOverlayEl = container;
-        map.addControl(mlControl(function () { return container; }, 'top-right'));
-        if (!showMyLocationOverlay && myLocationOverlayEl) {
-            myLocationOverlayEl.style.display = 'none';
-        }
         updateMyLocationOverlay();
     }
 
@@ -917,72 +867,41 @@
         gpxFileInput.style.display = 'none';
         document.body.appendChild(gpxFileInput);
 
-        function buildGpxControl() {
-                var container = document.createElement('div');
-                container.className = 'gpx-control';
-                container.innerHTML =
-                    '<div class="gpx-control-header">' +
-                        '<span>\u{1F4CD}</span>' +
-                        '<span>GPX Overlay</span>' +
-                        '<span class="gpx-collapse-icon">\u25B2</span>' +
+        var controlEl = drawerSection('GPX Overlay', false);
+        controlEl.classList.add('gpx-control');
+        controlEl.innerHTML =
+            '<div class="gpx-control-body">' +
+                '<div class="gpx-empty">' +
+                    '<button class="gpx-btn-load">Load GPX</button>' +
+                '</div>' +
+                '<div class="gpx-loaded" style="display:none;">' +
+                    '<div class="gpx-stats">' +
+                        '<div class="gpx-filename"></div>' +
+                        '<div class="gpx-info"></div>' +
                     '</div>' +
-                    '<div class="gpx-control-body">' +
-                        '<div class="gpx-empty">' +
-                            '<button class="gpx-btn-load">Load GPX</button>' +
-                        '</div>' +
-                        '<div class="gpx-loaded" style="display:none;">' +
-                            '<div class="gpx-stats">' +
-                                '<div class="gpx-filename"></div>' +
-                                '<div class="gpx-info"></div>' +
-                            '</div>' +
-                            '<div class="gpx-actions">' +
-                                '<button class="gpx-btn-fit">Fit Map</button>' +
-                                '<button class="gpx-btn-clear">Clear</button>' +
-                            '</div>' +
-                        '</div>' +
-                        '<div class="gpx-error" style="display:none;"></div>' +
-                    '</div>';
+                    '<div class="gpx-actions">' +
+                        '<button class="gpx-btn-fit">Fit Map</button>' +
+                        '<button class="gpx-btn-clear">Clear</button>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="gpx-error" style="display:none;"></div>' +
+            '</div>';
 
-                var header = container.querySelector('.gpx-control-header');
-                var collapseIcon = container.querySelector('.gpx-collapse-icon');
-                header.addEventListener('click', function () {
-                    container.classList.toggle('collapsed');
-                    var isCollapsed = container.classList.contains('collapsed');
-                    collapseIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
-                    localStorage.setItem('dw-gpx-collapsed', isCollapsed ? '1' : '0');
-                });
-                if (localStorage.getItem('dw-gpx-collapsed') === '1') {
-                    container.classList.add('collapsed');
-                    collapseIcon.textContent = '\u25BC';
-                }
+        controlEl.querySelector('.gpx-btn-load').addEventListener('click', function () {
+            gpxFileInput.click();
+        });
+        controlEl.querySelector('.gpx-btn-fit').addEventListener('click', function () {
+            if (gpxLayer && gpxLayer.bounds) {
+                fitGpxBounds(gpxLayer.bounds);
+            }
+        });
+        controlEl.querySelector('.gpx-btn-clear').addEventListener('click', function () {
+            clearGpxOverlay(controlEl);
+        });
 
-                container.querySelector('.gpx-btn-load').addEventListener('click', function () {
-                    gpxFileInput.click();
-                });
-
-                container.querySelector('.gpx-btn-fit').addEventListener('click', function () {
-                    if (gpxLayer && gpxLayer.bounds) {
-                        fitGpxBounds(gpxLayer.bounds);
-                    }
-                });
-
-                container.querySelector('.gpx-btn-clear').addEventListener('click', function () {
-                    clearGpxOverlay(container);
-                });
-
-                return container;
-        }
-
-        map.addControl(mlControl(buildGpxControl, 'top-left'));
-        var controlEl = document.querySelector('.gpx-control');
         gpxControlEl = controlEl;
         map.on('style.load', addGpxLayers);
         if (map.isStyleLoaded && map.isStyleLoaded()) addGpxLayers();
-
-        // Apply initial visibility from config
-        if (!showGpxOverlay) {
-            controlEl.style.display = 'none';
-        }
 
         gpxFileInput.addEventListener('change', function () {
             if (!gpxFileInput.files || !gpxFileInput.files[0]) return;
@@ -1163,7 +1082,6 @@
         initDropPin();
         initMapResize();
         initLogToggle();
-        initMobileMenu();
     });
 
     // --- Config ---
@@ -1231,7 +1149,6 @@
             zoomSnap: 0.1,  // issue #154: fractional handoff zooms (10.9 etc.)
         });
         map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
-        map.addControl(mlControl(buildZoomReadout, 'top-left'));
 
         // Keep the URL hash in the haminfo /map format (#zoom/lat/lon) so a
         // copied link reopens this exact view (#150).
@@ -2119,8 +2036,7 @@
     function mapChromeObstacles(canvasRect) {
         const boxes = [];
         const all = document.querySelectorAll(
-            '#map-container .maplibregl-ctrl, #map-container .fab-center, ' +
-            '#map-container .fab-clear');
+            '#map-container .maplibregl-ctrl, #map-container .fab-center');
         for (const el of all) {
             const r = el.getBoundingClientRect();
             if (!r.width || !r.height) continue;
@@ -2331,18 +2247,6 @@
         if (p !== 0) h += '/' + p;
         return h;
     }
-    /** Small "z 12.0" readout so the current zoom level is visible. */
-    function formatZoomReadout(zoom) {
-        return 'z ' + zoom.toFixed(1);
-    }
-    function buildZoomReadout() {
-        const el = mlCreate('map-zoom-readout');
-        el.title = 'Current zoom level (same number as in the URL)';
-        const update = function () { el.textContent = formatZoomReadout(map.getZoom()); };
-        map.on('zoom', update);
-        update();
-        return el;
-    }
 
     // --- Map view helpers (maplibre) ---
     /** MapLibre uses 512px tiles, Leaflet 256px: Leaflet zoom z == MapLibre
@@ -2384,6 +2288,44 @@
         el.className = className;
         return el;
     }
+
+    // --- Map drawer (#219) ---------------------------------------------------
+    // The five former floating cards (Legend, Stats, Filters, My Location, GPX)
+    // now live as collapsible sections inside #map-drawer. drawerSection builds
+    // one section, returns the body element the card content is appended to,
+    // and wires its header to open/close that section. dw-toolbar.js owns the
+    // drawer's own open/close; here we only repaint the map when it changes.
+    function drawerSection(title, openByDefault) {
+        var body = document.getElementById('map-drawer-body');
+        var section = document.createElement('section');
+        section.className = 'drawer-section' + (openByDefault ? '' : ' section-collapsed');
+        var header = document.createElement('button');
+        header.type = 'button';
+        header.className = 'drawer-section-header';
+        header.setAttribute('aria-expanded', openByDefault ? 'true' : 'false');
+        header.innerHTML = '<span>' + title + '</span><span class="drawer-section-icon">' +
+            (openByDefault ? '\u25B2' : '\u25BC') + '</span>';
+        var content = document.createElement('div');
+        content.className = 'drawer-section-body';
+        header.addEventListener('click', function () {
+            var collapsed = section.classList.toggle('section-collapsed');
+            header.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+            header.querySelector('.drawer-section-icon').textContent = collapsed ? '\u25BC' : '\u25B2';
+        });
+        section.appendChild(header);
+        section.appendChild(content);
+        if (body) body.appendChild(section);
+        return content;
+    }
+
+    // Repaint the map whenever the drawer opens/closes so MapLibre re-renders
+    // tiles for the new map width (≥1024px the drawer shrinks the map).
+    window.__dwDrawerChanged = function () {
+        if (!map) return;
+        // Resize once now and again after the CSS transition settles.
+        map.resize();
+        setTimeout(function () { if (map) map.resize(); }, 220);
+    };
 
     function initCenterFab() {
         const btn = document.getElementById('btn-center-my-pos');
@@ -5234,9 +5176,8 @@
 
         // Set default map height to 2/3 viewport if no saved height exists
         if (!localStorage.getItem(MAP_HEIGHT_KEY)) {
-            var toolbar = document.getElementById('toolbar');
             var footer = document.getElementById('footer');
-            var chrome = (toolbar ? toolbar.offsetHeight : 40) + (footer ? footer.offsetHeight : 24);
+            var chrome = toolbarChromeHeight() + (footer ? footer.offsetHeight : 24);
             var available = window.innerHeight - chrome;
             var defaultMapHeight = Math.round(available * 2 / 3);
             localStorage.setItem(MAP_HEIGHT_KEY, defaultMapHeight + 'px');
@@ -5351,11 +5292,10 @@
         }
 
         function doResize(clientY) {
-            var toolbar = document.getElementById('toolbar');
             var footer = document.getElementById('footer');
             var minMap = 150;
             var minLog = 80;
-            var maxMap = window.innerHeight - (toolbar ? toolbar.offsetHeight : 40) - (footer ? footer.offsetHeight : 24) - minLog;
+            var maxMap = window.innerHeight - toolbarChromeHeight() - (footer ? footer.offsetHeight : 24) - minLog;
             var newHeight = Math.max(minMap, Math.min(maxMap, startHeight + (clientY - startY)));
             mapContainer.style.height = newHeight + 'px';
             map.resize();
@@ -5389,37 +5329,6 @@
         handle.addEventListener('touchstart', function (e) {
             if (e.touches.length === 1) beginResize(e.touches[0].clientY, e);
         }, { passive: false });
-    }
-
-    // --- Mobile Menu ---
-    function initMobileMenu() {
-        const btn = document.getElementById('btn-mobile-menu');
-        const menu = document.getElementById('mobile-menu');
-        if (!btn || !menu) return;
-
-        // Toggle menu
-        btn.addEventListener('click', () => {
-            menu.classList.toggle('hidden');
-        });
-
-        // Mobile buttons -> delegate to desktop buttons
-        document.getElementById('mobile-btn-toggle-log').addEventListener('click', () => {
-            toggleLogViewState();
-            menu.classList.add('hidden');
-        });
-        document.getElementById('mobile-btn-settings').addEventListener('click', () => {
-            document.getElementById('btn-settings').click();
-            menu.classList.add('hidden');
-        });
-
-        // Close menu when clicking outside
-        document.addEventListener('click', (e) => {
-            if (!menu.classList.contains('hidden') &&
-                !menu.contains(e.target) &&
-                !btn.contains(e.target)) {
-                menu.classList.add('hidden');
-            }
-        });
     }
 
     // --- Cold Start / Map Centering ---
@@ -5505,18 +5414,26 @@
         }
     }
 
+    // Issue #218 round 14: the waiting message is a row of the layout (see style.css .toast), so
+    // nothing here computes a position. Round 13 measured a clear spot and
+    // still lost at 344-375px wide and 320x400, where no clear spot exists:
+    // 802.2 / 330.2 / 3120.8 px^2 at 344x800, 715 / 279 / 2988 at 360x800,
+    // 632.2 / 230.4 / 1568.8 at 375x800, all over the GPX panel, its Load GPX
+    // button and the legend. A row cannot overlap anything it does not float
+    // over, which is also why this needs no collision check at all.
     function showWaitingToast() {
-        const toast = document.getElementById('waiting-toast');
-        if (toast) toast.classList.remove('hidden');
+        const chip = document.getElementById('status-chip');
+        if (chip) chip.classList.remove('hidden');
     }
 
     function dismissWaiting() {
         waitingForPosition = false;
         const modal = document.getElementById('waiting-modal');
         if (modal) modal.classList.add('hidden');
-        const toast = document.getElementById('waiting-toast');
-        if (toast) toast.classList.add('hidden');
+        const chip = document.getElementById('status-chip');
+        if (chip) chip.classList.add('hidden');
     }
+
 
     // --- My Position Marker ---
     function updateMyPositionMarker() {
@@ -5987,15 +5904,8 @@
     // --- Drop Pin ---
     function initDropPin() {
         const btn = document.getElementById('btn-drop-pin');
-        const mobileBtn = document.getElementById('mobile-btn-drop-pin');
         if (btn) {
             btn.addEventListener('click', () => togglePinMode());
-        }
-        if (mobileBtn) {
-            mobileBtn.addEventListener('click', () => {
-                togglePinMode();
-                document.getElementById('mobile-menu')?.classList.add('hidden');
-            });
         }
 
         // Right-click on map for context popup
@@ -7146,4 +7056,18 @@
         });
     }
 
+
+    // Toolbar bridge (issue #218): expose the main map and station registry to
+    // the top-toolbar controls (Find + station count).
+    window.__dwToolbar = {
+        getStation: function (cs) { return stations[cs] || null; },
+        flyTo: function (lat, lng, zoom) { mapFlyTo(lat, lng, toMlZoom(zoom)); },
+        stationCount: function () {
+            var n = 0;
+            for (var k in stations) {
+                if (Object.prototype.hasOwnProperty.call(stations, k)) n++;
+            }
+            return n;
+        },
+    };
 })();

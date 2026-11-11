@@ -21,47 +21,97 @@
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <!-- Toolbar -->
-    <div id="toolbar">
-        <div class="toolbar-left">
+    <!-- Toolbar (issue #218): nav/status band + tool row, haminfo-style -->
+    <div id="topnav">
+        <div class="topnav-left">
             <a href="#" class="logo" id="btn-about-logo">Direwolf Dashboard</a>
+            <span class="tagline">Real-time APRS Network Activity</span>
+        </div>
+        <nav class="topnav-nav" aria-label="Main">
+            <button type="button" class="nav-item active" data-panel="map">Map</button>
+            <button type="button" class="nav-item" data-panel="stations">Stations</button>
+            <button type="button" class="nav-item" data-panel="weather">Weather</button>
+            <button type="button" class="nav-item" data-panel="messages">Messages</button>
+            <button type="button" class="nav-item" data-panel="settings">Settings</button>
+        </nav>
+        <div class="topnav-right">
             <div id="status-indicator" class="status disconnected">
                 <span class="status-dot"></span>
                 <span id="status-text">Disconnected</span>
             </div>
+            <!-- #219: the "waiting for first packet" message is a small header
+                 chip next to the status, not a full-width row over the map. -->
+            <span id="status-chip" class="status-chip hidden">Waiting for first position packet…</span>
+            <span class="utc-clock" id="utc-clock" title="UTC time">--:--:--</span>
+            <span class="dw-local" id="dw-local" title="Local time"></span>
+            <span class="live-badge" id="live-badge">LIVE</span>
         </div>
-        <div class="toolbar-right">
-            <button id="btn-station-list" title="Station List (S)">&#x1F4CB;</button>
-            <button id="btn-weather-panel" title="Weather Stations (W)">&#x26C5;</button>
-            <button id="btn-messages-panel" title="APRS Messages (M)">&#x1F4AC;</button>
-            <button id="btn-drop-pin" title="Drop Pin - set my position">&#x1F4CC;</button>
-            <button id="btn-decode" title="Decode APRS Packet (Ctrl+K)">&#x1F4E1;</button>
-            <button id="btn-keyboard-help" title="Keyboard shortcuts (?)">&#x2328;</button>
-            <button id="btn-theme" title="Toggle theme">
+    </div>
+    <!-- #219: one slim toolbar. Visible controls are Find, the station count,
+         the one-line Stats readout, and at most five icons (Map drawer, Packet
+         log, Messages, Theme, ⋮ overflow). Everything else lives in the
+         overflow menu or the Map drawer. -->
+    <div id="toolrow">
+        <div class="toolrow-left">
+            <label for="dw-find">Find:</label>
+            <input type="search" id="dw-find" placeholder="CALLSIGN..." autocomplete="off" spellcheck="false" aria-label="Find a callsign" />
+        </div>
+        <div class="toolrow-right">
+            <span class="station-count" id="dw-station-count">0 stations</span>
+            <span class="stats-readout" id="stats-readout" title="Stations · Packets · Pkts/hr · Uptime">— stn · — pkt · —/hr · —</span>
+            <button id="btn-map-drawer" class="tool-toggle" title="Map panels" aria-expanded="false">&#x1F5FA;</button>
+            <button id="btn-toggle-log" class="tool-toggle" title="Toggle packet log">&#9776;</button>
+            <button id="btn-messages-panel" class="tool-toggle" title="APRS Messages (M)">&#x1F4AC;</button>
+            <button id="btn-theme" class="tool-toggle" title="Toggle theme">
                 <span class="icon-sun" style="display:none;">&#9728;&#65039;</span>
                 <span class="icon-moon" style="display:none;">&#127769;</span>
             </button>
-            <button id="btn-toggle-log" title="Toggle packet log">&#9776;</button>
-            <button id="btn-settings" title="Settings">&#9881;</button>
-            <button id="btn-mobile-menu" title="Menu" class="mobile-only">&#8942;</button>
+            <button id="btn-overflow" class="tool-toggle" title="More" aria-haspopup="true" aria-expanded="false">&#8942;</button>
+        </div>
+        <!-- #219 overflow menu: the former TOOLS drawer, merged into the
+             toolbar. It lives inside #toolrow (which is position:relative) so
+             its absolute top:100% anchors under the toolbar. Each item forwards
+             its click to the matching hidden action button below, so the
+             existing app.js wiring is untouched. -->
+        <div id="overflow-menu" class="overflow-menu hidden" role="menu">
+            <button type="button" class="overflow-item" role="menuitem" data-action="btn-station-list">&#x1F4CB; Station list</button>
+            <button type="button" class="overflow-item" role="menuitem" data-action="btn-weather-panel">&#x26C5; Weather stations</button>
+            <button type="button" class="overflow-item" role="menuitem" data-action="btn-drop-pin">&#x1F4CC; Drop pin</button>
+            <button type="button" class="overflow-item" role="menuitem" data-action="btn-decode">&#x1F4E1; Decode packet</button>
+            <button type="button" class="overflow-item" role="menuitem" data-action="btn-clear-log">&#x2715; Clear log</button>
+            <button type="button" class="overflow-item" role="menuitem" data-action="btn-clear-data">&#x1F5D1; Clear all data</button>
+            <button type="button" class="overflow-item" role="menuitem" data-action="btn-keyboard-help">&#x2328; Keyboard help</button>
+            <button type="button" class="overflow-item" role="menuitem" data-action="btn-settings">&#9881; Settings</button>
         </div>
     </div>
-
-    <!-- Mobile dropdown menu -->
-    <div id="mobile-menu" class="mobile-menu hidden">
-        <div class="mobile-menu-buttons">
-            <button id="mobile-btn-drop-pin">Drop Pin</button>
-            <button id="mobile-btn-toggle-log">Toggle Log</button>
-            <button id="mobile-btn-settings">Settings</button>
-        </div>
+    <!-- #219: hidden action anchors. These keep the exact ids app.js binds its
+         click/keyboard handlers to; the visible toolbar icons and the overflow
+         menu items forward clicks to them. -->
+    <div id="action-anchors" hidden>
+        <button id="btn-station-list"></button>
+        <button id="btn-weather-panel"></button>
+        <button id="btn-drop-pin"></button>
+        <button id="btn-decode"></button>
+        <button id="btn-keyboard-help"></button>
+        <button id="btn-settings"></button>
+        <button id="btn-clear-data"></button>
     </div>
-
     <!-- Map -->
     <div id="map-container">
         <div id="map"></div>
         <button id="btn-center-my-pos" class="fab-center" title="Center on my position">&#x2316;</button>
-        <button id="btn-clear-data" class="fab-clear" title="Clear all stations and packets">&#x1F5D1;</button>
         <div id="map-resize-handle"></div>
+        <!-- #219: one Map drawer replaces the five floating cards. Closed by
+             default; the five cards are moved in as collapsible sections by
+             app.js (Filters open by default). -->
+        <div id="drawer-scrim" class="hidden"></div>
+        <div id="map-drawer" class="hidden" aria-hidden="true">
+            <div class="map-drawer-header">
+                <span>Map</span>
+                <button id="btn-map-drawer-close" title="Close" aria-label="Close map panels">&times;</button>
+            </div>
+            <div class="map-drawer-body" id="map-drawer-body"></div>
+        </div>
     </div>
 
     <!-- Packet Log -->
@@ -197,7 +247,6 @@
             </div>
         </div>
     </div>
-    <div id="waiting-toast" class="toast hidden">Waiting for first position packet...</div>
 
     <!-- Decode APRS Packet Modal -->
     <div id="decode-modal" class="modal hidden">
@@ -432,5 +481,6 @@
     <script src="/static/vendor/pmtiles.js"></script>
     <script src="/static/vendor/chart.min.js"></script>
     <script src="/static/app.js"></script>
+    <script src="/static/dw-toolbar.js"></script>
 </body>
 </html>
