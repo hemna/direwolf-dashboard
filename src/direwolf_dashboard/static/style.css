@@ -2711,6 +2711,7 @@ kbd {
     background: #15151E;
     padding: 4px 14px;
     z-index: 110;
+    position: relative; /* anchors the absolute #overflow-menu under the toolbar */
 }
 [data-theme="light"] #toolrow {
     background: #f3f5fa;

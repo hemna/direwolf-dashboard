@@ -68,19 +68,21 @@
             </button>
             <button id="btn-overflow" class="tool-toggle" title="More" aria-haspopup="true" aria-expanded="false">&#8942;</button>
         </div>
-    </div>
-    <!-- #219 overflow menu: the former TOOLS drawer, merged into the toolbar.
-         Each item forwards its click to the matching hidden action button
-         below, so the existing app.js wiring is untouched. -->
-    <div id="overflow-menu" class="overflow-menu hidden" role="menu">
-        <button type="button" class="overflow-item" role="menuitem" data-action="btn-station-list">&#x1F4CB; Station list</button>
-        <button type="button" class="overflow-item" role="menuitem" data-action="btn-weather-panel">&#x26C5; Weather stations</button>
-        <button type="button" class="overflow-item" role="menuitem" data-action="btn-drop-pin">&#x1F4CC; Drop pin</button>
-        <button type="button" class="overflow-item" role="menuitem" data-action="btn-decode">&#x1F4E1; Decode packet</button>
-        <button type="button" class="overflow-item" role="menuitem" data-action="btn-clear-log">&#x2715; Clear log</button>
-        <button type="button" class="overflow-item" role="menuitem" data-action="btn-clear-data">&#x1F5D1; Clear all data</button>
-        <button type="button" class="overflow-item" role="menuitem" data-action="btn-keyboard-help">&#x2328; Keyboard help</button>
-        <button type="button" class="overflow-item" role="menuitem" data-action="btn-settings">&#9881; Settings</button>
+        <!-- #219 overflow menu: the former TOOLS drawer, merged into the
+             toolbar. It lives inside #toolrow (which is position:relative) so
+             its absolute top:100% anchors under the toolbar. Each item forwards
+             its click to the matching hidden action button below, so the
+             existing app.js wiring is untouched. -->
+        <div id="overflow-menu" class="overflow-menu hidden" role="menu">
+            <button type="button" class="overflow-item" role="menuitem" data-action="btn-station-list">&#x1F4CB; Station list</button>
+            <button type="button" class="overflow-item" role="menuitem" data-action="btn-weather-panel">&#x26C5; Weather stations</button>
+            <button type="button" class="overflow-item" role="menuitem" data-action="btn-drop-pin">&#x1F4CC; Drop pin</button>
+            <button type="button" class="overflow-item" role="menuitem" data-action="btn-decode">&#x1F4E1; Decode packet</button>
+            <button type="button" class="overflow-item" role="menuitem" data-action="btn-clear-log">&#x2715; Clear log</button>
+            <button type="button" class="overflow-item" role="menuitem" data-action="btn-clear-data">&#x1F5D1; Clear all data</button>
+            <button type="button" class="overflow-item" role="menuitem" data-action="btn-keyboard-help">&#x2328; Keyboard help</button>
+            <button type="button" class="overflow-item" role="menuitem" data-action="btn-settings">&#9881; Settings</button>
+        </div>
     </div>
     <!-- #219: hidden action anchors. These keep the exact ids app.js binds its
          click/keyboard handlers to; the visible toolbar icons and the overflow
