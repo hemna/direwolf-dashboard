@@ -164,10 +164,20 @@ def _browser():
 def _load(cdp, url, width, height, theme):
     cdp.call("Emulation.setDeviceMetricsOverride", width=width, height=height,
              deviceScaleFactor=1, mobile=False)
-    cdp.call("Page.navigate", url="about:blank")
-    time.sleep(0.15)
-    sep = "&" if "?" in url else "?"
-    cdp.call("Page.navigate", url=f"{url}{sep}theme={theme}")
+    # Set the theme through localStorage (not a URL param, which would put the
+    # page in embedded mode and hide the theme toggle). Visit the origin once
+    # to get a storage context, clear it, set the theme, then load fresh.
+    cdp.call("Page.navigate", url=url)
+    deadline = time.time() + 20
+    while time.time() < deadline:
+        try:
+            if cdp.eval("document.readyState === 'complete' || document.readyState === 'interactive'"):
+                break
+        except Exception:
+            pass
+        time.sleep(0.1)
+    cdp.eval(f"localStorage.clear(); localStorage.setItem('dw-theme', '{theme}');")
+    cdp.call("Page.navigate", url=url)
     deadline = time.time() + 25
     while time.time() < deadline:
         try:
