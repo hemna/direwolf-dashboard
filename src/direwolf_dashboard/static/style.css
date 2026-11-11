@@ -392,10 +392,10 @@ body.embedded #btn-theme {
     background: var(--accent);
 }
 
-/* FAB - Center on My Position */
+/* FAB - Center on My Position. #219: raised clear of the attribution pill. */
 .fab-center {
     position: absolute;
-    bottom: 24px;
+    bottom: 40px;
     right: 12px;
     z-index: 1000;
     width: 40px;
@@ -422,58 +422,6 @@ body.embedded #btn-theme {
 
 .fab-center:active {
     transform: scale(0.95);
-}
-
-/* FAB - Clear All Data */
-.fab-clear {
-    position: absolute;
-    bottom: 72px;
-    right: 12px;
-    z-index: 1000;
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    border: 1px solid var(--border);
-    background: var(--modal-bg);
-    color: var(--text-primary);
-    font-size: 16px;
-    line-height: 1;
-    cursor: pointer;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background 0.15s, transform 0.15s;
-}
-
-.fab-clear:hover {
-    background: var(--danger);
-    color: #fff;
-    transform: scale(1.1);
-}
-
-.fab-clear:active {
-    transform: scale(0.95);
-}
-
-/* Issue #218 round 13 / D-4: the two round map buttons stack 88px up the right
- * edge and met the corner-card column at 1100x560 (1080 px^2 over the Filters
- * card). app.js adds .fab-row when they would meet a card; the pair then sits
- * in a row at the bottom-left, under the control rail and left of the legend,
- * which is the only corner left free once a 308px map holds a 289px card
- * column and the attribution strip. */
-#map-container.fab-row .fab-center {
-    left: 12px;
-    right: auto;
-    /* Round 14 / item 7: in row mode the pair met the map credit pill at
-     * 560x400 and 560x480 (141 px^2 into its rounded corner). app.js sets
-     * --fab-lift to the pixels needed to clear it. */
-    bottom: calc(24px + var(--fab-lift, 0px));
-}
-#map-container.fab-row .fab-clear {
-    bottom: calc(24px + var(--fab-lift, 0px));
-    left: 60px;
-    right: auto;
 }
 
 /* Packet Log */
@@ -1095,56 +1043,200 @@ a.secondary.btn-as-link:hover {
     background: var(--text-secondary);
 }
 
-/* Map legend */
-.map-legend {
-    background: var(--overlay-bg);
-    border-radius: 6px;
-    padding: 10px 12px;
+/* ===== Map drawer + toolbar surfaces (#219) ===== */
+
+/* One-line Stats readout in the toolbar */
+.stats-readout {
+    color: var(--text-secondary);
     font-size: 11px;
-    color: var(--overlay-text);
-    border: 1px solid var(--overlay-border);
-    pointer-events: auto;
-    max-width: 170px;
-    /* Issue #218 round 12 / defect B: app.js keeps this box clear of the left
-     * control column — --legend-max is the height available under that column
-     * (the body scrolls inside it) and --legend-shift moves the whole box
-     * beside the column when a short map leaves no room under it. */
-    max-height: var(--legend-max, none);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    margin-right: 4px;
+}
+
+/* "Waiting for first packet" header chip (replaces the old full-width row) */
+.status-chip {
+    font-size: 11px;
+    color: var(--text-secondary);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1px 8px;
+    white-space: nowrap;
+}
+.status-chip.hidden {
+    display: none;
+}
+
+/* Overflow menu (replaces the TOOLS drawer) */
+.overflow-menu {
+    position: absolute;
+    top: 100%;
+    right: 8px;
+    z-index: 120;
+    background: var(--modal-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    min-width: 190px;
+}
+.overflow-menu.hidden {
+    display: none;
+}
+.overflow-item {
+    background: transparent;
+    border: 0;
+    color: var(--text-primary);
+    text-align: left;
+    font-family: inherit;
+    font-size: 13px;
+    padding: 7px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.overflow-item:hover {
+    background: var(--bg-secondary);
+}
+
+/* Scrim shown under the drawer when it overlays the map (< 1024px) */
+#drawer-scrim {
+    position: absolute;
+    inset: 0;
+    z-index: 90;
+    background: rgba(0, 0, 0, 0.35);
+}
+#drawer-scrim.hidden {
+    display: none;
+}
+
+/* The Map drawer itself */
+#map-drawer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 8px; /* clear the resize handle */
+    width: 280px;
+    max-width: 85%;
+    z-index: 100;
+    background: var(--modal-bg);
+    border-right: 1px solid var(--border);
+    box-shadow: 2px 0 12px rgba(0, 0, 0, 0.35);
+    display: flex;
+    flex-direction: column;
+}
+#map-drawer.hidden {
+    display: none;
+}
+.map-drawer-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    flex: 0 0 auto;
+}
+.map-drawer-header button {
+    background: transparent;
+    border: 0;
+    color: var(--text-secondary);
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 4px;
+}
+.map-drawer-header button:hover {
+    color: var(--text-primary);
+}
+.map-drawer-body {
+    flex: 1;
     overflow-y: auto;
     overscroll-behavior: contain;
-    transform: translate(var(--legend-shift, 0px),
-                        calc(0px - var(--legend-lift, 0px)));
+    padding: 0 12px 12px;
 }
-.map-legend-header {
+.drawer-section {
+    border-bottom: 1px solid var(--overlay-divider);
+}
+.drawer-section:last-child {
+    border-bottom: none;
+}
+.drawer-section-header {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: transparent;
+    border: 0;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    padding: 10px 0 8px;
     cursor: pointer;
-    font-size: 10px;
-    color: var(--overlay-text-muted);
-    border-bottom: 1px solid var(--overlay-border);
-    padding-bottom: 6px;
-    margin-bottom: 6px;
     user-select: none;
 }
-.map-legend-header:hover {
+.drawer-section-header:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+.drawer-section-icon {
+    font-size: 9px;
+    color: var(--text-secondary);
+}
+.drawer-section-body {
+    padding: 0 0 10px;
+}
+.drawer-section.section-collapsed .drawer-section-body {
+    display: none;
+}
+
+/* Responsive drawer modes (#219):
+ *  < 600px  : bottom sheet (max 60vh), scrim behind
+ *  600-1023 : left overlay (scrim behind)
+ *  >= 1024  : pushes the map right instead of covering it (no scrim) */
+@media (min-width: 1024px) {
+    #map-container.drawer-open #map {
+        left: 280px;
+        width: calc(100% - 280px);
+    }
+    #map-container.drawer-open #map-resize-handle {
+        left: 280px;
+    }
+    #map-container.drawer-open #drawer-scrim {
+        display: none;
+    }
+    #map {
+        position: absolute;
+        top: 0;
+        left: 0;
+    }
+}
+@media (max-width: 599px) {
+    #map-drawer {
+        top: auto;
+        bottom: 8px;
+        left: 0;
+        width: 100%;
+        max-width: 100%;
+        max-height: 60vh;
+        border-right: none;
+        border-top: 1px solid var(--border);
+        border-radius: 10px 10px 0 0;
+    }
+}
+
+/* Map legend (Map-drawer section) */
+.map-legend {
+    font-size: 11px;
     color: var(--overlay-text);
-}
-/* Issue #218 round 13 / D-2: a map too short for a readable legend body (a
- * 320x568 window leaves 55.2px under the left control column) shows the header
- * only, instead of a 120px box painted over the GPX panel. The body returns as
- * soon as there is room for it. */
-/* Round 14 / item 2: set by app.js when the key cannot be placed without
- * covering a control (320x568 with the real 170px-wide legend). */
-.map-legend.legend-hidden { display: none; }
-.map-legend.legend-tight .legend-body {
-    display: none;
-}
-.map-legend.legend-tight .map-legend-header {
-    border-bottom: none;
-    padding-bottom: 0;
-    margin-bottom: 0;
-    cursor: default;
-}
-.map-legend.legend-tight .legend-collapse-icon {
-    display: none;
 }
 .legend-section-title {
     font-size: 10px;
@@ -1153,6 +1245,11 @@ a.secondary.btn-as-link:hover {
     margin-bottom: 4px;
     border-top: 1px solid var(--overlay-divider);
     padding-top: 6px;
+}
+.map-legend .legend-body > .legend-section-title:first-child {
+    margin-top: 0;
+    border-top: none;
+    padding-top: 0;
 }
 .legend-item {
     display: flex;
@@ -1163,8 +1260,7 @@ a.secondary.btn-as-link:hover {
 .legend-item:last-child {
     margin-bottom: 0;
 }
-/* Weather-station legend example (issue #152): the barb strokes and fills
-   follow the theme text color. */
+/* Weather-station legend example (issue #152): barb strokes/fills follow theme. */
 #legend-wx .legend-wx-example {
     color: var(--text-primary);
     flex: 0 0 auto;
@@ -1180,50 +1276,14 @@ a.secondary.btn-as-link:hover {
 #legend-wx .legend-wx-example text {
     fill: currentColor;
 }
-.map-legend.collapsed .legend-body {
-    display: none;
-}
-.map-legend.collapsed .map-legend-header {
-    border-bottom: none;
-    padding-bottom: 0;
-    margin-bottom: 0;
-}
 
-/* --- GPX Overlay Control --- */
-
-/* --- Stats Overlay --- */
+/* Stats (Map-drawer section) */
 .stats-overlay {
-    background: var(--overlay-bg);
-    border-radius: 6px;
-    padding: 0;
     font-size: 11px;
-    color: var(--overlay-text);
-    border: 1px solid var(--overlay-border);
-    pointer-events: auto;
-    min-width: 110px;
-}
-.stats-overlay-header {
-    cursor: pointer;
-    font-size: 10px;
-    color: var(--overlay-text-muted);
-    border-bottom: 1px solid var(--overlay-border);
-    padding: 5px 10px;
-    user-select: none;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-.stats-overlay-header:hover {
     color: var(--overlay-text);
 }
 .stats-overlay-body {
-    padding: 4px 10px 6px;
-}
-.stats-overlay.collapsed .stats-overlay-body {
-    display: none;
-}
-.stats-overlay.collapsed .stats-overlay-header {
-    border-bottom: none;
+    padding: 0;
 }
 .stats-overlay-row {
     display: flex;
@@ -1239,70 +1299,23 @@ a.secondary.btn-as-link:hover {
     font-variant-numeric: tabular-nums;
 }
 
-/* Issue #218 round 9: the two card headers are real buttons so the keyboard
- * and a screen reader can open them. Strip the browser button chrome; the
- * card rules below keep their own padding and divider. */
-.filter-overlay-header,
-.my-location-header {
-    background: transparent;
-    border: 0;
-    width: 100%;
-    text-align: left;
-    font-family: inherit;
-    font-size: inherit;
-    line-height: inherit;
-    color: inherit;
-}
-.filter-overlay-header:focus-visible,
-.my-location-header:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-}
-
-/* --- Filter Overlay --- */
+/* Filter (Map-drawer section) */
 .filter-overlay {
-    background: var(--overlay-bg);
-    border-radius: 6px;
-    padding: 0;
     font-size: 11px;
-    color: var(--overlay-text);
-    border: 1px solid var(--overlay-border);
-    pointer-events: auto;
-    min-width: 160px;
-}
-.filter-overlay-header {
-    cursor: pointer;
-    font-size: 10px;
-    color: var(--overlay-text-muted);
-    border-bottom: 1px solid var(--overlay-border);
-    padding: 4px 10px;
-    user-select: none;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-.filter-overlay-header:hover {
     color: var(--overlay-text);
 }
 .filter-overlay-body {
-    /* issue #218 round 7: the whole right column must fit a 308px map */
-    padding: 2px 10px 6px;
-}
-.filter-overlay.collapsed .filter-overlay-body {
-    display: none;
-}
-.filter-overlay.collapsed .filter-overlay-header {
-    border-bottom: none;
+    padding: 0;
 }
 .filter-overlay-row {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 0;
+    padding: 2px 0;
 }
 .filter-overlay-label {
     color: var(--overlay-text-muted);
-    min-width: 48px;
+    min-width: 72px;
     font-size: 11px;
 }
 .filter-overlay select,
@@ -1317,8 +1330,9 @@ a.secondary.btn-as-link:hover {
     font-size: 11px;
     min-width: 0;
 }
-.filter-overlay input {
-    width: 80px;
+.filter-overlay input[type="checkbox"] {
+    flex: 0 0 auto;
+    width: auto;
 }
 .filter-overlay select:focus,
 .filter-overlay input:focus {
@@ -1326,62 +1340,23 @@ a.secondary.btn-as-link:hover {
     border-color: var(--accent);
 }
 
-/* --- My Location Overlay --- */
+/* My Location (Map-drawer section) */
 .my-location-overlay {
-    background: var(--overlay-bg);
-    border-radius: 6px;
-    padding: 0;
     font-size: 11px;
     color: var(--overlay-text);
-    border: 1px solid var(--overlay-border);
-    pointer-events: auto;
-    min-width: 160px;
 }
-.my-location-header {
+.my-location-actions-row {
     display: flex;
-    justify-content: space-between;
+    gap: 6px;
     align-items: center;
-    padding: 6px 10px 3px;
-    border-bottom: 1px solid var(--overlay-divider);
-    margin-bottom: 0;
-    cursor: pointer;
-    user-select: none;
-}
-.my-location-header:hover .my-location-title {
-    color: var(--overlay-text);
-}
-.my-location-body {
-    padding: 4px 10px 6px;
-}
-.my-location-overlay.collapsed .my-location-body {
-    display: none;
-}
-.my-location-overlay.collapsed .my-location-header {
-    border-bottom: none;
-    padding-bottom: 6px;
-}
-.my-location-collapse-icon {
-    font-size: 9px;
-    color: var(--overlay-text-muted);
-    margin-left: 4px;
-}
-.my-location-title {
-    color: var(--overlay-text-muted);
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-.my-location-actions {
-    display: flex;
-    gap: 4px;
-    align-items: center;
+    margin-bottom: 4px;
 }
 .my-location-btn {
     cursor: pointer;
     color: var(--overlay-text-muted);
-    font-size: 14px;
+    font-size: 15px;
     line-height: 1;
-    padding: 0 2px;
+    padding: 0 4px;
     border-radius: 3px;
 }
 .my-location-btn:hover {
@@ -1402,44 +1377,13 @@ a.secondary.btn-as-link:hover {
     padding: 1px 0;
 }
 
+/* GPX (Map-drawer section) */
 .gpx-control {
-    background: var(--overlay-bg);
-    border-radius: 6px;
-    padding: 0;
     font-size: 11px;
     color: var(--overlay-text);
-    border: 1px solid var(--overlay-border);
-    pointer-events: auto;
-    max-width: 170px;
-    overflow: hidden;
-}
-.gpx-control-header {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 7px 10px;
-    cursor: pointer;
-    font-size: 10px;
-    color: var(--gpx-accent);
-    border-bottom: 1px solid var(--overlay-border);
-    user-select: none;
-}
-.gpx-control-header:hover {
-    color: var(--gpx-accent-hover);
-}
-.gpx-control-header .gpx-collapse-icon {
-    margin-left: auto;
-    font-size: 8px;
-    color: var(--overlay-text-dim);
-}
-.gpx-control.collapsed .gpx-control-body {
-    display: none;
-}
-.gpx-control.collapsed .gpx-control-header {
-    border-bottom: none;
 }
 .gpx-control-body {
-    padding: 8px 10px;
+    padding: 0;
 }
 .gpx-control .gpx-stats {
     font-size: 9px;
@@ -1453,7 +1397,7 @@ a.secondary.btn-as-link:hover {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 140px;
+    max-width: 230px;
 }
 .gpx-control .gpx-actions {
     display: flex;
@@ -1461,11 +1405,11 @@ a.secondary.btn-as-link:hover {
 }
 .gpx-control .gpx-actions button {
     flex: 1;
-    padding: 3px 0;
+    padding: 4px 0;
     text-align: center;
     border: none;
     border-radius: 3px;
-    font-size: 9px;
+    font-size: 10px;
     font-family: inherit;
     cursor: pointer;
 }
@@ -1486,13 +1430,13 @@ a.secondary.btn-as-link:hover {
 }
 .gpx-control .gpx-btn-load {
     width: 100%;
-    padding: 4px 0;
+    padding: 5px 0;
     background: var(--gpx-accent);
     color: var(--gpx-btn-text);
     font-weight: bold;
     border: none;
     border-radius: 3px;
-    font-size: 10px;
+    font-size: 11px;
     font-family: inherit;
     cursor: pointer;
 }
@@ -1507,77 +1451,6 @@ a.secondary.btn-as-link:hover {
 .gpx-marker {
     background: none !important;
     border: none !important;
-}
-
-/* --- Mobile menu --- */
-.mobile-only {
-    display: none;
-}
-
-.mobile-menu {
-    background: var(--bg-primary);
-    border-bottom: 1px solid var(--border);
-    padding: 10px 12px;
-    z-index: 99;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-.mobile-menu.hidden {
-    display: none;
-}
-.mobile-menu-buttons {
-    display: flex;
-    gap: 8px;
-}
-.mobile-menu-buttons button {
-    flex: 1;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    color: var(--text-secondary);
-    padding: 8px;
-    border-radius: 3px;
-    cursor: pointer;
-    font-family: inherit;
-    font-size: 12px;
-}
-.mobile-menu-buttons button:hover {
-    color: var(--text-primary);
-    border-color: var(--accent);
-}
-
-/* --- Mobile breakpoint --- */
-@media (max-width: 600px) {
-    .mobile-only {
-        display: inline-block;
-    }
-    #btn-toggle-log,
-    #btn-settings {
-        display: none;
-    }
-    #status-text {
-        display: none;
-    }
-    .logo {
-        font-size: 13px;
-    }
-    .toolbar-left {
-        gap: 8px;
-    }
-    #btn-mobile-menu {
-        background: none;
-        border: 1px solid var(--border);
-        color: var(--text-secondary);
-        padding: 4px 10px;
-        border-radius: 3px;
-        cursor: pointer;
-        font-size: 18px;
-        line-height: 1;
-    }
-    #btn-mobile-menu:hover {
-        color: var(--text-primary);
-        border-color: var(--accent);
-    }
 }
 
 /* Route distance labels on packet route polylines */
@@ -1624,20 +1497,6 @@ a.secondary.btn-as-link:hover {
 @keyframes arc-pulse {
     from { transform: scale(0.75); }
     to { transform: scale(1.1); }
-}
-
-/* Waiting-message row (issue #218 round 14). Round 13 floated this box and
- * measured a clear spot for it, but at 344-375px wide and at 320x400 no clear
- * spot exists: it landed on the GPX panel, on its Load GPX button and on the
- * legend, in both themes. It is a row of the layout instead, under the tool
- * row, so it can only take its own space and never paints over a control. */
-.toast {
-    background: var(--modal-bg);
-    color: var(--text-primary);
-    border-bottom: 1px solid var(--border);
-    padding: 6px 12px;
-    font-size: 13px;
-    text-align: center;
 }
 
 /* Waiting modal */
@@ -2779,231 +2638,6 @@ kbd {
     }
 }
 
-/* GPX control (top-left, #127) stays above the legend (bottom-left) when a
- * short map viewport makes the two control stacks overlap. */
-/* Issue #218 round 13 / D-3: the left column is a float stack with no height
- * limit, so at 1100x432 it ran 99.9px past the map bottom: the Stats box lay
- * over the 8px resize strip and the GPX control sat entirely below the map,
- * unreachable. Cap it the way the right column is capped; app.js adds
- * .stats-tight when the column cannot hold its full content in that box, so
- * the cap does not turn into a scrollbar at the reviewed sizes. */
-.maplibregl-ctrl-top-left {
-    max-height: calc(100% - 8px);
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    pointer-events: auto;
-    z-index: 3;
-}
-.maplibregl-ctrl-top-left::-webkit-scrollbar { width: 12px; }
-.maplibregl-ctrl-top-left::-webkit-scrollbar-track { background: transparent; }
-.maplibregl-ctrl-top-left::-webkit-scrollbar-thumb {
-    background: var(--overlay-text-muted);
-    border: 3px solid var(--overlay-bg);
-    border-radius: 6px;
-}
-#map-container.stats-tight .maplibregl-ctrl-top-left .maplibregl-ctrl {
-    /* Round 14 / item 3: 3px still left the column 3px past its cap at
-     * 1024x400 and 1100x400, so the GPX panel met the 8px resize strip. */
-    margin-top: 1px;
-}
-#map-container.stats-tight .stats-overlay-body {
-    display: none;
-}
-#map-container.stats-tight .stats-overlay-header {
-    border-bottom: none;
-}
-#map-container.stats-tight .stats-collapse-icon {
-    display: none;
-}
-/* Round 14 / item 5: the rules above used to be the end of the story — the four
- * values were unreachable and the header click only toggled a class. The header
- * now opens the body. A 400-432px window has no room for it under the column,
- * so the column itself scrolls (it is already capped, styled and scrollable
- * since round 13) and every value stays reachable; nothing can paint on the 8px
- * resize strip because the column clips its own content. */
-#map-container.stats-tight .stats-overlay.stats-open .stats-overlay-body {
-    display: block;
-}
-#map-container.stats-tight .stats-overlay.stats-open .stats-overlay-header {
-    border-bottom: 1px solid var(--overlay-border);
-}
-#map-container.stats-tight .stats-overlay.stats-open .stats-collapse-icon {
-    display: inline;
-}
-/* Issue #218 round 7: at 1100x560 the two-band header leaves a 308px map. The
- * two card paddings below are tightened so the Filters card plus the full My
- * Location card fit that box without a scrollbar. The cap stays as a safety net
- * for even shorter maps: MapLibre clips with overflow:hidden, so the column may
- * never pass the map's bottom edge. */
-.maplibregl-ctrl-top-right .maplibregl-ctrl {
-    /* 4px top margin instead of the vendor 10px: the card stack starts and
-     * spaces 4px so it fits the shortest reviewed map (1100x560, 308px). */
-    margin-top: 4px;
-}
-.maplibregl-ctrl-top-right {
-    max-height: 100%;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    pointer-events: auto;
-    z-index: 3;
-}
-.maplibregl-ctrl-top-right::-webkit-scrollbar { width: 12px; }
-.maplibregl-ctrl-top-right::-webkit-scrollbar-track { background: transparent; }
-.maplibregl-ctrl-top-right::-webkit-scrollbar-thumb {
-    background: var(--overlay-text-muted);
-    border: 3px solid var(--overlay-bg);
-    border-radius: 6px;
-}
-
-/* Issue #218 round 8: the corner collapses on short maps instead of getting
- * smaller again. The card pair needs 293px and a 1100x480 window leaves a
- * 255px map, which no padding can fix. updateCornerMode() adds
- * #map-container.corner-compact below a 300px map: both cards are then a
- * single-line header (<=44px each, column <=96px wide) and opening one hides
- * the other completely. At 308px and taller (1100x560, 1280x800, 1600x1000)
- * the round-7 layout is untouched. */
-.corner-compact .maplibregl-ctrl-top-right .maplibregl-ctrl {
-    margin-right: 2px;
-}
-/* Issue #218 round 9: the round map buttons (z-index 1000) float over the
- * corner. A collapsed header is clear of them; an opened card was not, and
- * the trash button covered the "Packet paths" checkbox. While a card is open
- * the column steps left of the 52px button rail. */
-.corner-compact.corner-filter-open .maplibregl-ctrl-top-right .maplibregl-ctrl,
-.corner-compact.corner-myloc-open .maplibregl-ctrl-top-right .maplibregl-ctrl {
-    margin-right: 56px;
-}
-.corner-compact .filter-overlay:not(.corner-open),
-.corner-compact .my-location-overlay:not(.corner-open) {
-    /* the cards carry min-width:160px for the tall layout; a collapsed header
-     * must be able to shrink to 92px (column 96px with the 4px margin). */
-    min-width: 0;
-    width: 94px;
-}
-.corner-compact .filter-overlay .filter-overlay-body,
-.corner-compact .my-location-overlay .my-location-body {
-    display: none;
-}
-/* An opened card may never pass the map's bottom edge. app.js sets
- * --corner-open-max from the measured map height, so the card stops there and
- * its body scrolls inside itself. Driven by map height: at 1100 wide the open
- * card touched the map bottom at a 432px window and was cut from 431px down.
- * Round 11 / defect B: the UA scrollbar is not used at all. Two reviewers read
- * different pixels for `overflow-y: scroll` at the same head (172/172 with no
- * bar, 172/184 with a 12px bar), so whether the platform paints a classic or
- * an overlay bar may not decide the outcome. The bar is hidden here and
- * app.js paints .corner-scroll-track/.corner-scroll-thumb into a reserved
- * gutter instead. */
-.corner-compact .filter-overlay.corner-open,
-.corner-compact .my-location-overlay.corner-open {
-    display: flex;
-    flex-direction: column;
-    max-height: var(--corner-open-max, none);
-    overflow: hidden;
-    position: relative;
-}
-.corner-compact .filter-overlay.corner-open .filter-overlay-body,
-.corner-compact .my-location-overlay.corner-open .my-location-body {
-    display: block;
-    overflow-y: auto;
-    min-height: 0;
-    scrollbar-width: none;
-}
-.corner-compact .filter-overlay.corner-open .filter-overlay-body::-webkit-scrollbar,
-.corner-compact .my-location-overlay.corner-open .my-location-body::-webkit-scrollbar {
-    width: 0;
-    height: 0;
-}
-/* Round 11: the compact-opened Filters card fits a 1100x432 window outright,
- * so nobody at that size meets an indicator at all. The 19px rows are set
- * explicitly rather than left to font metrics: 9 rows + 4px of body padding
- * = 175px of content, against the 180px body a 432px window gives (5px spare),
- * while a 420px window leaves 168px and genuinely scrolls. */
-.corner-compact .filter-overlay.corner-open .filter-overlay-body {
-    padding: 0 10px 4px;
-}
-.corner-compact .filter-overlay.corner-open .filter-overlay-row {
-    height: 19px;
-}
-.corner-compact .filter-overlay.corner-open .filter-overlay-row input,
-.corner-compact .filter-overlay.corner-open .filter-overlay-row select {
-    height: 17px;
-    padding: 0 4px;
-    line-height: 15px;
-}
-/* The gutter is reserved only while the body really overflows, so a card that
- * fits keeps its full width and no dead strip shows. app.js toggles
- * .corner-scrollable on the card and writes the track/thumb boxes; 16px of
- * body padding keeps both clear of the row text. */
-.corner-compact .filter-overlay.corner-scrollable .filter-overlay-body,
-.corner-compact .my-location-overlay.corner-scrollable .my-location-body {
-    padding-right: 16px;
-}
-.corner-scroll-track,
-.corner-scroll-thumb {
-    display: none;
-}
-.corner-compact .corner-scrollable .corner-scroll-track,
-.corner-compact .corner-scrollable .corner-scroll-thumb {
-    display: block;
-    position: absolute;
-    right: 4px;
-    width: 6px;
-    border-radius: 3px;
-    pointer-events: none;
-}
-.corner-compact .corner-scrollable .corner-scroll-track {
-    background: var(--overlay-divider);
-}
-.corner-compact .corner-scrollable .corner-scroll-thumb {
-    background: var(--overlay-text-muted);
-}
-.corner-compact .filter-overlay .filter-overlay-header,
-.corner-compact .my-location-overlay .my-location-header {
-    padding: 4px 6px;
-    white-space: nowrap;
-    border-bottom: none;
-}
-.corner-compact .filter-overlay.corner-open .filter-overlay-header,
-.corner-compact .my-location-overlay.corner-open .my-location-header {
-    border-bottom: 1px solid var(--overlay-border);
-    flex: 0 0 auto;
-}
-.corner-compact .my-location-title {
-    font-size: 9px;
-    letter-spacing: 0;
-}
-.corner-compact .my-location-btn {
-    display: none;
-}
-.corner-compact .my-location-collapse-icon {
-    margin-left: 0;
-}
-.corner-compact.corner-filter-open .my-location-overlay,
-.corner-compact.corner-myloc-open .filter-overlay {
-    display: none;
-}
-
-/* shortcut: when the map is shorter than the opened card, the card's body
- * scrolls inside itself with the page-drawn indicator (paintCornerScroll in
- * app.js, see --corner-open-max above); revisit if windows below 400px tall
- * matter. The driver is map height, not window width. */
-
-/* Issue #218 round 7: the top-right card column reaches the map's bottom on
- * a short map, where MapLibre's bottom-right attribution strip used to paint
- * across the My Location card. Keep the strip clear of the column; it stays
- * inside the map at 1100x560, 1280x800 and 1600x1000. */
-.maplibregl-ctrl-bottom-right {
-    right: 210px;
-}
-/* Round 10 / defect A: an opened compact card steps 56px left of the map
- * button rail, so the 210px resting inset no longer clears it — at 1100 wide
- * the strip's right edge (890) sat 31.6px inside the card (left 858.4).
- * 250px puts the strip at 850, an 8px+ gap at 1100 and 1024 wide. */
-.corner-compact.corner-filter-open .maplibregl-ctrl-bottom-right,
-.corner-compact.corner-myloc-open .maplibregl-ctrl-bottom-right {
-    right: 250px;
-}
 
 /* MapLibre hop tooltip (#134): show only the .path-tooltip box. */
 .path-tooltip-popup .maplibregl-popup-content {
@@ -3013,17 +2647,6 @@ kbd {
 }
 .path-tooltip-popup .maplibregl-popup-tip {
     display: none;
-}
-
-/* Current zoom readout (#150) */
-.map-zoom-readout {
-    background: rgba(0, 0, 0, 0.6);
-    color: #fff;
-    font: 12px/1.4 monospace;
-    padding: 2px 6px;
-    border-radius: 4px;
-    width: fit-content;
-    pointer-events: none;
 }
 
 /* ── Issue #218 — top-level toolbar (two bands) + collapsible tool panel ── */
@@ -3129,108 +2752,23 @@ kbd {
 }
 [data-theme="light"] .tool-toggle { border-color: #2E69F2; color: #1c2333; }
 [data-theme="light"] .tool-toggle.on { background: #dbe7ff; }
-#toolpanel {
-    /* issue #218 rework (2026-11-10): the tool layer floats over the map
-     * region only. It lives inside #map-container (which starts below the
-     * two top bands), absolutely positioned so it fills almost the whole
-     * map. It is out of flow, so opening it never changes the map height
-     * or the toolbar layout, and it can never paint over #topnav/#toolrow. */
-    position: absolute;
-    top: 8px;
-    left: 8px;
-    bottom: 8px;
-    width: 254px;
-    z-index: 100; /* above the map and the left overlay cards, below the 110 bands */
-    background: var(--overlay-bg);
-    border: 1px solid var(--overlay-border);
-    border-radius: 8px;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-}
-#toolpanel.hidden { display: none; }
-.toolpanel-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--overlay-divider);
-    font-weight: 700;
-    font-size: 11px;
-    letter-spacing: 1.5px;
-    color: var(--overlay-text);
-}
-#btn-toolpanel-close {
-    background: none;
-    border: none;
-    color: var(--overlay-text-muted);
-    font-size: 16px;
-    line-height: 1;
-    cursor: pointer;
-    padding: 0 4px;
-}
-.toolpanel-body {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    padding: 8px 12px;
-    scrollbar-width: auto;
-    scrollbar-color: var(--overlay-text-muted) transparent;
-}
-/* Obvious scroll affordance: a real, colored scrollbar (a thin scrollbar was
- * effectively invisible when content overflowed). */
-.toolpanel-body::-webkit-scrollbar { width: 12px; }
-.toolpanel-body::-webkit-scrollbar-track { background: transparent; }
-.toolpanel-body::-webkit-scrollbar-thumb {
-    background: var(--overlay-text-muted);
-    border: 3px solid var(--overlay-bg);
-    border-radius: 6px;
-}
-.toolpanel-section { margin-bottom: 12px; }
-.toolpanel-section h3 {
-    margin: 8px 0 6px;
-    font-size: 10px;
-    letter-spacing: 1.5px;
-    text-transform: uppercase;
-    color: var(--overlay-text-muted);
-}
-.toolpanel-btn {
-    display: block;
-    width: 100%;
-    text-align: left;
-    background: transparent;
-    border: 1px solid var(--overlay-border);
-    color: var(--overlay-text);
-    border-radius: 4px;
-    padding: 6px 8px;
-    margin-bottom: 4px;
-    font-size: 12px;
-    cursor: pointer;
-}
-.toolpanel-btn:hover { background: var(--log-row-hover); }
 @media (max-width: 768px) {
     .tagline, .topnav-nav { display: none; }
     #dw-find { width: 120px; }
-    #toolpanel { width: 220px; }
 }
 
-/* Issue #218 round 14 / items 4 and 6: below 600px the tool row's controls are
- * wider than the window, so #btn-tools sat 8px past the right edge (with no
- * horizontal scroll, the drawer could not be opened at all) and the overflow
- * painted over the Find input — a click at the input's centre reached the
- * station-list button instead. The row now wraps by itself, the count moves to
- * the Stations panel it duplicates, and below 440px the Find field takes its
- * own line so every button keeps its 26px target. */
+/* #219: below 600px the toolbar wraps; the station count and the one-line
+ * Stats readout are hidden (both duplicate info reachable in the drawer), so
+ * only Find, the icons and the overflow menu stay on the row. Below 440px the
+ * Find field takes its own line so every button keeps its target size. */
 @media (max-width: 600px) {
     #toolrow { flex-wrap: wrap; row-gap: 4px; }
     .toolrow-right { flex-wrap: wrap; row-gap: 4px; }
     #dw-find { flex: 1 1 120px; width: auto; min-width: 0; max-width: none; }
     .station-count { display: none; }
+    .stats-readout { display: none; }
+    #map-drawer { width: 100%; max-width: 100%; }
 }
 @media (max-width: 440px) {
     .toolrow-left { flex: 1 1 100%; }
-}
-/* A phone has no keyboard shortcuts: one button less keeps 320px on one line. */
-@media (max-width: 360px) {
-    #btn-keyboard-help { display: none; }
 }

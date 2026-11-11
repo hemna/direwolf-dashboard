@@ -1,6 +1,8 @@
 /**
- * Toolbar glue for issue #218 - the top-level toolbar (nav/status band + tool
- * row) and the collapsible left tool panel, matching haminfo's layout.
+ * Toolbar glue for issue #218/#219 - the top-level toolbar (nav/status band +
+ * slim tool row), the Map drawer, and the overflow menu. One surface open at a
+ * time; the drawer holds the five former map cards and the overflow menu holds
+ * the former TOOLS items.
  */
 (function () {
     'use strict';
@@ -51,28 +53,75 @@
         });
     });
 
-    // --- Tool panel (collapsible left) ---------------------------------------
-    var panel = $('toolpanel');
-    function setPanel(open) {
-        if (!panel) return;
-        panel.classList.toggle('hidden', !open);
-        var t = $('btn-tools');
-        if (t) t.classList.toggle('on', open);
+    // --- Map drawer + overflow menu (#219) -----------------------------------
+    // One slim toolbar: the Map drawer holds the five former floating cards,
+    // the overflow menu holds the former TOOLS items. Only one surface is open
+    // at a time. app.js resizes the map when the drawer opens/closes so tiles
+    // repaint for the new map width.
+    var drawer = $('map-drawer');
+    var scrim = $('drawer-scrim');
+    var drawerBtn = $('btn-map-drawer');
+    var overflow = $('overflow-menu');
+    var overflowBtn = $('btn-overflow');
+
+    function setDrawer(open) {
+        if (!drawer) return;
+        if (open) setOverflow(false);
+        drawer.classList.toggle('hidden', !open);
+        drawer.setAttribute('aria-hidden', open ? 'false' : 'true');
+        if (scrim) scrim.classList.toggle('hidden', !open);
+        var mc = $('map-container');
+        if (mc) mc.classList.toggle('drawer-open', open);
+        if (drawerBtn) {
+            drawerBtn.classList.toggle('on', open);
+            drawerBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        }
+        if (window.__dwDrawerChanged) window.__dwDrawerChanged();
     }
-    var btnTools = $('btn-tools');
-    if (btnTools) {
-        btnTools.addEventListener('click', function () {
-            setPanel(panel && panel.classList.contains('hidden'));
+    function setOverflow(open) {
+        if (!overflow) return;
+        if (open) setDrawer(false);
+        overflow.classList.toggle('hidden', !open);
+        if (overflowBtn) {
+            overflowBtn.classList.toggle('on', open);
+            overflowBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        }
+    }
+    window.__dwSetDrawer = setDrawer;
+
+    if (drawerBtn) {
+        drawerBtn.addEventListener('click', function () {
+            setDrawer(drawer && drawer.classList.contains('hidden'));
         });
     }
-    var closeBtn = $('btn-toolpanel-close');
-    if (closeBtn) closeBtn.addEventListener('click', function () { setPanel(false); });
-    var rows = Array.prototype.slice.call(document.querySelectorAll('#toolpanel [data-action]'));
-    rows.forEach(function (row) {
+    var drawerClose = $('btn-map-drawer-close');
+    if (drawerClose) drawerClose.addEventListener('click', function () { setDrawer(false); });
+    if (scrim) scrim.addEventListener('click', function () { setDrawer(false); });
+
+    if (overflowBtn) {
+        overflowBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            setOverflow(overflow && overflow.classList.contains('hidden'));
+        });
+    }
+    // Each overflow item forwards its click to the matching hidden action
+    // button, then closes the menu.
+    var items = Array.prototype.slice.call(document.querySelectorAll('#overflow-menu [data-action]'));
+    items.forEach(function (row) {
         row.addEventListener('click', function () {
             var id = row.getAttribute('data-action');
             if (id && $(id)) $(id).click();
+            setOverflow(false);
         });
+    });
+    // Click outside the overflow menu closes it.
+    document.addEventListener('click', function (e) {
+        if (!overflow || overflow.classList.contains('hidden')) return;
+        if (e.target === overflowBtn || (overflowBtn && overflowBtn.contains(e.target))) return;
+        if (!overflow.contains(e.target)) setOverflow(false);
+    });
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') { setOverflow(false); }
     });
 
     // --- Find ----------------------------------------------------------------

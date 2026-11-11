@@ -434,16 +434,14 @@
 
     function initLegend() {
         if (!map) return;
-        const container = mlCreate('map-legend');
+        const container = drawerSection('Legend', false);
+        container.classList.add('map-legend');
         var txColor = themeColor('--route-tx-rf');
         var tcpipColor = themeColor('--route-tx-tcpip');
         var rxColor = themeColor('--route-rx');
         var trackColor = themeColor('--station-track');
         var routeColor = themeColor('--route-tcpip-line');
         container.innerHTML = `
-                    <div class="map-legend-header">
-                        Legend <span class="legend-collapse-icon">&#9650;</span>
-                    </div>
                     <div class="legend-body">
                         <div class="legend-section-title">Animations</div>
                         <div class="legend-item">
@@ -481,24 +479,8 @@
                             <div id="legend-wx-body"></div>
                         </div>
                     </div>`;
-        const header = container.querySelector('.map-legend-header');
-        const legendIcon = container.querySelector('.legend-collapse-icon');
-        header.addEventListener('click', () => {
-            container.classList.toggle('collapsed');
-            const isCollapsed = container.classList.contains('collapsed');
-            legendIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
-            localStorage.setItem('dw-legend-collapsed', isCollapsed ? '1' : '0');
-            // The chrome box just changed size: keep an open trail panel clear.
-            placeTrailPanel();
-        });
-        if (localStorage.getItem('dw-legend-collapsed') === '1') {
-            container.classList.add('collapsed');
-            legendIcon.textContent = '\u25BC';
-        }
-        map.addControl(mlControl(function () { return container; }, 'bottom-left'));
         setWxLegendVisible(wxStationEnabled());
         initWxLegend();
-        setLegendCap();
     }
 
     /** Show/hide the "Weather stations" legend section with the Station plots toggle. */
@@ -547,59 +529,39 @@
 
     function initStatsOverlay() {
         if (!map) return;
-        var container = mlCreate('stats-overlay');
+        var container = drawerSection('Stats', false);
+        container.classList.add('stats-overlay');
         container.innerHTML =
-            '<div class="stats-overlay-header">Stats <span class="stats-collapse-icon">\u25B2</span></div>' +
             '<div class="stats-overlay-body">' +
             '<div class="stats-overlay-row"><span class="stats-label">Stations</span><span class="stats-value" id="stats-stations">0</span></div>' +
             '<div class="stats-overlay-row"><span class="stats-label">Packets</span><span class="stats-value" id="stats-packets">0</span></div>' +
             '<div class="stats-overlay-row"><span class="stats-label">Pkts/hr</span><span class="stats-value" id="stats-rate">0</span></div>' +
             '<div class="stats-overlay-row"><span class="stats-label">Uptime</span><span class="stats-value" id="stats-uptime">0s</span></div>' +
             '</div>';
-        var statsHeader = container.querySelector('.stats-overlay-header');
-        var statsIcon = container.querySelector('.stats-collapse-icon');
-        statsHeader.addEventListener('click', function () {
-            // Round 14 / item 5: a capped column shows the header only, so a
-            // click opens the body (the column scrolls to it). A tall column
-            // keeps the round-9 behaviour: collapse, and remember it.
-            var tight = cornerMapContainer() &&
-                cornerMapContainer().classList.contains('stats-tight');
-            if (tight) {
-                container.classList.toggle('stats-open');
-                var open = container.classList.contains('stats-open');
-                statsIcon.textContent = open ? '\u25B2' : '\u25BC';
-                updateLeftColumnFit();
-                placeTrailPanel();
-                return;
-            }
-            container.classList.toggle('collapsed');
-            var isCollapsed = container.classList.contains('collapsed');
-            statsIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
-            localStorage.setItem('dw-stats-collapsed', isCollapsed ? '1' : '0');
-            placeTrailPanel();
-        });
-        if (localStorage.getItem('dw-stats-collapsed') === '1') {
-            container.classList.add('collapsed');
-            statsIcon.textContent = '\u25BC';
-        }
         statsOverlayEl = container;
-        map.addControl(mlControl(function () { return container; }, 'top-left'));
-        if (!showStatsOverlay && statsOverlayEl) {
-            statsOverlayEl.style.display = 'none';
-        }
     }
 
     function updateStatsOverlay(stats) {
+        var stations = stats.stations_active || 0;
+        var packets = stats.packets_total || 0;
+        var rate = stats.packets_last_hour || 0;
+        var uptime = formatUptime(stats.uptime_seconds || 0);
+        // One-line toolbar readout (#219): the always-visible summary.
+        var readout = document.getElementById('stats-readout');
+        if (readout) {
+            readout.textContent = stations + ' stn · ' + packets + ' pkt · ' +
+                rate + '/hr · ' + uptime;
+        }
         if (!statsOverlayEl) return;
         var el;
         el = document.getElementById('stats-stations');
-        if (el) el.textContent = stats.stations_active || 0;
+        if (el) el.textContent = stations;
         el = document.getElementById('stats-packets');
-        if (el) el.textContent = stats.packets_total || 0;
+        if (el) el.textContent = packets;
         el = document.getElementById('stats-rate');
-        if (el) el.textContent = stats.packets_last_hour || 0;
+        if (el) el.textContent = rate;
         el = document.getElementById('stats-uptime');
-        if (el) el.textContent = formatUptime(stats.uptime_seconds || 0);
+        if (el) el.textContent = uptime;
     }
 
     function formatUptime(seconds) {
@@ -613,432 +575,12 @@
         return d + 'd ' + h + 'h';
     }
 
-    // --- Filter Overlay ---
-    // Issue #218 round 8: the two corner cards need 293px and a short window
-    // leaves a 255px map, so below 300px they collapse to header-only cards
-    // (see the .corner-compact rules in style.css). Opening one hides the
-    // other. At 308px and taller nothing here changes.
-    var CORNER_COMPACT_MAX_MAP_HEIGHT = 300;
-
-    function cornerMapContainer() {
-        return document.getElementById('map-container');
-    }
-
-    function syncCornerIcon(el) {
-        var mc = cornerMapContainer();
-        var compact = mc && mc.classList.contains('corner-compact');
-        var closed = compact
-            ? !el.classList.contains('corner-open')
-            : el.classList.contains('collapsed');
-        var icon = el.querySelector('.filter-collapse-icon, .my-location-collapse-icon');
-        if (icon) icon.textContent = closed ? '\u25BC' : '\u25B2';
-        var header = el.querySelector('.filter-overlay-header, .my-location-header');
-        if (header) header.setAttribute('aria-expanded', closed ? 'false' : 'true');
-    }
-
-    // Issue #218 round 9: an opened card may not pass the map's bottom edge.
-    // The CSS caps the card at this height and scrolls its body inside itself
-    // (4px top margin + 8px clearance from the map's bottom).
-    function setCornerBodyCap() {
-        var mc = cornerMapContainer();
-        if (!mc) return;
-        mc.style.setProperty('--corner-open-max',
-            Math.max(60, mc.clientHeight - 12) + 'px');
-        ['.filter-overlay', '.my-location-overlay'].forEach(function (sel) {
-            var el = document.querySelector(sel);
-            if (el && el.classList.contains('corner-open')) paintCornerScroll(el);
-        });
-    }
-
-    // Round 13: four placements below are decided by measurement instead of by
-    // arithmetic on one control's box, because every overlay they may cover is
-    // a box that can be measured. One pair of helpers keeps that in one place.
-    function rectsOverlap(a, b, gap) {
-        gap = gap || 0;
-        return a.left < b.right + gap && a.right + gap > b.left &&
-               a.top < b.bottom + gap && a.bottom + gap > b.top;
-    }
-
-    // Every visible overlay box a floating element may not cover. The control
-    // corners are containers, so page them by child: MapLibre stamps
-    // `.maplibregl-ctrl` on every control it hosts. The left corner is listed
-    // as well, so neither the legend nor the toast ever sits over it.
-    function overlayObstacles(except) {
-        var out = [];
-        var nodes = document.querySelectorAll(
-            '.maplibregl-ctrl,.maplibregl-ctrl-top-left,.fab-center' +
-            ',.fab-clear,#map-resize-handle,#log-header');
-        for (var i = 0; i < nodes.length; i++) {
-            var el = nodes[i];
-            if (el === except || (except && except.contains(el))) continue;
-            var cs = getComputedStyle(el);
-            if (cs.display === 'none' || cs.visibility === 'hidden') continue;
-            var box = el.getBoundingClientRect();
-            if (box.width > 1 && box.height > 1) out.push(box);
-        }
-        return out;
-    }
-
-    function collides(box, except, gap) {
-        var obs = overlayObstacles(except);
-        for (var i = 0; i < obs.length; i++) {
-            if (rectsOverlap(box, obs[i], gap)) return true;
-        }
-        return false;
-    }
-
-    // Round 12 / defect B: the weather legend is 911px tall, and a bottom-left
-    // control may not put its top above the map's bottom edge, so its top rose
-    // 374px above the map and sat behind the zoom buttons, the zoom readout,
-    // the stats overlay and the GPX control — every control shares the left
-    // edge. Cap the legend to the space under that column and scroll inside it;
-    // a short map leaves no space under the column, so there the legend moves
-    // beside the column instead and keeps a readable 160px window.
-    // Round 13 / D-2: that branch still forced a 120px floor while the real
-    // space below the column was 55.2px, so the box painted over the GPX panel
-    // at 320x568. The floor is gone: a map too short for a body gets the header
-    // only, and the beside-the-column window is used only when nothing in it is
-    // covered.
-    // Controls a passive legend may never cover. The control *containers* are
-    // excluded on purpose: a corner box is as big as its last child, so a
-    // transparent container that the legend already sits inside would read as
-    // a collision everywhere.
-    var LEGEND_OBSTACLES = (
-        '.maplibregl-ctrl-top-left .maplibregl-ctrl,' +
-        '.filter-overlay,.my-location-overlay,' +
-        '#btn-clear-data,#btn-center-my-pos,' +
-        '.maplibregl-ctrl-bottom-right .maplibregl-ctrl-attrib,' +
-        '#map-resize-handle');
-    function legendCoversControl(box) {
-        var nodes = document.querySelectorAll(LEGEND_OBSTACLES);
-        for (var i = 0; i < nodes.length; i++) {
-            var el = nodes[i];
-            var cs = getComputedStyle(el);
-            if (cs.display === 'none' || cs.visibility === 'hidden') continue;
-            var b = el.getBoundingClientRect();
-            if (b.width <= 1 || b.height <= 1) continue;
-            if (rectsOverlap(box, b, 0)) return true;
-        }
-        return false;
-    }
-    // Round 14 / item 2: a key that cannot be placed clear is hidden, not
-    // painted over a control. On a 320x568 window the two corner cards, the
-    // four-control rail, the two round buttons and the credit pill leave no
-    // 42px band for even the header, so the passive element is the one that
-    // gives way; it returns as soon as the window leaves it room.
-    function setLegendCap() {
-        placeLegend();
-        stepLegendAside();
-        var legend = document.querySelector('.map-legend');
-        if (!legend) return;
-        legend.classList.toggle(
-            'legend-hidden', legendCoversControl(legend.getBoundingClientRect()));
-    }
-    // Round 14: in row mode the two round map buttons take the bottom-left
-    // corner, which is where the legend lives: at 1280x600 the pair moved left
-    // to clear My Location and then pushed the weather key out entirely. Step
-    // the key to the pair's right instead; when the cards leave no room there,
-    // the obstacle check above still hides it.
-    function stepLegendAside() {
-        var mc = cornerMapContainer();
-        var legend = document.querySelector('.map-legend');
-        var clear = document.getElementById('btn-clear-data');
-        var mine = document.getElementById('btn-center-my-pos');
-        if (!mc || !legend || !clear || !mine) return;
-        if (!mc.classList.contains('fab-row')) return;
-        var lb = legend.getBoundingClientRect();
-        var a = clear.getBoundingClientRect();
-        var b = mine.getBoundingClientRect();
-        if (!lb.width || !a.width || !b.width) return;
-        var right = Math.max(a.right, b.right);
-        var top = Math.min(a.top, b.top);
-        var bottom = Math.max(a.bottom, b.bottom);
-        if (right <= lb.left) return;
-        if (lb.top >= bottom || lb.bottom <= top) return;
-        var shift = right + 10 - lb.left;
-        var have = parseFloat(mc.style.getPropertyValue('--legend-shift')) || 0;
-        mc.style.setProperty('--legend-shift', (have + shift) + 'px');
-    }
-    var LEGEND_MIN_CLEAR = 120;
-    var LEGEND_SHORT_MAX = 160;
-    // The map credit strip is inset 210px from the right, so on a 560px window
-    // it sits at x 75.9-350 — over the legend's own corner, where the legend
-    // covered 94.1 x 24 = 2258.4 px^2 of it. A bottom-left legend is lifted
-    // above that strip; both the legend cap and the left column need the same
-    // number, so it is measured in one place.
-    function legendLift(mapBox, naturalLeft, legendRight) {
-        var strip = document.querySelector(
-            '.maplibregl-ctrl-bottom-right .maplibregl-ctrl-attrib');
-        if (!strip) return 0;
-        var box = strip.getBoundingClientRect();
-        if (!box.width || box.left >= legendRight || box.right <= naturalLeft) {
-            return 0;
-        }
-        return Math.max(0, mapBox.bottom - 10 - box.top + 8);
-    }
-
-    function placeLegend() {
-        var mc = cornerMapContainer();
-        var legend = document.querySelector('.map-legend');
-        var rail = document.querySelector('.maplibregl-ctrl-top-left');
-        if (!mc || !legend || !rail) return;
-        var mapBox = mc.getBoundingClientRect();
-        var railBox = rail.getBoundingClientRect();
-        // The cap on the rail can be shorter than its content, so clear the
-        // larger of the corner box and its last control.
-        var railBottom = railBox.bottom;
-        var railRight = railBox.right;
-        for (var i = 0; i < rail.children.length; i++) {
-            var box = rail.children[i].getBoundingClientRect();
-            if (box.height <= 0) continue;
-            railBottom = Math.max(railBottom, box.bottom);
-            railRight = Math.max(railRight, box.right);
-        }
-        // Measure the legend where the stylesheet puts it, not where a previous
-        // call moved it, or the shift would compound on every resize.
-        mc.style.removeProperty('--legend-shift');
-        mc.style.removeProperty('--legend-lift');
-        mc.style.removeProperty('--legend-max');
-        legend.classList.remove('legend-tight', 'legend-hidden');
-        var naturalLeft = legend.getBoundingClientRect().left;
-        var legendRight = naturalLeft + legend.getBoundingClientRect().width;
-        var lift = legendLift(mapBox, naturalLeft, legendRight);
-        // Round 14 / item 2: the legend is bottom-anchored, so a shorter cap
-        // lowers its top. At 320x568 with the Stats box collapsed it rose into
-        // the top-right card column (1836.0 px^2 over My Location, measured by
-        // both reviewers). Whatever cap was chosen, if the box still meets that
-        // column, cut the cap to the room between the column and the box's own
-        // bottom; under 30px the header-only branch below takes over.
-        var cards = document.querySelector('.maplibregl-ctrl-top-right');
-        function capUnderCards() {
-            if (!cards) return;
-            var colBox = cards.getBoundingClientRect();
-            var box = legend.getBoundingClientRect();
-            if (!colBox.height || !box.height) return;
-            if (box.right <= colBox.left || box.left >= colBox.right) return;
-            if (box.top >= colBox.bottom + 8) return;
-            var room = box.bottom - colBox.bottom - 8;
-            if (room >= 30) mc.style.setProperty('--legend-max', room + 'px');
-        }
-        var clear = mapBox.bottom - lift - railBottom - 18;
-        if (clear >= LEGEND_MIN_CLEAR) {
-            // Round 13: no 120px floor. The cap is the room that really exists
-            // under the column, less the lift, so the body scrolls instead of
-            // painting over the control above it.
-            mc.style.setProperty('--legend-max', clear + 'px');
-            if (lift) mc.style.setProperty('--legend-lift', lift + 'px');
-            capUnderCards();
-            return;
-        }
-        // Too short for a body under the column: try the window beside it, and
-        // show the header alone when that window would cover a control.
-        var shift = Math.max(0, railRight + 10 - naturalLeft);
-        var shortMax = Math.min(LEGEND_SHORT_MAX, Math.max(120, mapBox.height - 26));
-        mc.style.setProperty('--legend-shift', shift + 'px');
-        mc.style.setProperty('--legend-max', shortMax + 'px');
-        if (lift) mc.style.setProperty('--legend-lift', lift + 'px');
-        capUnderCards();
-        if (!collides(legend.getBoundingClientRect(), legend, 0)) return;
-        legend.classList.add('legend-tight');
-        mc.style.removeProperty('--legend-max');
-        mc.style.removeProperty('--legend-shift');
-        if (lift) mc.style.setProperty('--legend-lift', lift + 'px');
-        // A header alone fits the plain corner whenever the column ends above
-        // it; beside the column is the fallback when the column reaches down
-        // (1100x400) and the corner is taken.
-        if (!collides(legend.getBoundingClientRect(), legend, 0)) return;
-        mc.style.setProperty('--legend-shift', shift + 'px');
-        if (!collides(legend.getBoundingClientRect(), legend, 0)) return;
-        mc.style.removeProperty('--legend-shift');
-    }
-
-    // Round 13 / D-3: the left column is a float stack with no height limit, so
-    // at 1100x432 it ran 99.9px past the map's bottom edge: the Stats box lay
-    // over the 8px resize strip and the GPX control sat entirely below the map,
-    // unreachable. The stylesheet caps the column at the map height less that
-    // strip; when the capped column cannot hold its full content, the Stats
-    // body collapses to its header so the cap never becomes a scrollbar.
-    var COLUMN_STRIP = 8;
-    // The header-only legend measures 42px; 46 leaves it a gap to the column.
-    var LEGEND_HEADER_H = 46;
-
-    function updateLeftColumnFit() {
-        var mc = cornerMapContainer();
-        var rail = document.querySelector('.maplibregl-ctrl-top-left');
-        if (!mc || !rail) return;
-        mc.classList.remove('stats-tight');
-        var have = mc.getBoundingClientRect().height - COLUMN_STRIP;
-        // Round 14: the column and the legend share the bottom-left corner. A
-        // full Stats body reached 490.8 on a 320x568 window and left the
-        // header-only legend nowhere to go but on top of the GPX panel
-        // (2494.8 px^2). The column stops where the legend's own band starts,
-        // and a column that cannot hold the Stats body keeps its header only
-        // (the header still opens the four values, see initStatsOverlay).
-        var mapBox = mc.getBoundingClientRect();
-        var legend = document.querySelector('.map-legend');
-        if (legend) {
-            var naturalLeft = legend.getBoundingClientRect().left;
-            var band = mapBox.bottom
-                - legendLift(mapBox, naturalLeft, naturalLeft + legend.offsetWidth)
-                - LEGEND_HEADER_H - COLUMN_STRIP - mapBox.top;
-            have = Math.min(have, band);
-        }
-        if (rail.scrollHeight <= have + 1) return;
-        mc.classList.add('stats-tight');
-        // Round 14 / item 5: the card shows its header only here, and the header
-        // click opens the body (style.css). The column scrolls to reach it; the
-        // cap above keeps the column's own box off the resize strip.
-    }
-
-    // Round 13 / D-4: the two round map buttons stack 88px up the right edge,
-    // and at 1100x560 their top met the corner-card column (1080 px^2 over the
-    // Filters card, 360 over My Location). Put them side by side when they
-    // would meet a card; nothing else about them changes.
-    function updateFabStack() {
-        var mc = cornerMapContainer();
-        var cards = document.querySelectorAll(
-            '.maplibregl-ctrl-top-right .filter-overlay,' +
-            '.maplibregl-ctrl-top-right .my-location-overlay');
-        var clear = document.getElementById('btn-clear-data');
-        var mine = document.getElementById('btn-center-my-pos');
-        if (!mc || !clear || !mine || !cards.length) return;
-        mc.classList.remove('fab-row');
-        mc.style.removeProperty('--fab-lift');
-        var a = clear.getBoundingClientRect();
-        var b = mine.getBoundingClientRect();
-        for (var i = 0; i < cards.length; i++) {
-            var card = cards[i].getBoundingClientRect();
-            if (!card.width || !card.height) continue;
-            if (rectsOverlap(card, a, 4) || rectsOverlap(card, b, 4)) {
-                mc.classList.add('fab-row');
-                // Round 14 / item 7: in row mode the pair sat on the map credit
-                // pill at 560x400 and 560x480 (141 px^2 into its rounded
-                // corner). Raise it by the pixels that clear the strip; the
-                // buttons keep their size and order.
-                var attrib = document.querySelector(
-                    '.maplibregl-ctrl-bottom-right .maplibregl-ctrl-attrib');
-                if (attrib) {
-                    // Measure again: the class just moved the pair into a row,
-                    // and the boxes read before that are the stacked pair.
-                    var ra = clear.getBoundingClientRect();
-                    var rb = mine.getBoundingClientRect();
-                    var limit = attrib.getBoundingClientRect();
-                    if (rectsOverlap(ra, limit, 4) || rectsOverlap(rb, limit, 4)) {
-                        mc.style.setProperty('--fab-lift', Math.max(0,
-                            Math.round(Math.max(ra.bottom, rb.bottom) - limit.top + 4)) + 'px');
-                    }
-                }
-                return;
-            }
-        }
-    }
-
-    function closeCornerCards() {
-        var mc = cornerMapContainer();
-        if (!mc) return;
-        mc.classList.remove('corner-filter-open', 'corner-myloc-open');
-        ['.filter-overlay', '.my-location-overlay'].forEach(function (sel) {
-            var el = document.querySelector(sel);
-            if (!el) return;
-            el.classList.remove('corner-open', 'corner-scrollable');
-            syncCornerIcon(el);
-        });
-    }
-
-    // Issue #218 round 11 / defect B: the page paints its own scroll indicator
-    // instead of leaning on the UA scrollbar. Two reviewers measured different
-    // bars for the same head (172/172 with no bar vs 172/184 with a 12px one),
-    // so nothing here may depend on whether the platform paints classic or
-    // overlay scrollbars: the bar is hidden in CSS and this draws a track plus
-    // a thumb into a reserved gutter, outside the rows' text.
-    function paintCornerScroll(card) {
-        if (!card) return;
-        var mc = cornerMapContainer();
-        var body = card.querySelector('.filter-overlay-body, .my-location-body');
-        var track = card.querySelector('.corner-scroll-track');
-        var thumb = card.querySelector('.corner-scroll-thumb');
-        if (!mc || !body || !track || !thumb) return;
-        var extra = body.scrollHeight - body.clientHeight;
-        var show = mc.classList.contains('corner-compact') &&
-            card.classList.contains('corner-open') && extra > 1;
-        card.classList.toggle('corner-scrollable', show);
-        if (!show) return;
-        var cardBox = card.getBoundingClientRect();
-        var bodyBox = body.getBoundingClientRect();
-        var visible = body.clientHeight;
-        var thumbH = Math.max(18, Math.round(visible * visible / body.scrollHeight));
-        var top = bodyBox.top - cardBox.top;
-        var offset = Math.round((visible - thumbH) * body.scrollTop / extra);
-        track.style.top = top + 'px';
-        track.style.height = visible + 'px';
-        thumb.style.height = thumbH + 'px';
-        thumb.style.top = (top + offset) + 'px';
-    }
-    // Returns true when the click was a compact-corner open/close, so the
-    // tall-map collapse behaviour is left untouched.
-    function toggleCornerCard(which) {
-        var mc = cornerMapContainer();
-        if (!mc || !mc.classList.contains('corner-compact')) return false;
-        setCornerBodyCap();
-        var el = document.querySelector(
-            which === 'filter' ? '.filter-overlay' : '.my-location-overlay');
-        var open = !(el && el.classList.contains('corner-open'));
-        closeCornerCards();
-        if (open && el) {
-            el.classList.add('corner-open');
-            mc.classList.add(which === 'filter' ? 'corner-filter-open' : 'corner-myloc-open');
-            syncCornerIcon(el);
-            paintCornerScroll(el);
-        }
-        placeTrailPanel();
-        return true;
-    }
-
-    function updateCornerMode() {
-        var mc = cornerMapContainer();
-        if (!mc) return;
-        setCornerBodyCap();
-        var compact = mc.clientHeight < CORNER_COMPACT_MAX_MAP_HEIGHT;
-        if (compact === mc.classList.contains('corner-compact')) return;
-        mc.classList.toggle('corner-compact', compact);
-        closeCornerCards();
-    }
-
-    function initCornerMode() {
-        updateCornerMode();
-        ['.filter-overlay', '.my-location-overlay'].forEach(function (sel) {
-            var el = document.querySelector(sel);
-            if (el) syncCornerIcon(el);
-        });
-        if (window.ResizeObserver && cornerMapContainer()) {
-            // Round 12: the legend cap depends on the map box and on how tall
-            // the left control column is, so watch both.
-            // Round 13: the column fit, the button row and the toast depend on
-            // the same boxes, so all four run from one observer.
-            var geometry = new ResizeObserver(function () {
-                updateCornerMode();
-                updateLeftColumnFit();
-                // The round buttons move into the legend's own corner in row
-                // mode, so that decision has to land before the legend is
-                // placed (round 14).
-                updateFabStack();
-                setLegendCap();
-            });
-            geometry.observe(cornerMapContainer());
-            var rail = document.querySelector('.maplibregl-ctrl-top-left');
-            if (rail) geometry.observe(rail);
-            var right = document.querySelector('.maplibregl-ctrl-top-right');
-            if (right) geometry.observe(right);
-        }
-    }
 
     function initFilterOverlay() {
         if (!map) return;
-        var container = mlCreate('filter-overlay');
+        var container = drawerSection('Filters', true);
+        container.classList.add('filter-overlay');
         container.innerHTML =
-            '<button type="button" class="filter-overlay-header" aria-expanded="true"' +
-                ' aria-controls="filter-overlay-body">Filters ' +
-                '<span class="filter-collapse-icon">\u25B2</span></button>' +
             '<div class="filter-overlay-body" id="filter-overlay-body">' +
             '<div class="filter-overlay-row">' +
                 '<label class="filter-overlay-label" for="filter-callsign">Callsign</label>' +
@@ -1100,27 +642,7 @@
                     '<option value="hide">Hide</option>' +
                 '</select>' +
             '</div>' +
-            '</div>' +
-            '<div class="corner-scroll-track" aria-hidden="true"></div>' +
-            '<div class="corner-scroll-thumb" aria-hidden="true"></div>';
-        var filterBody = container.querySelector('.filter-overlay-body');
-        if (filterBody) {
-            filterBody.addEventListener('scroll', function () {
-                paintCornerScroll(container);
-            });
-        }
-        var filterHeader = container.querySelector('.filter-overlay-header');
-        filterHeader.addEventListener('click', function () {
-            if (toggleCornerCard('filter')) return;
-            container.classList.toggle('collapsed');
-            localStorage.setItem('dw-filter-collapsed',
-                container.classList.contains('collapsed') ? '1' : '0');
-            syncCornerIcon(container);
-            placeTrailPanel();
-        });
-        if (localStorage.getItem('dw-filter-collapsed') === '1') {
-            container.classList.add('collapsed');
-        }
+            '</div>';
         // Station plots toggle: repaint models or fall back to sprites, and
         // show/hide the weather legend section (issue #152).
         const stationModelToggle = container.querySelector('#filter-station-model');
@@ -1140,35 +662,22 @@
                 setPacketPathsEnabled(this.checked);
             });
         }
-        map.addControl(mlControl(function () { return container; }, 'top-right'));
     }
 
     // --- My Location Overlay ---
     function initMyLocationOverlay() {
         if (!map) return;
-        var container = mlCreate('my-location-overlay');
+        var container = drawerSection('My Location', false);
+        container.classList.add('my-location-overlay');
         container.innerHTML =
-            '<button type="button" class="my-location-header" aria-expanded="true"' +
-                ' aria-controls="my-location-body">' +
-                '<span class="my-location-title">My Location</span>' +
-                '<span class="my-location-actions">' +
-                    '<span class="my-location-btn my-location-center" title="Center map on my location">&#8982;</span>' +
-                    '<span class="my-location-btn my-location-clear hidden" title="Clear my location">&times;</span>' +
-                    '<span class="my-location-collapse-icon">\u25B2</span>' +
-                '</span>' +
-            '</button>' +
+            '<div class="my-location-actions-row">' +
+                '<span class="my-location-btn my-location-center" title="Center map on my location">&#8982;</span>' +
+                '<span class="my-location-btn my-location-clear hidden" title="Clear my location">&times;</span>' +
+            '</div>' +
             '<div class="my-location-body" id="my-location-body">' +
                 '<div class="my-location-type">Not set</div>' +
                 '<div class="my-location-coords"></div>' +
-            '</div>' +
-            '<div class="corner-scroll-track" aria-hidden="true"></div>' +
-            '<div class="corner-scroll-thumb" aria-hidden="true"></div>';
-        var mylocBody = container.querySelector('.my-location-body');
-        if (mylocBody) {
-            mylocBody.addEventListener('scroll', function () {
-                paintCornerScroll(container);
-            });
-        }
+            '</div>';
         // Wire up center button
         container.querySelector('.my-location-center').addEventListener('click', function () {
             var pos = getMyPosition();
@@ -1181,25 +690,7 @@
         container.querySelector('.my-location-clear').addEventListener('click', function () {
             if (window._removeMyPosition) window._removeMyPosition();
         });
-        // Wire up collapse toggle
-        var myLocHeader = container.querySelector('.my-location-header');
-        myLocHeader.addEventListener('click', function (e) {
-            if (e.target.closest('.my-location-btn')) return;
-            if (toggleCornerCard('myloc')) return;
-            container.classList.toggle('collapsed');
-            localStorage.setItem('dw-myloc-collapsed',
-                container.classList.contains('collapsed') ? '1' : '0');
-            syncCornerIcon(container);
-            placeTrailPanel();
-        });
-        if (localStorage.getItem('dw-myloc-collapsed') === '1') {
-            container.classList.add('collapsed');
-        }
         myLocationOverlayEl = container;
-        map.addControl(mlControl(function () { return container; }, 'top-right'));
-        if (!showMyLocationOverlay && myLocationOverlayEl) {
-            myLocationOverlayEl.style.display = 'none';
-        }
         updateMyLocationOverlay();
     }
 
@@ -1376,72 +867,41 @@
         gpxFileInput.style.display = 'none';
         document.body.appendChild(gpxFileInput);
 
-        function buildGpxControl() {
-                var container = document.createElement('div');
-                container.className = 'gpx-control';
-                container.innerHTML =
-                    '<div class="gpx-control-header">' +
-                        '<span>\u{1F4CD}</span>' +
-                        '<span>GPX Overlay</span>' +
-                        '<span class="gpx-collapse-icon">\u25B2</span>' +
+        var controlEl = drawerSection('GPX Overlay', false);
+        controlEl.classList.add('gpx-control');
+        controlEl.innerHTML =
+            '<div class="gpx-control-body">' +
+                '<div class="gpx-empty">' +
+                    '<button class="gpx-btn-load">Load GPX</button>' +
+                '</div>' +
+                '<div class="gpx-loaded" style="display:none;">' +
+                    '<div class="gpx-stats">' +
+                        '<div class="gpx-filename"></div>' +
+                        '<div class="gpx-info"></div>' +
                     '</div>' +
-                    '<div class="gpx-control-body">' +
-                        '<div class="gpx-empty">' +
-                            '<button class="gpx-btn-load">Load GPX</button>' +
-                        '</div>' +
-                        '<div class="gpx-loaded" style="display:none;">' +
-                            '<div class="gpx-stats">' +
-                                '<div class="gpx-filename"></div>' +
-                                '<div class="gpx-info"></div>' +
-                            '</div>' +
-                            '<div class="gpx-actions">' +
-                                '<button class="gpx-btn-fit">Fit Map</button>' +
-                                '<button class="gpx-btn-clear">Clear</button>' +
-                            '</div>' +
-                        '</div>' +
-                        '<div class="gpx-error" style="display:none;"></div>' +
-                    '</div>';
+                    '<div class="gpx-actions">' +
+                        '<button class="gpx-btn-fit">Fit Map</button>' +
+                        '<button class="gpx-btn-clear">Clear</button>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="gpx-error" style="display:none;"></div>' +
+            '</div>';
 
-                var header = container.querySelector('.gpx-control-header');
-                var collapseIcon = container.querySelector('.gpx-collapse-icon');
-                header.addEventListener('click', function () {
-                    container.classList.toggle('collapsed');
-                    var isCollapsed = container.classList.contains('collapsed');
-                    collapseIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
-                    localStorage.setItem('dw-gpx-collapsed', isCollapsed ? '1' : '0');
-                });
-                if (localStorage.getItem('dw-gpx-collapsed') === '1') {
-                    container.classList.add('collapsed');
-                    collapseIcon.textContent = '\u25BC';
-                }
+        controlEl.querySelector('.gpx-btn-load').addEventListener('click', function () {
+            gpxFileInput.click();
+        });
+        controlEl.querySelector('.gpx-btn-fit').addEventListener('click', function () {
+            if (gpxLayer && gpxLayer.bounds) {
+                fitGpxBounds(gpxLayer.bounds);
+            }
+        });
+        controlEl.querySelector('.gpx-btn-clear').addEventListener('click', function () {
+            clearGpxOverlay(controlEl);
+        });
 
-                container.querySelector('.gpx-btn-load').addEventListener('click', function () {
-                    gpxFileInput.click();
-                });
-
-                container.querySelector('.gpx-btn-fit').addEventListener('click', function () {
-                    if (gpxLayer && gpxLayer.bounds) {
-                        fitGpxBounds(gpxLayer.bounds);
-                    }
-                });
-
-                container.querySelector('.gpx-btn-clear').addEventListener('click', function () {
-                    clearGpxOverlay(container);
-                });
-
-                return container;
-        }
-
-        map.addControl(mlControl(buildGpxControl, 'top-left'));
-        var controlEl = document.querySelector('.gpx-control');
         gpxControlEl = controlEl;
         map.on('style.load', addGpxLayers);
         if (map.isStyleLoaded && map.isStyleLoaded()) addGpxLayers();
-
-        // Apply initial visibility from config
-        if (!showGpxOverlay) {
-            controlEl.style.display = 'none';
-        }
 
         gpxFileInput.addEventListener('change', function () {
             if (!gpxFileInput.files || !gpxFileInput.files[0]) return;
@@ -1605,7 +1065,6 @@
         initStatsOverlay();
         initFilterOverlay();
         initMyLocationOverlay();
-        initCornerMode();
         initGpxOverlay();
         await loadStations();
         loadStationPositions();
@@ -1623,7 +1082,6 @@
         initDropPin();
         initMapResize();
         initLogToggle();
-        initMobileMenu();
     });
 
     // --- Config ---
@@ -1691,7 +1149,6 @@
             zoomSnap: 0.1,  // issue #154: fractional handoff zooms (10.9 etc.)
         });
         map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
-        map.addControl(mlControl(buildZoomReadout, 'top-left'));
 
         // Keep the URL hash in the haminfo /map format (#zoom/lat/lon) so a
         // copied link reopens this exact view (#150).
@@ -2579,8 +2036,7 @@
     function mapChromeObstacles(canvasRect) {
         const boxes = [];
         const all = document.querySelectorAll(
-            '#map-container .maplibregl-ctrl, #map-container .fab-center, ' +
-            '#map-container .fab-clear');
+            '#map-container .maplibregl-ctrl, #map-container .fab-center');
         for (const el of all) {
             const r = el.getBoundingClientRect();
             if (!r.width || !r.height) continue;
@@ -2791,18 +2247,6 @@
         if (p !== 0) h += '/' + p;
         return h;
     }
-    /** Small "z 12.0" readout so the current zoom level is visible. */
-    function formatZoomReadout(zoom) {
-        return 'z ' + zoom.toFixed(1);
-    }
-    function buildZoomReadout() {
-        const el = mlCreate('map-zoom-readout');
-        el.title = 'Current zoom level (same number as in the URL)';
-        const update = function () { el.textContent = formatZoomReadout(map.getZoom()); };
-        map.on('zoom', update);
-        update();
-        return el;
-    }
 
     // --- Map view helpers (maplibre) ---
     /** MapLibre uses 512px tiles, Leaflet 256px: Leaflet zoom z == MapLibre
@@ -2844,6 +2288,44 @@
         el.className = className;
         return el;
     }
+
+    // --- Map drawer (#219) ---------------------------------------------------
+    // The five former floating cards (Legend, Stats, Filters, My Location, GPX)
+    // now live as collapsible sections inside #map-drawer. drawerSection builds
+    // one section, returns the body element the card content is appended to,
+    // and wires its header to open/close that section. dw-toolbar.js owns the
+    // drawer's own open/close; here we only repaint the map when it changes.
+    function drawerSection(title, openByDefault) {
+        var body = document.getElementById('map-drawer-body');
+        var section = document.createElement('section');
+        section.className = 'drawer-section' + (openByDefault ? '' : ' section-collapsed');
+        var header = document.createElement('button');
+        header.type = 'button';
+        header.className = 'drawer-section-header';
+        header.setAttribute('aria-expanded', openByDefault ? 'true' : 'false');
+        header.innerHTML = '<span>' + title + '</span><span class="drawer-section-icon">' +
+            (openByDefault ? '\u25B2' : '\u25BC') + '</span>';
+        var content = document.createElement('div');
+        content.className = 'drawer-section-body';
+        header.addEventListener('click', function () {
+            var collapsed = section.classList.toggle('section-collapsed');
+            header.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+            header.querySelector('.drawer-section-icon').textContent = collapsed ? '\u25BC' : '\u25B2';
+        });
+        section.appendChild(header);
+        section.appendChild(content);
+        if (body) body.appendChild(section);
+        return content;
+    }
+
+    // Repaint the map whenever the drawer opens/closes so MapLibre re-renders
+    // tiles for the new map width (≥1024px the drawer shrinks the map).
+    window.__dwDrawerChanged = function () {
+        if (!map) return;
+        // Resize once now and again after the CSS transition settles.
+        map.resize();
+        setTimeout(function () { if (map) map.resize(); }, 220);
+    };
 
     function initCenterFab() {
         const btn = document.getElementById('btn-center-my-pos');
@@ -5849,37 +5331,6 @@
         }, { passive: false });
     }
 
-    // --- Mobile Menu ---
-    function initMobileMenu() {
-        const btn = document.getElementById('btn-mobile-menu');
-        const menu = document.getElementById('mobile-menu');
-        if (!btn || !menu) return;
-
-        // Toggle menu
-        btn.addEventListener('click', () => {
-            menu.classList.toggle('hidden');
-        });
-
-        // Mobile buttons -> delegate to desktop buttons
-        document.getElementById('mobile-btn-toggle-log').addEventListener('click', () => {
-            toggleLogViewState();
-            menu.classList.add('hidden');
-        });
-        document.getElementById('mobile-btn-settings').addEventListener('click', () => {
-            document.getElementById('btn-settings').click();
-            menu.classList.add('hidden');
-        });
-
-        // Close menu when clicking outside
-        document.addEventListener('click', (e) => {
-            if (!menu.classList.contains('hidden') &&
-                !menu.contains(e.target) &&
-                !btn.contains(e.target)) {
-                menu.classList.add('hidden');
-            }
-        });
-    }
-
     // --- Cold Start / Map Centering ---
     async function initMapCenter() {
         // Priority -1 (#150): an explicit #zoom/lat/lon in the URL wins over the
@@ -5971,16 +5422,16 @@
     // button and the legend. A row cannot overlap anything it does not float
     // over, which is also why this needs no collision check at all.
     function showWaitingToast() {
-        const toast = document.getElementById('waiting-toast');
-        if (toast) toast.classList.remove('hidden');
+        const chip = document.getElementById('status-chip');
+        if (chip) chip.classList.remove('hidden');
     }
 
     function dismissWaiting() {
         waitingForPosition = false;
         const modal = document.getElementById('waiting-modal');
         if (modal) modal.classList.add('hidden');
-        const toast = document.getElementById('waiting-toast');
-        if (toast) toast.classList.add('hidden');
+        const chip = document.getElementById('status-chip');
+        if (chip) chip.classList.add('hidden');
     }
 
 
@@ -6453,15 +5904,8 @@
     // --- Drop Pin ---
     function initDropPin() {
         const btn = document.getElementById('btn-drop-pin');
-        const mobileBtn = document.getElementById('mobile-btn-drop-pin');
         if (btn) {
             btn.addEventListener('click', () => togglePinMode());
-        }
-        if (mobileBtn) {
-            mobileBtn.addEventListener('click', () => {
-                togglePinMode();
-                document.getElementById('mobile-menu')?.classList.add('hidden');
-            });
         }
 
         // Right-click on map for context popup
