@@ -36,22 +36,6 @@
     setInterval(syncLive, 2000);
     syncLive();
 
-    // --- Nav pills -----------------------------------------------------------
-    var navButtons = Array.prototype.slice.call(document.querySelectorAll('.nav-item'));
-    var PANEL_ACTIONS = {
-        stations: 'btn-station-list',
-        weather: 'btn-weather-panel',
-        messages: 'btn-messages-panel',
-        settings: 'btn-settings',
-    };
-    navButtons.forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            navButtons.forEach(function (b) { b.classList.remove('active'); });
-            btn.classList.add('active');
-            var target = PANEL_ACTIONS[btn.getAttribute('data-panel')];
-            if (target && $(target)) $(target).click();
-        });
-    });
 
     // --- Map drawer + overflow menu (#219) -----------------------------------
     // One slim toolbar: the Map drawer holds the five former floating cards,
