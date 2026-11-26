@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-26
+
 ### Added
 
 - **Animated packet paths from RF route hops (issue #205)** — packets carry shared path metadata (packet id, source, hops, rx/tx igate, no-RF-leg flag, tx hops, addressee) that's also persisted in the packet store, so a reload or reconnect replays the last 50 packets with their routes and the map animates them too, not just packets arriving live. A `dw-packet-paths` settings toggle turns it off (default only when the OS requests reduced motion).
