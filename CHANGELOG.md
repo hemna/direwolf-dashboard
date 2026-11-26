@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-26
+
 ### Added
 
 - **Offline map region picker in Settings (issue #212)** — Hemna's review of PR #213: the kit region list lives in Settings, not on the map. Each region shows its name, the kit's size (or the downloaded file's real size), and a Download or Remove button. A download is server-side and verified against the kit list's byte count and sha256, written atomically to `<data_dir>/basemap/regions/<id>.pmtiles` and served from there, so a region can be cached for offline use and picked as `basemap.region_archive`. `GET /api/basemap/regions` lists the live kit manifest (same fetch/cache/bundled fallbacks as the served list), `POST /api/basemap/regions/<id>/download` fetches one, `DELETE /api/basemap/regions/<id>` removes the downloaded copy.
