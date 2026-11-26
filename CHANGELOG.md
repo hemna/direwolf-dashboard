@@ -8,12 +8,14 @@ All notable changes to this project are documented here.
 
 ### Added
 
+- **Offline map region picker in Settings (issue #212)** — Hemna's review of PR #213: the kit region list lives in Settings, not on the map. Each region shows its name, the kit's size (or the downloaded file's real size), and a Download or Remove button. A download is server-side and verified against the kit list's byte count and sha256, written atomically to `<data_dir>/basemap/regions/<id>.pmtiles` and served from there, so a region can be cached for offline use and picked as `basemap.region_archive`. `GET /api/basemap/regions` lists the live kit manifest (same fetch/cache/bundled fallbacks as the served list), `POST /api/basemap/regions/<id>/download` fetches one, `DELETE /api/basemap/regions/<id>` removes the downloaded copy.
 - **Animated packet paths from RF route hops (issue #205)** — packets carry shared path metadata (packet id, source, hops, rx/tx igate, no-RF-leg flag, tx hops, addressee) that's also persisted in the packet store, so a reload or reconnect replays the last 50 packets with their routes and the map animates them too, not just packets arriving live. A `dw-packet-paths` settings toggle turns it off (default only when the OS requests reduced motion).
 - **Weather-station map symbol is a full NWS surface-analysis station plot (issue #152)** — wind barb (half/full = 5/10 kt, pennant = 50 kt, calm ring), temperature, dewpoint, pressure and gust where the station reports them; missing fields are omitted. A new "Station plots" toggle (default on) switches WX stations between the plot and the plain APRS sprite, with a state-driven legend explaining the symbols and units. Also fixes wind extraction for `_` WX packets, which previously never stored wind direction or speed (the most common APRS weather format).
 - Shareable map URL (#150): the address bar tracks the view as `#zoom/lat/lon` (same format as haminfo `/map`; `/bearing/pitch` appended only when non-zero). Opening such a link restores the view and takes priority over the saved center and the waiting/auto-follow centering. A `z 12.0` readout under the zoom buttons shows the current zoom.
 
 ### Removed
 
+- **"Kit regions" overlay on the map (issue #212)** — the read-only bottom-right panel from #204/PR #208 listed the region archives the host serves and had no purpose in the dashboard UI. Its map markup, panel and per-day localStorage cache are gone; the region list now lives in Settings, where the user picks regions to download. `GET /basemap/maps-manifest.json` and the per-region archive route stay for clients.
 - Leaflet is gone: the vendored `static/leaflet/` (leaflet.js/css + marker PNGs), its index.html tags, `.leaflet-*` CSS and the dead `L.divIcon`/`L.marker` fallbacks in app.js. The my-position pin is a bottom-anchored 24px MapLibre Marker, like the old divIcon (#146).
 - **OSM tile-cache proxy retired (issue #129)** — `tile_proxy.py`, the
   `/api/tiles/{z}/{x}/{y}.png` and `/api/tiles/preload` endpoints, the
@@ -24,6 +26,15 @@ All notable changes to this project are documented here.
   includes a `tile_cache` block.
 
 ### Fixed
+- **Basemap kit host is `aprslive.com` (issue #214)** — the kit is served at
+  `https://aprslive.com/basemap-kit/`, so the default planet source, the default
+  region-list URL and the bundled offline copy all point there. The bundled
+  `maps-manifest.json` is now byte-identical to
+  `https://aprslive.com/basemap-kit/maps-manifest.json`, so the `bytes` and
+  `sha256` a client verifies match the archives that are actually served. The
+  loader accepts the kit's capped planet entry, which carries no `bounds` or
+  `maxzoom`.
+- **The served region list is fetched live, not shipped stale (issue #212)** — `GET /basemap/maps-manifest.json` reads the kit's published list from the configurable `basemap.manifest_url` with a 5 s timeout and keeps it under `<data_dir>/basemap/maps-manifest.json` for 5 minutes. The vendored `static/basemap/maps-manifest.json` is now only the offline fallback (logged when used), and with nothing readable at all the list degrades to the always-present world region instead of a 503.
 - **MapLibre station labels match Leaflet (issue #133)** — callsign label sits
   right of the icon in bold (NotoSansMedium) with a label-shadow outline, and
   my station gets the `--my-station-glow` halo under its icon.
@@ -51,7 +62,7 @@ All notable changes to this project are documented here.
 
 ### Added
 
-- **Worldwide offline maps (#148).** On startup the dashboard downloads a region around the station (`basemap.radius_km` 40, `basemap.maxzoom` 13) from the first working `basemap.sources` entry (default: the basemap-kit planet on cloud.hemna.com, then the Protomaps daily build), using the `pmtiles` CLI or a new pure-Python extractor. It re-downloads when the station moves and falls back to the world map when there's no position or network. Status is reported in `/api/config` under `basemap.auto`. `basemap fetch` uses the same code and config defaults.
+- **Worldwide offline maps (#148).** On startup the dashboard downloads a region around the station (`basemap.radius_km` 40, `basemap.maxzoom` 13) from the first working `basemap.sources` entry (default: the basemap-kit planet on aprslive.com, then the Protomaps daily build), using the `pmtiles` CLI or a new pure-Python extractor. It re-downloads when the station moves and falls back to the world map when there's no position or network. Status is reported in `/api/config` under `basemap.auto`. `basemap fetch` uses the same code and config defaults.
 - **World fallback under the region basemap (issue #144)** — a vendored z0-4
   world archive (6 MB) is drawn beneath the region archive, so panning past
   the region's edge shows coarse land/water/roads instead of a blank map.

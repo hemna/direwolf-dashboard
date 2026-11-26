@@ -191,11 +191,11 @@ def test_config_api_reports_auto_status():
     assert 'd["basemap"]["auto"] = services.basemap_status.to_dict()' in inspect.getsource(routers)
 
 
-# --- source order (cloud.hemna.com first, Protomaps fallback) --------------------
+# --- source order (aprslive.com first, Protomaps fallback) --------------------
 
 def test_default_sources_cloud_then_protomaps():
     assert Config().basemap.sources == [
-        "https://cloud.hemna.com/basemap-kit/archives/planet.pmtiles", "protomaps"]
+        "https://aprslive.com/basemap-kit/archives/planet.pmtiles", "protomaps"]
     assert basemap_auto.resolve_source("protomaps").startswith("https://build.protomaps.com/")
 
 
@@ -226,7 +226,7 @@ def test_primary_404_falls_back(tmp_path):
 
     with mock.patch("httpx.Client.get", return_value=Resp()):
         done, st, _ = _run_sources(
-            tmp_path, ["https://cloud.hemna.com/basemap-kit/archives/planet.pmtiles", str(backup)])
+            tmp_path, ["https://aprslive.com/basemap-kit/archives/planet.pmtiles", str(backup)])
     assert done and st.state == "done" and st.source == str(backup)
     meta = json.loads((tmp_path / "d" / "basemap" / "region.json").read_text())
     assert "HTTP 404" in meta["tried"][0]

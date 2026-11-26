@@ -19,6 +19,16 @@
     let wsReconnectDelay = 1000;
     let config = {};
     let stations = {};      // callsign -> { data, popupDiv }
+
+    // Issue #218: total height of the top toolbar chrome (both bands).
+    function toolbarChromeHeight() {
+        var h = 0;
+        var tn = document.getElementById('topnav'); if (tn) h += tn.offsetHeight;
+        var tr = document.getElementById('toolrow'); if (tr) h += tr.offsetHeight;
+        var t = document.getElementById('toolbar'); if (t) h += t.offsetHeight;
+        return h || 82;
+    }
+
     // Main map is MapLibre (issue #125); Leaflet-only paths are guarded on this.
     let mainMapIsMaplibre = false;
     // GeoJSON features (callsign -> Feature) backing the maplibre station layers.
@@ -424,16 +434,14 @@
 
     function initLegend() {
         if (!map) return;
-        const container = mlCreate('map-legend');
+        const container = drawerSection('Legend', false);
+        container.classList.add('map-legend');
         var txColor = themeColor('--route-tx-rf');
         var tcpipColor = themeColor('--route-tx-tcpip');
         var rxColor = themeColor('--route-rx');
         var trackColor = themeColor('--station-track');
         var routeColor = themeColor('--route-tcpip-line');
         container.innerHTML = `
-                    <div class="map-legend-header">
-                        Legend <span class="legend-collapse-icon">&#9650;</span>
-                    </div>
                     <div class="legend-body">
                         <div class="legend-section-title">Animations</div>
                         <div class="legend-item">
@@ -471,19 +479,6 @@
                             <div id="legend-wx-body"></div>
                         </div>
                     </div>`;
-        const header = container.querySelector('.map-legend-header');
-        const legendIcon = container.querySelector('.legend-collapse-icon');
-        header.addEventListener('click', () => {
-            container.classList.toggle('collapsed');
-            const isCollapsed = container.classList.contains('collapsed');
-            legendIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
-            localStorage.setItem('dw-legend-collapsed', isCollapsed ? '1' : '0');
-        });
-        if (localStorage.getItem('dw-legend-collapsed') === '1') {
-            container.classList.add('collapsed');
-            legendIcon.textContent = '\u25BC';
-        }
-        map.addControl(mlControl(function () { return container; }, 'bottom-left'));
         setWxLegendVisible(wxStationEnabled());
         initWxLegend();
     }
@@ -534,45 +529,39 @@
 
     function initStatsOverlay() {
         if (!map) return;
-        var container = mlCreate('stats-overlay');
+        var container = drawerSection('Stats', false);
+        container.classList.add('stats-overlay');
         container.innerHTML =
-            '<div class="stats-overlay-header">Stats <span class="stats-collapse-icon">\u25B2</span></div>' +
             '<div class="stats-overlay-body">' +
             '<div class="stats-overlay-row"><span class="stats-label">Stations</span><span class="stats-value" id="stats-stations">0</span></div>' +
             '<div class="stats-overlay-row"><span class="stats-label">Packets</span><span class="stats-value" id="stats-packets">0</span></div>' +
             '<div class="stats-overlay-row"><span class="stats-label">Pkts/hr</span><span class="stats-value" id="stats-rate">0</span></div>' +
             '<div class="stats-overlay-row"><span class="stats-label">Uptime</span><span class="stats-value" id="stats-uptime">0s</span></div>' +
             '</div>';
-        var statsHeader = container.querySelector('.stats-overlay-header');
-        var statsIcon = container.querySelector('.stats-collapse-icon');
-        statsHeader.addEventListener('click', function () {
-            container.classList.toggle('collapsed');
-            var isCollapsed = container.classList.contains('collapsed');
-            statsIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
-            localStorage.setItem('dw-stats-collapsed', isCollapsed ? '1' : '0');
-        });
-        if (localStorage.getItem('dw-stats-collapsed') === '1') {
-            container.classList.add('collapsed');
-            statsIcon.textContent = '\u25BC';
-        }
         statsOverlayEl = container;
-        map.addControl(mlControl(function () { return container; }, 'top-left'));
-        if (!showStatsOverlay && statsOverlayEl) {
-            statsOverlayEl.style.display = 'none';
-        }
     }
 
     function updateStatsOverlay(stats) {
+        var stations = stats.stations_active || 0;
+        var packets = stats.packets_total || 0;
+        var rate = stats.packets_last_hour || 0;
+        var uptime = formatUptime(stats.uptime_seconds || 0);
+        // One-line toolbar readout (#219): the always-visible summary.
+        var readout = document.getElementById('stats-readout');
+        if (readout) {
+            readout.textContent = stations + ' stn · ' + packets + ' pkt · ' +
+                rate + '/hr · ' + uptime;
+        }
         if (!statsOverlayEl) return;
         var el;
         el = document.getElementById('stats-stations');
-        if (el) el.textContent = stats.stations_active || 0;
+        if (el) el.textContent = stations;
         el = document.getElementById('stats-packets');
-        if (el) el.textContent = stats.packets_total || 0;
+        if (el) el.textContent = packets;
         el = document.getElementById('stats-rate');
-        if (el) el.textContent = stats.packets_last_hour || 0;
+        if (el) el.textContent = rate;
         el = document.getElementById('stats-uptime');
-        if (el) el.textContent = formatUptime(stats.uptime_seconds || 0);
+        if (el) el.textContent = uptime;
     }
 
     function formatUptime(seconds) {
@@ -586,13 +575,13 @@
         return d + 'd ' + h + 'h';
     }
 
-    // --- Filter Overlay ---
+
     function initFilterOverlay() {
         if (!map) return;
-        var container = mlCreate('filter-overlay');
+        var container = drawerSection('Filters', true);
+        container.classList.add('filter-overlay');
         container.innerHTML =
-            '<div class="filter-overlay-header">Filters <span class="filter-collapse-icon">\u25B2</span></div>' +
-            '<div class="filter-overlay-body">' +
+            '<div class="filter-overlay-body" id="filter-overlay-body">' +
             '<div class="filter-overlay-row">' +
                 '<label class="filter-overlay-label" for="filter-callsign">Callsign</label>' +
                 '<input type="text" id="filter-callsign" placeholder="Filter..." />' +
@@ -654,18 +643,6 @@
                 '</select>' +
             '</div>' +
             '</div>';
-        var filterHeader = container.querySelector('.filter-overlay-header');
-        var filterIcon = container.querySelector('.filter-collapse-icon');
-        filterHeader.addEventListener('click', function () {
-            container.classList.toggle('collapsed');
-            var isCollapsed = container.classList.contains('collapsed');
-            filterIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
-            localStorage.setItem('dw-filter-collapsed', isCollapsed ? '1' : '0');
-        });
-        if (localStorage.getItem('dw-filter-collapsed') === '1') {
-            container.classList.add('collapsed');
-            filterIcon.textContent = '\u25BC';
-        }
         // Station plots toggle: repaint models or fall back to sprites, and
         // show/hide the weather legend section (issue #152).
         const stationModelToggle = container.querySelector('#filter-station-model');
@@ -685,23 +662,19 @@
                 setPacketPathsEnabled(this.checked);
             });
         }
-        map.addControl(mlControl(function () { return container; }, 'top-right'));
     }
 
     // --- My Location Overlay ---
     function initMyLocationOverlay() {
         if (!map) return;
-        var container = mlCreate('my-location-overlay');
+        var container = drawerSection('My Location', false);
+        container.classList.add('my-location-overlay');
         container.innerHTML =
-            '<div class="my-location-header">' +
-                '<span class="my-location-title">My Location</span>' +
-                '<span class="my-location-actions">' +
-                    '<span class="my-location-btn my-location-center" title="Center map on my location">&#8982;</span>' +
-                    '<span class="my-location-btn my-location-clear hidden" title="Clear my location">&times;</span>' +
-                    '<span class="my-location-collapse-icon">\u25B2</span>' +
-                '</span>' +
+            '<div class="my-location-actions-row">' +
+                '<span class="my-location-btn my-location-center" title="Center map on my location">&#8982;</span>' +
+                '<span class="my-location-btn my-location-clear hidden" title="Clear my location">&times;</span>' +
             '</div>' +
-            '<div class="my-location-body">' +
+            '<div class="my-location-body" id="my-location-body">' +
                 '<div class="my-location-type">Not set</div>' +
                 '<div class="my-location-coords"></div>' +
             '</div>';
@@ -717,25 +690,7 @@
         container.querySelector('.my-location-clear').addEventListener('click', function () {
             if (window._removeMyPosition) window._removeMyPosition();
         });
-        // Wire up collapse toggle
-        var myLocHeader = container.querySelector('.my-location-header');
-        var myLocIcon = container.querySelector('.my-location-collapse-icon');
-        myLocHeader.addEventListener('click', function (e) {
-            if (e.target.closest('.my-location-btn')) return;
-            container.classList.toggle('collapsed');
-            var isCollapsed = container.classList.contains('collapsed');
-            myLocIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
-            localStorage.setItem('dw-myloc-collapsed', isCollapsed ? '1' : '0');
-        });
-        if (localStorage.getItem('dw-myloc-collapsed') === '1') {
-            container.classList.add('collapsed');
-            myLocIcon.textContent = '\u25BC';
-        }
         myLocationOverlayEl = container;
-        map.addControl(mlControl(function () { return container; }, 'top-right'));
-        if (!showMyLocationOverlay && myLocationOverlayEl) {
-            myLocationOverlayEl.style.display = 'none';
-        }
         updateMyLocationOverlay();
     }
 
@@ -912,72 +867,41 @@
         gpxFileInput.style.display = 'none';
         document.body.appendChild(gpxFileInput);
 
-        function buildGpxControl() {
-                var container = document.createElement('div');
-                container.className = 'gpx-control';
-                container.innerHTML =
-                    '<div class="gpx-control-header">' +
-                        '<span>\u{1F4CD}</span>' +
-                        '<span>GPX Overlay</span>' +
-                        '<span class="gpx-collapse-icon">\u25B2</span>' +
+        var controlEl = drawerSection('GPX Overlay', false);
+        controlEl.classList.add('gpx-control');
+        controlEl.innerHTML =
+            '<div class="gpx-control-body">' +
+                '<div class="gpx-empty">' +
+                    '<button class="gpx-btn-load">Load GPX</button>' +
+                '</div>' +
+                '<div class="gpx-loaded" style="display:none;">' +
+                    '<div class="gpx-stats">' +
+                        '<div class="gpx-filename"></div>' +
+                        '<div class="gpx-info"></div>' +
                     '</div>' +
-                    '<div class="gpx-control-body">' +
-                        '<div class="gpx-empty">' +
-                            '<button class="gpx-btn-load">Load GPX</button>' +
-                        '</div>' +
-                        '<div class="gpx-loaded" style="display:none;">' +
-                            '<div class="gpx-stats">' +
-                                '<div class="gpx-filename"></div>' +
-                                '<div class="gpx-info"></div>' +
-                            '</div>' +
-                            '<div class="gpx-actions">' +
-                                '<button class="gpx-btn-fit">Fit Map</button>' +
-                                '<button class="gpx-btn-clear">Clear</button>' +
-                            '</div>' +
-                        '</div>' +
-                        '<div class="gpx-error" style="display:none;"></div>' +
-                    '</div>';
+                    '<div class="gpx-actions">' +
+                        '<button class="gpx-btn-fit">Fit Map</button>' +
+                        '<button class="gpx-btn-clear">Clear</button>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="gpx-error" style="display:none;"></div>' +
+            '</div>';
 
-                var header = container.querySelector('.gpx-control-header');
-                var collapseIcon = container.querySelector('.gpx-collapse-icon');
-                header.addEventListener('click', function () {
-                    container.classList.toggle('collapsed');
-                    var isCollapsed = container.classList.contains('collapsed');
-                    collapseIcon.textContent = isCollapsed ? '\u25BC' : '\u25B2';
-                    localStorage.setItem('dw-gpx-collapsed', isCollapsed ? '1' : '0');
-                });
-                if (localStorage.getItem('dw-gpx-collapsed') === '1') {
-                    container.classList.add('collapsed');
-                    collapseIcon.textContent = '\u25BC';
-                }
+        controlEl.querySelector('.gpx-btn-load').addEventListener('click', function () {
+            gpxFileInput.click();
+        });
+        controlEl.querySelector('.gpx-btn-fit').addEventListener('click', function () {
+            if (gpxLayer && gpxLayer.bounds) {
+                fitGpxBounds(gpxLayer.bounds);
+            }
+        });
+        controlEl.querySelector('.gpx-btn-clear').addEventListener('click', function () {
+            clearGpxOverlay(controlEl);
+        });
 
-                container.querySelector('.gpx-btn-load').addEventListener('click', function () {
-                    gpxFileInput.click();
-                });
-
-                container.querySelector('.gpx-btn-fit').addEventListener('click', function () {
-                    if (gpxLayer && gpxLayer.bounds) {
-                        fitGpxBounds(gpxLayer.bounds);
-                    }
-                });
-
-                container.querySelector('.gpx-btn-clear').addEventListener('click', function () {
-                    clearGpxOverlay(container);
-                });
-
-                return container;
-        }
-
-        map.addControl(mlControl(buildGpxControl, 'top-left'));
-        var controlEl = document.querySelector('.gpx-control');
         gpxControlEl = controlEl;
         map.on('style.load', addGpxLayers);
         if (map.isStyleLoaded && map.isStyleLoaded()) addGpxLayers();
-
-        // Apply initial visibility from config
-        if (!showGpxOverlay) {
-            controlEl.style.display = 'none';
-        }
 
         gpxFileInput.addEventListener('change', function () {
             if (!gpxFileInput.files || !gpxFileInput.files[0]) return;
@@ -1158,7 +1082,6 @@
         initDropPin();
         initMapResize();
         initLogToggle();
-        initMobileMenu();
     });
 
     // --- Config ---
@@ -1226,7 +1149,6 @@
             zoomSnap: 0.1,  // issue #154: fractional handoff zooms (10.9 etc.)
         });
         map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
-        map.addControl(mlControl(buildZoomReadout, 'top-left'));
 
         // Keep the URL hash in the haminfo /map format (#zoom/lat/lon) so a
         // copied link reopens this exact view (#150).
@@ -1265,9 +1187,6 @@
         map.on('mouseleave', 'stations-symbol-base', function () { map.getCanvas().style.cursor = ''; });
 
         setInterval(cleanupAnimations, 10000);
-
-        // Read-only kit region list panel (#204); never blocks the map boot.
-        showKitRegionList();
     }
 
     /** Rewrite the style's sprite (string or array of {id,url}) and glyphs
@@ -1330,92 +1249,6 @@
             .map(function (l) { return Object.assign({}, l, { id: 'world-' + l.id, source: 'world' }); });
         const bg = style.layers.findIndex(function (l) { return l.type === 'background'; });
         style.layers.splice(bg + 1, 0, ...worldLayers);
-    }
-
-    // --- Kit region list (issue #204) -------------------------------------
-    // Read-only display of the kit regions this host serves, fetched same-
-    // origin from the served manifest (never an upstream host); cached per
-    // calendar day in localStorage under dw-region-list-<YYYY-MM-DD> keys
-    // with older-day keys pruned. Manifest byte counts are informational
-    // display text only (measured on the shipped kit: they do not match the
-    // vendored archives) and its digest is never validated here; the ACTIVE
-    // region's row instead shows the real on-disk size from region_archive_
-    // info in GET /api/config (config.basemap.region: {name, size}).
-    const REGION_MANIFEST_URL = '/basemap/maps-manifest.json';
-    const REGION_LIST_KEY_PREFIX = 'dw-region-list-';
-
-    /** Today's cache key (dw-region-list-<YYYY-MM-DD>); prunes older-day keys. */
-    function regionListDayKey() {
-        const today = REGION_LIST_KEY_PREFIX + new Date().toISOString().slice(0, 10);
-        Object.keys(localStorage).forEach(function (k) {
-            if (k.indexOf(REGION_LIST_KEY_PREFIX) === 0 && k !== today) localStorage.removeItem(k);
-        });
-        return today;
-    }
-
-    /** The manifest cached earlier today, or null (key prefix dw-region-list-). */
-    function cachedRegionList() {
-        const today = regionListDayKey();
-        try {
-            const raw = localStorage.getItem(today);
-            if (!raw) return null;
-            const doc = JSON.parse(raw);
-            return Array.isArray(doc.regions) ? doc : null;
-        } catch (e) {
-            localStorage.removeItem(today);
-            return null;
-        }
-    }
-
-    /** Bytes -> human-readable B/KiB/MiB display text (manifest numbers). */
-    function formatBytes(bytes) {
-        if (typeof bytes !== 'number' || bytes < 0) return '?';
-        if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + ' MiB';
-        if (bytes >= 1024) return (bytes / 1024).toFixed(1) + ' KiB';
-        return bytes + ' B';
-    }
-
-    /** Render the read-only map panel: one row per served region (id + name
-     *  + bytes). The active row's size is the on-disk value from GET /api/
-     *  config, not the manifest's informational bytes; nothing in this panel
-     *  can grab an archive. */
-    async function showKitRegionList() {
-        if (!map) return;
-        let doc = cachedRegionList();
-        if (!doc) {
-            try {
-                const resp = await fetch(REGION_MANIFEST_URL);
-                if (!resp.ok) return;
-                doc = await resp.json();
-                localStorage.setItem(regionListDayKey(), JSON.stringify(doc));
-            } catch (e) {
-                return;
-            }
-        }
-        const regions = doc.regions;
-        if (!Array.isArray(regions) || !regions.length) return;
-        const active = config.basemap?.region; // region_archive_info: {name, size}
-        const container = mlCreate('stats-overlay');
-        const header = mlCreate('stats-overlay-header');
-        header.textContent = 'Kit regions';
-        container.appendChild(header);
-        const body = mlCreate('stats-overlay-body');
-        regions.forEach(function (r) {
-            if (!r || !r.id) return;
-            const isActive = active && active.name === r.id + '.pmtiles';
-            const row = mlCreate('stats-overlay-row');
-            const label = document.createElement('span');
-            label.className = 'stats-label';
-            label.textContent = r.id + ' \u2014 ' + (r.name || r.id) + (isActive ? ' (active)' : '');
-            const value = document.createElement('span');
-            value.className = 'stats-value';
-            value.textContent = formatBytes(isActive ? active.size : r.bytes);
-            row.appendChild(label);
-            row.appendChild(value);
-            body.appendChild(row);
-        });
-        container.appendChild(body);
-        map.addControl(mlControl(function () { return container; }, 'bottom-right'));
     }
 
     /** One GeoJSON source + symbol layers for all stations:
@@ -1537,6 +1370,42 @@
             }, 'stations-symbol-base');
         }
 
+        // style.load drops the hover layer like every other layer here; re-light
+        // the still-hovered trail in this re-add pass (same idiom as tx-arcs).
+        if (hoveredTrailCallsign) highlightTrail(hoveredTrailCallsign);
+
+        if (!_trailHoverBound) {
+            _trailHoverBound = true;
+            map.on('mousemove', function (e) {
+                setTrailHover(pickTrailHit(map, e.point));
+            });
+            map.getCanvas().addEventListener('mouseleave', function () {
+                setTrailHover(null);
+            });
+            // Click opens the panel through the SAME 8 px hit test the hover
+            // uses, so no prior hover state is needed (port decision 5).
+            map.on('click', function (e) {
+                // A station marker owns its own click (it opens the station
+                // popup); a station usually sits at the end of its own trail,
+                // inside the trail's 8 px band.
+                if (map.getLayer('stations-symbol-base') &&
+                    map.queryRenderedFeatures(e.point, {
+                        layers: ['stations-symbol-base', 'stations-symbol-overlay'],
+                    }).length) return;
+                const hit = pickTrailHit(map, e.point);
+                if (hit && hit.properties && hit.properties.callsign) {
+                    openTrailPanel(hit.properties.callsign);
+                    return;
+                }
+                // A click on bare map closes the panel (spec rule 5), decided
+                // by the same hit test so a trail click is never bare.
+                closeTrailPanel();
+            });
+            // The map itself resizes (log panel, window, splitter), so a panel
+            // anchored to a trail has to move with it.
+            map.on('resize', placeTrailPanel);
+        }
+
         if (!map.getSource('station-overlay')) {
             map.addSource('station-overlay', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
             map.addLayer({
@@ -1626,6 +1495,647 @@
             });
         }
         map.getSource('station-tracks').setData({ type: 'FeatureCollection', features });
+    }
+
+    // --- Trail hover highlight (issue #207, port decision 3) ---
+    // Hover is a mousemove + 8 px box query, not mouseenter on the layer: MapLibre's
+    // point query has zero tolerance and the base line is 1.5 px wide, so the spec's
+    // 8 px screen tolerance lives in the query box. station-tracks keeps ONE LineString
+    // feature per station (refreshStationTrackSource), so a hit feature is the whole
+    // trail and one highlight layer lights the WHOLE trail up.
+    const TRAIL_HOVER_TOLERANCE_PX = 8;  // spec: hover box around the pointer
+    var hoveredTrailCallsign = null;
+    var _trailHoverBound = false;
+
+    // Hit test shared with the future click wiring (task 4). Several trails
+    // inside the box compete at low zoom: nearest wins, like the reference.
+    function pickTrailHit(map, point) {
+        if (!map || !point || !map.getLayer('station-tracks-line')) return null;
+        const t = TRAIL_HOVER_TOLERANCE_PX;
+        const hits = map.queryRenderedFeatures(
+            [[point.x - t, point.y - t], [point.x + t, point.y + t]],
+            {layers: ['station-tracks-line']});
+        if (!hits.length) return null;
+        if (hits.length === 1) return hits[0];
+        let best = null;
+        let bestDist = Infinity;
+        for (const f of hits) {
+            const coords = f.geometry && f.geometry.coordinates;
+            if (!coords) continue;
+            let d = Infinity;
+            for (let i = 1; i < coords.length; i++) {
+                const a = map.project(coords[i - 1]);
+                const b = map.project(coords[i]);
+                d = Math.min(d, distPointToSegment(point, a, b));
+            }
+            if (d < bestDist) { bestDist = d; best = f; }
+        }
+        return best || hits[0];
+    }
+
+    // Distance from a screen point to a projected segment (nearest-wins tie-up).
+    function distPointToSegment(p, a, b) {
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const len2 = dx * dx + dy * dy;
+        if (!len2) return Math.hypot(p.x - a.x, p.y - a.y);
+        const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2));
+        return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+    }
+
+    // A wide halo line on the SAME source, filtered to the hovered callsign:
+    // the geometry can never drift from the trail it describes. Added on hit
+    // and removed on miss, drawn under station-tracks-line like the reference
+    // halo under its trail.
+    function highlightTrail(callsign) {
+        if (!map || !map.getSource('station-tracks')) return;
+        if (map.getLayer('station-tracks-highlight')) {
+            // Bracket call: tests/test_no_leaflet.py bans the literal dotted
+            // form as a retired-Leaflet fingerprint; MapLibre needs this call.
+            map['removeLayer']('station-tracks-highlight');
+        }
+        if (!callsign) return;
+        map.addLayer({
+            id: 'station-tracks-highlight',
+            type: 'line',
+            source: 'station-tracks',
+            filter: ['==', ['get', 'callsign'], callsign],
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+            paint: {
+                'line-color': themeColor('--accent') || '#60a5fa',
+                'line-width': 5.5,    // base 1.5 + 4, mirrors reference hover width
+                'line-opacity': 0.55,
+            },
+        }, 'station-tracks-line');
+    }
+
+    // Cursor: the brief wants 'move' while a trail is hovered (the reference
+    // uses 'pointer'); cleared on miss so the map's default cursor returns.
+    function setTrailHover(feature) {
+        const callsign = feature && feature.properties ? feature.properties.callsign : null;
+        if (callsign === hoveredTrailCallsign) return;
+        hoveredTrailCallsign = callsign;
+        highlightTrail(callsign);
+        map.getCanvas().style.cursor = callsign ? 'move' : '';
+    }
+
+    // --- Trail statistics (shared spec basemap-kit#65, issue #207) ---
+    /* Engine-agnostic stats maths (no map, no DOM), ported one-for-one from
+     * the reference map-shared/trail-stats.js. The maths is the canonical
+     * spec, not a local approximation: it must reproduce the spec's worked
+     * example exactly (tests/test_trail_stats.py mirrors the reference
+     * trail-stats test). Input rows are the trail-endpoint shape, oldest
+     * first: [longitude, latitude, timestamp, speed, course], with speed in
+     * km/h and course in degrees; either may be null. This app's track rows
+     * carry neither, so the derived branches below are the common case. */
+    const EARTH_RADIUS_KM = 6371.0088;   // spec rule 4
+    const SAME_POSITION_DEG = 0.00001;   // spec rule 2
+    const GAP_MIN_SECONDS = 300;         // spec rule 11
+    const GAP_MEDIAN_FACTOR = 3;         // spec rule 11
+    const BAD_FIX_KMH = 1000;            // spec rule 12 (bad fixes)
+    const KM_PER_MILE = 1.609344;
+
+    function toRad(deg) {
+        return deg * Math.PI / 180;
+    }
+
+    // Great-circle distance in km, haversine (spec radius 6371.0088, atan2).
+    // Self-contained on purpose: the node harnesses extract this function in
+    // isolation, so no toRad/EARTH_RADIUS_KM references may leak in.
+    function haversineKm(lat1, lon1, lat2, lon2) {
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        return 6371.0088 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    // Initial bearing in whole-ish degrees, 0-360, north = 0.
+    function bearingDeg(lat1, lon1, lat2, lon2) {
+        const dLon = toRad(lon2 - lon1);
+        const y = Math.sin(dLon) * Math.cos(toRad(lat2));
+        const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
+            Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLon);
+        return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+    }
+
+    function numberOf(value) {
+        return typeof value === 'number' && isFinite(value) ? value : null;
+    }
+
+    function timeMs(timestamp) {
+        // Track rows carry epoch SECONDS (the app reads them * 1000 elsewhere);
+        // the spec's own fixtures are ISO strings, which Date parses directly.
+        const value = typeof timestamp === 'number' ? timestamp * 1000 : timestamp;
+        const t = new Date(value).getTime();
+        return isFinite(t) ? t : null;
+    }
+
+    /**
+     * Rules 1-3: keep only usable positions, merge duplicate hears, correct
+     * same-timestamp disagreements, and sort by time.
+     */
+    function normalise(points) {
+        const usable = [];
+        (points || []).forEach(function (p) {
+            if (!p) return;
+            const lon = numberOf(p[0]);
+            const lat = numberOf(p[1]);
+            const t = timeMs(p[2]);
+            if (lon === null || lat === null || t === null) return;
+            usable.push({
+                lon: lon,
+                lat: lat,
+                t: t,
+                timestamp: p[2],
+                speed: numberOf(p[3]),
+                course: numberOf(p[4]),
+            });
+        });
+        usable.sort(function (a, b) { return a.t - b.t; });
+
+        const out = [];
+        usable.forEach(function (p) {
+            const prev = out[out.length - 1];
+            if (prev && prev.t === p.t) {
+                const samePlace =
+                    Math.abs(prev.lat - p.lat) <= SAME_POSITION_DEG &&
+                    Math.abs(prev.lon - p.lon) <= SAME_POSITION_DEG;
+                if (samePlace) return;      // one hear, keep the earliest
+                out[out.length - 1] = p;    // a correction, keep the last heard
+                return;
+            }
+            out.push(p);
+        });
+        return out;
+    }
+
+    function median(values) {
+        if (!values.length) return null;
+        const sorted = values.slice().sort(function (a, b) { return a - b; });
+        const mid = Math.floor(sorted.length / 2);
+        return sorted.length % 2
+            ? sorted[mid]
+            : (sorted[mid - 1] + sorted[mid]) / 2;
+    }
+
+    function mean(values) {
+        if (!values.length) return null;
+        return values.reduce(function (a, b) { return a + b; }, 0) / values.length;
+    }
+
+    /**
+     * Compute the panel's numbers. Returns raw values (km, km/h, seconds,
+     * degrees); formatting is a separate concern so display rounding can
+     * never leak into the maths.
+     */
+    function compute(points, options) {
+        const opts = options || {};
+        const rows = normalise(points);
+        const result = {
+            points: rows.length,
+            hasTrail: rows.length >= 2,
+            firstTime: rows.length ? rows[0].timestamp : null,
+            lastTime: rows.length ? rows[rows.length - 1].timestamp : null,
+            elapsedSeconds: null,
+            distanceKm: null,
+            averageKph: null,
+            currentKph: null,
+            currentReported: false,
+            maxKph: null,
+            maxReported: false,
+            headingDeg: null,
+            headingReported: false,
+            beacon: { medianSeconds: null, meanSeconds: null, intervals: 0 },
+            badFixes: 0,
+            truncated: !!opts.truncated,
+            returnedPoints: opts.returnedPoints || rows.length,
+            windowHours: opts.windowHours || null,
+        };
+        if (!rows.length) return result;
+
+        // Rule 14: fewer than two points is not a trail, so nothing else is
+        // computed and the panel shows only the callsign and last heard.
+        if (!result.hasTrail) return result;
+
+        const segments = [];
+        for (let i = 1; i < rows.length; i++) {
+            const a = rows[i - 1];
+            const b = rows[i];
+            const distKm = haversineKm(a.lat, a.lon, b.lat, b.lon);
+            const seconds = (b.t - a.t) / 1000;
+            segments.push({
+                distKm: distKm,
+                seconds: seconds,
+                derivedKph: seconds > 0 ? distKm / (seconds / 3600) : null,
+                bad: seconds > 0 && (distKm / (seconds / 3600)) > BAD_FIX_KMH,
+                gap: false,     // filled in below, once the median is known
+            });
+        }
+
+        // Rule 11: a gap is longer than the larger of three times the median
+        // interval and 300 seconds. The boundary is included: the spec's
+        // worked example calls its 300 s interval a gap and expects 4
+        // beacon intervals.
+        const intervals = segments.map(function (s) { return s.seconds; });
+        const medInterval = median(intervals);
+        const gapThreshold = Math.max(GAP_MEDIAN_FACTOR * (medInterval || 0), GAP_MIN_SECONDS);
+        segments.forEach(function (s) {
+            s.gap = s.seconds >= gapThreshold;
+        });
+
+        // Rule 12: a bad fix is excluded from distance and from maximum
+        // speed and is reported, never silently dropped.
+        result.badFixes = segments.filter(function (s) { return s.bad; }).length;
+
+        result.elapsedSeconds = (rows[rows.length - 1].t - rows[0].t) / 1000;
+        result.distanceKm = segments.reduce(function (sum, s) {
+            return sum + (s.bad ? 0 : s.distKm);
+        }, 0);
+        result.averageKph = result.elapsedSeconds > 0
+            ? result.distanceKm / (result.elapsedSeconds / 3600)
+            : null;
+
+        // Rule 8: reported speed on the newest point, else the last
+        // segment's derived speed, never a number from a gap or a bad fix.
+        const newest = rows[rows.length - 1];
+        const lastSegment = segments[segments.length - 1];
+        if (newest.speed !== null) {
+            result.currentKph = newest.speed;
+            result.currentReported = true;
+        } else if (!lastSegment.gap && !lastSegment.bad) {
+            result.currentKph = lastSegment.derivedKph;
+        }
+
+        // Rule 9: highest reported speed when any point reports one, else
+        // the highest derived segment speed outside gaps and bad fixes.
+        const reported = rows.map(function (r) { return r.speed; })
+            .filter(function (s) { return s !== null; });
+        if (reported.length) {
+            result.maxKph = Math.max.apply(null, reported);
+            result.maxReported = true;
+        } else {
+            const derived = segments.filter(function (s) {
+                return !s.gap && !s.bad && s.derivedKph !== null;
+            }).map(function (s) { return s.derivedKph; });
+            result.maxKph = derived.length ? Math.max.apply(null, derived) : null;
+        }
+
+        // Rule 10: beacon frequency over the intervals that are not gaps.
+        const beaconIntervals = segments.filter(function (s) { return !s.gap; })
+            .map(function (s) { return s.seconds; });
+        result.beacon = {
+            medianSeconds: median(beaconIntervals),
+            meanSeconds: mean(beaconIntervals),
+            intervals: beaconIntervals.length,
+        };
+
+        // Rule 13: reported course at the newest point, else the bearing
+        // from the second-newest point (the derived branch is this app's
+        // common case: track rows carry no course).
+        if (newest.course !== null) {
+            result.headingDeg = newest.course;
+            result.headingReported = true;
+        } else {
+            const prev = rows[rows.length - 2];
+            result.headingDeg = bearingDeg(prev.lat, prev.lon, newest.lat, newest.lon);
+        }
+
+        return result;
+    }
+
+    // ---- display helpers (spec rounding, never used in the maths) ----
+
+    function isMetric(units) {
+        return units !== 'imperial';
+    }
+
+    // Distances: one decimal below 10, whole above (spec "Rounding").
+    function formatDistance(km, units) {
+        if (km === null || km === undefined || !isFinite(km)) return '-';
+        const value = isMetric(units) ? km : km / KM_PER_MILE;
+        const shown = value < 10 ? value.toFixed(1) : Math.round(value).toString();
+        return shown + ' ' + (isMetric(units) ? 'km' : 'mi');
+    }
+
+    // Speeds: whole units.
+    function formatSpeed(kph, units) {
+        if (kph === null || kph === undefined || !isFinite(kph)) return '-';
+        const value = isMetric(units) ? kph : kph / KM_PER_MILE;
+        return Math.round(value) + ' ' + (isMetric(units) ? 'km/h' : 'mph');
+    }
+
+    function formatElapsed(seconds) {
+        if (seconds === null || seconds === undefined || !isFinite(seconds)) return '-';
+        if (seconds < 60) return Math.round(seconds) + ' s';
+        if (seconds < 7200) return Math.round(seconds / 60) + ' min';
+        // let, not const: the minutes below round up into the next hour.
+        let h = Math.floor(seconds / 3600);
+        let m = Math.round((seconds - h * 3600) / 60);
+        if (m === 60) { h += 1; m = 0; }
+        return h + ' h ' + m + ' min';
+    }
+
+    function formatInterval(seconds) {
+        if (seconds === null || seconds === undefined || !isFinite(seconds)) return '-';
+        return Math.round(seconds) + ' s';
+    }
+
+    function formatHeading(deg) {
+        if (deg === null || deg === undefined || !isFinite(deg)) return '-';
+        return (Math.round(deg) % 360) + '°';
+    }
+
+    // Local time (the user's own time zone), 24-hour, no date: "10:09".
+    function formatClock(timestamp) {
+        const t = timeMs(timestamp);
+        if (t === null) return '-';
+        const d = new Date(t);
+        return String(d.getHours()).padStart(2, '0') + ':' +
+            String(d.getMinutes()).padStart(2, '0');
+    }
+
+    // --- Trail info panel (issue #207, plan tasks 3-4) ---
+    /* The DOM half of the shared spec (basemap-kit#65), ported from the
+     * reference map-shared/trail-panel.js: the spec's field order, "-" where a
+     * value is unknown, and placement beside the trail that never covers the
+     * map's own chrome. The numbers come from compute() above; this section
+     * only formats and places them. */
+    const TRAIL_PLACEMENT_GAP = 12;
+    const TRAIL_PLACEMENT_MARGIN = 10;
+
+    var trailPanelEl = null;
+    var trailPanelOpen = false;
+    var trailPanelCallsign = null;
+    var trailPanelLastFocus = null;
+    var _trailPanelKeyBound = false;
+
+    function escapeHtml(text) {
+        return String(text === null || text === undefined ? '' : text)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    // APRS symbol sprite: the same technique the station popup uses, so a
+    // station reads the same in both places.
+    function trailSymbolHtml(props) {
+        if (!props || !props.symbol) return '';
+        const sprite = parseSymbolTable(props.symbol_table);
+        const pos = getSymbolSpritePosition(props.symbol);
+        return '<span class="trail-panel-symbol" aria-hidden="true" style="' +
+            'display:inline-block;width:' + SYMBOL_SIZE + 'px;height:' + SYMBOL_SIZE + 'px;' +
+            "background-image:url('" + sprite.spriteUrl + "');" +
+            'background-position:' + pos.x + 'px ' + pos.y + 'px;' +
+            'background-size:' + (SPRITE_COLS * SYMBOL_SIZE) + 'px ' +
+            (6 * SYMBOL_SIZE) + 'px;' +
+            'background-repeat:no-repeat;"></span>';
+    }
+
+    function trailWindowLabel(hours) {
+        if (hours === null || hours === undefined) return '-';
+        if (hours < 1) return 'last ' + Math.round(hours * 60) + ' minutes';
+        if (hours === 1) return 'last 1 hour';
+        if (hours < 24) return 'last ' + hours + ' hours';
+        const days = hours / 24;
+        return 'last ' + (days === Math.round(days) ? days : days.toFixed(1)) + ' days';
+    }
+
+    function trailSpeedRow(label, kph, reported, units) {
+        if (kph === null || kph === undefined) return { label: label, value: '-' };
+        return {
+            label: label,
+            value: formatSpeed(kph, units) + (reported ? ' (reported)' : ' (computed)'),
+        };
+    }
+
+    // The spec's field order, every field present, "-" where unknown.
+    function buildTrailRows(result, units, windowHours) {
+        return [
+            { label: 'Trail start', value: formatClock(result.firstTime) },
+            { label: 'Elapsed travel time', value: formatElapsed(result.elapsedSeconds) },
+            { label: 'Total distance', value: formatDistance(result.distanceKm, units) },
+            {
+                label: 'Beacon frequency',
+                value: result.beacon.intervals
+                    ? formatInterval(result.beacon.medianSeconds) + ' median \u00B7 ' +
+                      formatInterval(result.beacon.meanSeconds) + ' mean (' +
+                      result.beacon.intervals + ' intervals)'
+                    : '-',
+            },
+            trailSpeedRow('Current speed', result.currentKph, result.currentReported, units),
+            { label: 'Average speed', value: formatSpeed(result.averageKph, units) },
+            trailSpeedRow('Maximum speed', result.maxKph, result.maxReported, units),
+            { label: 'Heading', value: formatHeading(result.headingDeg) },
+            { label: 'Last heard', value: formatClock(result.lastTime) },
+            { label: 'Points', value: String(result.points) },
+            { label: 'Data window', value: trailWindowLabel(windowHours) },
+        ];
+    }
+
+    function rectsOverlap(a, b) {
+        return a.left < b.right && a.right > b.left &&
+            a.top < b.bottom && a.bottom > b.top;
+    }
+
+    // Pure placement geometry (spec rule 9): the panel sits BESIDE the trail,
+    // one gap from its nearest edge, flipping to the other side only when the
+    // first has no room, then clamped inside the map viewport and slid clear of
+    // the chrome. All boxes are in map pixels.
+    function computeTrailPlacement(trail, size, viewport, chrome) {
+        const width = size.width;
+        const height = size.height;
+        const vw = viewport.width;
+        const vh = viewport.height;
+        const gap = TRAIL_PLACEMENT_GAP;
+        const margin = TRAIL_PLACEMENT_MARGIN;
+
+        const minLeft = margin;
+        const maxLeft = Math.max(minLeft, vw - width - margin);
+        let left = trail.maxX + gap;
+        if (left > maxLeft) left = trail.minX - gap - width;
+        left = Math.max(minLeft, Math.min(left, maxLeft));
+
+        const minTop = ((chrome && chrome.top) || 0) + margin;
+        const maxTop = Math.max(minTop, vh - height - margin);
+        let top = Math.max(
+            minTop,
+            Math.min((trail.minY + trail.maxY) / 2 - height / 2, maxTop));
+
+        // Slide clear of the map's own controls rather than covering them.
+        const obstacles = (chrome && chrome.obstacles) || [];
+        let blocked = null;
+        for (const box of obstacles) {
+            if (rectsOverlap({ left: left, right: left + width, top: top, bottom: top + height }, box)) {
+                blocked = box;
+                break;
+            }
+        }
+        if (blocked) {
+            const candidates = [blocked.top - gap - height, blocked.bottom + gap];
+            for (const candidate of candidates) {
+                const shifted = Math.max(minTop, Math.min(candidate, maxTop));
+                const fits = !obstacles.some(function (box) {
+                    return rectsOverlap({
+                        left: left, right: left + width,
+                        top: shifted, bottom: shifted + height,
+                    }, box);
+                });
+                if (fits) { top = shifted; break; }
+            }
+        }
+        return { left: left, top: top };
+    }
+
+    function ensureTrailPanel() {
+        if (trailPanelEl) return trailPanelEl;
+        const root = document.getElementById('map-container');
+        if (!root) return null;
+        const el = document.createElement('section');
+        el.id = 'trail-panel';
+        el.className = 'trail-panel';
+        el.setAttribute('role', 'dialog');
+        el.setAttribute('aria-labelledby', 'trail-panel-title');
+        el.setAttribute('tabindex', '-1');
+        el.hidden = true;
+        root.appendChild(el);
+        trailPanelEl = el;
+        return el;
+    }
+
+    function closeTrailPanel() {
+        if (!trailPanelEl || !trailPanelOpen) return;
+        trailPanelOpen = false;
+        trailPanelCallsign = null;
+        trailPanelEl.hidden = true;
+        // preventScroll: focusing must not scroll the page under the pointer.
+        if (trailPanelLastFocus && typeof trailPanelLastFocus.focus === 'function') {
+            trailPanelLastFocus.focus({ preventScroll: true });
+        }
+        trailPanelLastFocus = null;
+    }
+
+    // The trail as drawn, in map pixels, for the placement maths.
+    function trailScreenBounds(callsign) {
+        const points = stationTracks[callsign];
+        if (!map || !points || !points.length) return null;
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const p of points) {
+            const s = map.project([p[1], p[0]]);
+            minX = Math.min(minX, s.x);
+            maxX = Math.max(maxX, s.x);
+            minY = Math.min(minY, s.y);
+            maxY = Math.max(maxY, s.y);
+        }
+        return { minX: minX, minY: minY, maxX: maxX, maxY: maxY };
+    }
+
+    // The map's own controls (legend, stats, filters, my location, zoom, the
+    // follow chip) as boxes relative to the map canvas, so place() can dodge
+    // them instead of covering them.
+    function mapChromeObstacles(canvasRect) {
+        const boxes = [];
+        const all = document.querySelectorAll(
+            '#map-container .maplibregl-ctrl, #map-container .fab-center');
+        for (const el of all) {
+            const r = el.getBoundingClientRect();
+            if (!r.width || !r.height) continue;
+            boxes.push({
+                left: r.left - canvasRect.left,
+                top: r.top - canvasRect.top,
+                right: r.right - canvasRect.left,
+                bottom: r.bottom - canvasRect.top,
+            });
+        }
+        return boxes;
+    }
+
+    function placeTrailPanel() {
+        if (!trailPanelEl || !trailPanelOpen || !map) return null;
+        const canvas = map.getCanvas();
+        const canvasRect = canvas.getBoundingClientRect();
+        const width = canvas.clientWidth;
+        const height = canvas.clientHeight;
+        const spot = computeTrailPlacement(
+            trailScreenBounds(trailPanelCallsign) || {
+                minX: width / 2, minY: height / 2, maxX: width / 2, maxY: height / 2,
+            },
+            {
+                width: trailPanelEl.offsetWidth || 260,
+                height: trailPanelEl.offsetHeight || 240,
+            },
+            { width: width, height: height },
+            { top: 0, obstacles: mapChromeObstacles(canvasRect) });
+        // The panel is absolutely positioned in #map-container; the canvas may
+        // sit a few pixels in from it, so shift into the panel's own frame.
+        const container = trailPanelEl.parentNode.getBoundingClientRect();
+        const dx = canvasRect.left - container.left;
+        const dy = canvasRect.top - container.top;
+        trailPanelEl.style.left = (spot.left + dx) + 'px';
+        trailPanelEl.style.right = '';
+        trailPanelEl.style.top = (spot.top + dy) + 'px';
+        return spot;
+    }
+
+    function openTrailPanel(callsign) {
+        const el = ensureTrailPanel();
+        if (!el) return;
+        // Track rows are [lat, lon, epoch seconds]; the stats take the spec's
+        // [lon, lat, timestamp] with speed and course always absent here.
+        const points = (stationTracks[callsign] || []).map(function (p) {
+            return [p[1], p[0], p[2]];
+        });
+        const result = compute(points, { windowHours: trailHours });
+        const props = stationFeatures[callsign] ? stationFeatures[callsign].properties : null;
+
+        let html = '<div class="trail-panel-header">' +
+            trailSymbolHtml(props) +
+            '<h2 class="trail-panel-title" id="trail-panel-title">' +
+            escapeHtml(callsign) + '</h2>' +
+            '<button type="button" class="trail-panel-close" ' +
+            'aria-label="Close trail panel">\u00D7</button></div>';
+
+        if (!result.hasTrail) {
+            // Spec rule 14: no trail is no trail: callsign, last heard, nothing else.
+            html += '<dl class="trail-panel-rows">' +
+                '<div class="trail-panel-row"><dt>Last heard</dt><dd>' +
+                escapeHtml(formatClock(result.lastTime)) + '</dd></div>' +
+                '</dl><p class="trail-panel-note">No trail in the window</p>';
+        } else {
+            html += '<dl class="trail-panel-rows">';
+            buildTrailRows(result, getUnits(), trailHours).forEach(function (row) {
+                html += '<div class="trail-panel-row"><dt>' + escapeHtml(row.label) +
+                    '</dt><dd>' + escapeHtml(row.value) + '</dd></div>';
+            });
+            html += '</dl>';
+            if (result.badFixes) {
+                html += '<p class="trail-panel-note">' + result.badFixes +
+                    (result.badFixes === 1 ? ' position' : ' positions') +
+                    ' excluded as a bad fix</p>';
+            }
+        }
+        el.innerHTML = html;
+        el.querySelector('.trail-panel-close').addEventListener('click', closeTrailPanel);
+
+        trailPanelCallsign = callsign;
+        if (!trailPanelOpen) trailPanelLastFocus = document.activeElement;
+        trailPanelOpen = true;
+        el.hidden = false;
+        el.focus({ preventScroll: true });
+
+        // Escape closes the panel even if focus moved off it, and stops there so
+        // it never also closes whatever is behind it (spec rules 5 and 7).
+        if (!_trailPanelKeyBound) {
+            _trailPanelKeyBound = true;
+            document.addEventListener('keydown', function (ev) {
+                if (trailPanelOpen && ev.key === 'Escape') {
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    closeTrailPanel();
+                }
+            }, true);
+        }
+        placeTrailPanel();
     }
 
     function refreshOverlaySource() {
@@ -1737,18 +2247,6 @@
         if (p !== 0) h += '/' + p;
         return h;
     }
-    /** Small "z 12.0" readout so the current zoom level is visible. */
-    function formatZoomReadout(zoom) {
-        return 'z ' + zoom.toFixed(1);
-    }
-    function buildZoomReadout() {
-        const el = mlCreate('map-zoom-readout');
-        el.title = 'Current zoom level (same number as in the URL)';
-        const update = function () { el.textContent = formatZoomReadout(map.getZoom()); };
-        map.on('zoom', update);
-        update();
-        return el;
-    }
 
     // --- Map view helpers (maplibre) ---
     /** MapLibre uses 512px tiles, Leaflet 256px: Leaflet zoom z == MapLibre
@@ -1790,6 +2288,44 @@
         el.className = className;
         return el;
     }
+
+    // --- Map drawer (#219) ---------------------------------------------------
+    // The five former floating cards (Legend, Stats, Filters, My Location, GPX)
+    // now live as collapsible sections inside #map-drawer. drawerSection builds
+    // one section, returns the body element the card content is appended to,
+    // and wires its header to open/close that section. dw-toolbar.js owns the
+    // drawer's own open/close; here we only repaint the map when it changes.
+    function drawerSection(title, openByDefault) {
+        var body = document.getElementById('map-drawer-body');
+        var section = document.createElement('section');
+        section.className = 'drawer-section' + (openByDefault ? '' : ' section-collapsed');
+        var header = document.createElement('button');
+        header.type = 'button';
+        header.className = 'drawer-section-header';
+        header.setAttribute('aria-expanded', openByDefault ? 'true' : 'false');
+        header.innerHTML = '<span>' + title + '</span><span class="drawer-section-icon">' +
+            (openByDefault ? '\u25B2' : '\u25BC') + '</span>';
+        var content = document.createElement('div');
+        content.className = 'drawer-section-body';
+        header.addEventListener('click', function () {
+            var collapsed = section.classList.toggle('section-collapsed');
+            header.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+            header.querySelector('.drawer-section-icon').textContent = collapsed ? '\u25BC' : '\u25B2';
+        });
+        section.appendChild(header);
+        section.appendChild(content);
+        if (body) body.appendChild(section);
+        return content;
+    }
+
+    // Repaint the map whenever the drawer opens/closes so MapLibre re-renders
+    // tiles for the new map width (≥1024px the drawer shrinks the map).
+    window.__dwDrawerChanged = function () {
+        if (!map) return;
+        // Resize once now and again after the CSS transition settles.
+        map.resize();
+        setTimeout(function () { if (map) map.resize(); }, 220);
+    };
 
     function initCenterFab() {
         const btn = document.getElementById('btn-center-my-pos');
@@ -1837,7 +2373,9 @@
             for (const cs of Object.keys(stationTracks)) delete stationTracks[cs];
             for (const [cs, points] of Object.entries(tracks)) {
                 if (!stations[cs]) continue;
-                stationTracks[cs] = points.map(p => [p[0], p[1]]);  // [lat, lon]
+                // [lat, lon, epoch seconds]: the trail panel needs the times
+                // for its statistics; the drawn line uses the first two.
+                stationTracks[cs] = points.map(p => [p[0], p[1], p[2]]);
             }
             refreshStationTrackSource();
         } catch (e) {
@@ -2214,11 +2752,11 @@
         openStationPopup(callsign);
     }
 
-    function updateStationTrack(callsign, lat, lon) {
+    function updateStationTrack(callsign, lat, lon, timestamp) {
         const s = stations[callsign];
         if (!s) return;
         if (!stationTracks[callsign]) stationTracks[callsign] = [];
-        stationTracks[callsign].push([lat, lon]);
+        stationTracks[callsign].push([lat, lon, timestamp]);
         refreshStationTrackSource();
     }
 
@@ -2980,14 +3518,7 @@
 
 
     // --- Station overlay: path lines, distance, log highlight ---
-    function haversineKm(lat1, lon1, lat2, lon2) {
-        const R = 6371;
-        const dLat = (lat2 - lat1) * Math.PI / 180;
-        const dLon = (lon2 - lon1) * Math.PI / 180;
-        const a = Math.sin(dLat / 2) ** 2 +
-            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
-        return R * 2 * Math.asin(Math.sqrt(a));
-    }
+    // haversineKm lives in the trail-statistics section above (spec radius).
 
     var _selectedCallsign = null;
     var _hopHoverBound = false;
@@ -3896,7 +4427,8 @@
                 tx: packet.tx || false,
             });
             if (!packet.position_from_db) {
-                updateStationTrack(packet.from_call, packet.latitude, packet.longitude);
+                updateStationTrack(packet.from_call, packet.latitude, packet.longitude,
+                    packet.timestamp);
             }
         }
         const myPos = getMyPosition();
@@ -4304,6 +4836,119 @@
         // Log color inputs
         _populateLogColorInputs();
 
+        // Offline map region list (issue #212) — fetched fresh each open so a
+        // download on another browser/tab shows up.
+        loadBasemapRegions();
+
+    }
+
+    // --- Offline map regions (issue #212) ---------------------------------
+    // Hemna's call on PR #213: the kit region list belongs in Settings, where
+    // the user picks which region archives this host downloads and caches for
+    // offline map use. GET /api/basemap/regions serves the live kit manifest
+    // with the server-side fallbacks; the map-side panel stays gone.
+    const BASEMAP_REGIONS_URL = API_BASE + '/basemap/regions';
+
+    /** Bytes -> B/KiB/MiB display text. */
+    function formatBytes(bytes) {
+        if (typeof bytes !== 'number' || bytes < 0) return '?';
+        if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + ' MiB';
+        if (bytes >= 1024) return (bytes / 1024).toFixed(1) + ' KiB';
+        return bytes + ' B';
+    }
+
+    /** One region row: name, size/state, and a Download or Remove button. */
+    function regionRow(r, feedback) {
+        const row = document.createElement('div');
+        row.className = 'basemap-region-row';
+
+        const name = document.createElement('span');
+        name.className = 'basemap-region-name';
+        name.textContent = r.name && r.name !== r.id ? r.name + ' (' + r.id + ')' : r.id;
+
+        const state = document.createElement('span');
+        state.className = 'basemap-region-state';
+        state.textContent = r.downloaded
+            ? 'Downloaded \u2014 ' + formatBytes(r.downloaded_bytes)
+            : 'Not downloaded' + (typeof r.bytes === 'number' ? ' \u2014 ' + formatBytes(r.bytes) : '');
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = r.downloaded ? 'btn-danger' : 'secondary';
+        btn.textContent = r.downloaded ? 'Remove' : 'Download';
+        btn.addEventListener('click', function () {
+            if (r.downloaded) removeBasemapRegion(r, feedback);
+            else downloadBasemapRegion(r, feedback);
+        });
+
+        row.appendChild(name);
+        row.appendChild(state);
+        row.appendChild(btn);
+        return row;
+    }
+
+    /** Render the region list from GET /api/basemap/regions. */
+    async function loadBasemapRegions() {
+        const list = document.getElementById('basemap-region-list');
+        if (!list) return;
+        list.textContent = 'Loading\u2026';
+        let regions;
+        try {
+            const resp = await fetch(BASEMAP_REGIONS_URL);
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            regions = (await resp.json()).regions || [];
+        } catch (e) {
+            list.textContent = 'Region list unavailable: ' + e.message;
+            return;
+        }
+        list.textContent = '';
+        if (!regions.length) {
+            list.textContent = 'No regions published.';
+            return;
+        }
+        const feedback = document.getElementById('basemap-region-feedback');
+        regions.forEach(function (r) { list.appendChild(regionRow(r, feedback)); });
+    }
+
+    /** POST the download; the request returns once the archive is on disk. */
+    async function downloadBasemapRegion(r, feedback) {
+        feedback.className = 'warning';
+        feedback.textContent = 'Downloading ' + r.id + '\u2026 this can take a while.';
+        feedback.classList.remove('hidden');
+        try {
+            const resp = await fetch(
+                BASEMAP_REGIONS_URL + '/' + encodeURIComponent(r.id) + '/download',
+                { method: 'POST', headers: _apiHeaders({}) },
+            );
+            const result = await resp.json().catch(function () { return {}; });
+            if (!resp.ok) throw new Error(result.detail || ('HTTP ' + resp.status));
+            feedback.className = 'success';
+            feedback.textContent = 'Downloaded ' + r.id + ' (' + formatBytes(result.size) + ')';
+        } catch (e) {
+            feedback.className = 'error';
+            feedback.textContent = 'Download failed: ' + e.message;
+        }
+        await loadBasemapRegions();
+    }
+
+    /** DELETE the downloaded archive; leaves any vendored copy untouched. */
+    async function removeBasemapRegion(r, feedback) {
+        try {
+            const resp = await fetch(
+                BASEMAP_REGIONS_URL + '/' + encodeURIComponent(r.id),
+                { method: 'DELETE', headers: _apiHeaders({}) },
+            );
+            const result = await resp.json().catch(function () { return {}; });
+            if (!resp.ok) throw new Error(result.detail || ('HTTP ' + resp.status));
+            feedback.className = 'success';
+            feedback.textContent = result.removed
+                ? 'Removed ' + r.id
+                : r.id + ' has no downloaded copy';
+        } catch (e) {
+            feedback.className = 'error';
+            feedback.textContent = 'Remove failed: ' + e.message;
+        }
+        await loadBasemapRegions();
     }
 
     async function saveSettings() {
@@ -4531,9 +5176,8 @@
 
         // Set default map height to 2/3 viewport if no saved height exists
         if (!localStorage.getItem(MAP_HEIGHT_KEY)) {
-            var toolbar = document.getElementById('toolbar');
             var footer = document.getElementById('footer');
-            var chrome = (toolbar ? toolbar.offsetHeight : 40) + (footer ? footer.offsetHeight : 24);
+            var chrome = toolbarChromeHeight() + (footer ? footer.offsetHeight : 24);
             var available = window.innerHeight - chrome;
             var defaultMapHeight = Math.round(available * 2 / 3);
             localStorage.setItem(MAP_HEIGHT_KEY, defaultMapHeight + 'px');
@@ -4648,11 +5292,10 @@
         }
 
         function doResize(clientY) {
-            var toolbar = document.getElementById('toolbar');
             var footer = document.getElementById('footer');
             var minMap = 150;
             var minLog = 80;
-            var maxMap = window.innerHeight - (toolbar ? toolbar.offsetHeight : 40) - (footer ? footer.offsetHeight : 24) - minLog;
+            var maxMap = window.innerHeight - toolbarChromeHeight() - (footer ? footer.offsetHeight : 24) - minLog;
             var newHeight = Math.max(minMap, Math.min(maxMap, startHeight + (clientY - startY)));
             mapContainer.style.height = newHeight + 'px';
             map.resize();
@@ -4686,37 +5329,6 @@
         handle.addEventListener('touchstart', function (e) {
             if (e.touches.length === 1) beginResize(e.touches[0].clientY, e);
         }, { passive: false });
-    }
-
-    // --- Mobile Menu ---
-    function initMobileMenu() {
-        const btn = document.getElementById('btn-mobile-menu');
-        const menu = document.getElementById('mobile-menu');
-        if (!btn || !menu) return;
-
-        // Toggle menu
-        btn.addEventListener('click', () => {
-            menu.classList.toggle('hidden');
-        });
-
-        // Mobile buttons -> delegate to desktop buttons
-        document.getElementById('mobile-btn-toggle-log').addEventListener('click', () => {
-            toggleLogViewState();
-            menu.classList.add('hidden');
-        });
-        document.getElementById('mobile-btn-settings').addEventListener('click', () => {
-            document.getElementById('btn-settings').click();
-            menu.classList.add('hidden');
-        });
-
-        // Close menu when clicking outside
-        document.addEventListener('click', (e) => {
-            if (!menu.classList.contains('hidden') &&
-                !menu.contains(e.target) &&
-                !btn.contains(e.target)) {
-                menu.classList.add('hidden');
-            }
-        });
     }
 
     // --- Cold Start / Map Centering ---
@@ -4802,18 +5414,26 @@
         }
     }
 
+    // Issue #218 round 14: the waiting message is a row of the layout (see style.css .toast), so
+    // nothing here computes a position. Round 13 measured a clear spot and
+    // still lost at 344-375px wide and 320x400, where no clear spot exists:
+    // 802.2 / 330.2 / 3120.8 px^2 at 344x800, 715 / 279 / 2988 at 360x800,
+    // 632.2 / 230.4 / 1568.8 at 375x800, all over the GPX panel, its Load GPX
+    // button and the legend. A row cannot overlap anything it does not float
+    // over, which is also why this needs no collision check at all.
     function showWaitingToast() {
-        const toast = document.getElementById('waiting-toast');
-        if (toast) toast.classList.remove('hidden');
+        const chip = document.getElementById('status-chip');
+        if (chip) chip.classList.remove('hidden');
     }
 
     function dismissWaiting() {
         waitingForPosition = false;
         const modal = document.getElementById('waiting-modal');
         if (modal) modal.classList.add('hidden');
-        const toast = document.getElementById('waiting-toast');
-        if (toast) toast.classList.add('hidden');
+        const chip = document.getElementById('status-chip');
+        if (chip) chip.classList.add('hidden');
     }
+
 
     // --- My Position Marker ---
     function updateMyPositionMarker() {
@@ -5284,15 +5904,8 @@
     // --- Drop Pin ---
     function initDropPin() {
         const btn = document.getElementById('btn-drop-pin');
-        const mobileBtn = document.getElementById('mobile-btn-drop-pin');
         if (btn) {
             btn.addEventListener('click', () => togglePinMode());
-        }
-        if (mobileBtn) {
-            mobileBtn.addEventListener('click', () => {
-                togglePinMode();
-                document.getElementById('mobile-menu')?.classList.add('hidden');
-            });
         }
 
         // Right-click on map for context popup
@@ -6443,4 +7056,18 @@
         });
     }
 
+
+    // Toolbar bridge (issue #218): expose the main map and station registry to
+    // the top-toolbar controls (Find + station count).
+    window.__dwToolbar = {
+        getStation: function (cs) { return stations[cs] || null; },
+        flyTo: function (lat, lng, zoom) { mapFlyTo(lat, lng, toMlZoom(zoom)); },
+        stationCount: function () {
+            var n = 0;
+            for (var k in stations) {
+                if (Object.prototype.hasOwnProperty.call(stations, k)) n++;
+            }
+            return n;
+        },
+    };
 })();

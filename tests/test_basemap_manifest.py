@@ -7,7 +7,9 @@ asserts on the served ``/basemap/maps-manifest.json`` body, the
 404 + traversal) and the 503 + caplog manifest error shapes.
 """
 
+import hashlib
 import json
+from types import SimpleNamespace
 
 import pytest
 from direwolf_dashboard.basemap import (
@@ -17,6 +19,7 @@ from direwolf_dashboard.basemap import (
     BasemapSourceError,
     kit_region_manifest,
 )
+from direwolf_dashboard.config import Config
 from direwolf_dashboard.lifecycle import ServiceContainer
 from direwolf_dashboard.routers import (
     create_basemap_manifest_route,
@@ -26,6 +29,23 @@ from starlette.applications import Starlette
 from starlette.testclient import TestClient
 
 SAMPLE = BASEMAP_DIR / "regions" / "sample.pmtiles"
+
+
+def test_vendored_archives_match_the_committed_list():
+    # A client verifies the archive length and sha256 from the list and treats
+    # a mismatch as permanent, so every published region this repo vendors must
+    # be the exact archive the list describes.
+    published = {r["id"]: r for r in kit_region_manifest()["regions"]}
+    checked = []
+    for arc in sorted((BASEMAP_DIR / "regions").glob("*.pmtiles")):
+        reg = published.get(arc.stem)
+        if reg is None:
+            continue  # the sample fallback is not a published region
+        data = arc.read_bytes()
+        assert len(data) == reg["bytes"], arc.name
+        assert hashlib.sha256(data).hexdigest() == reg["sha256"], arc.name
+        checked.append(arc.stem)
+    assert checked == ["world"]
 
 # ---------------------------------------------------------------------------
 # A kit manifest shape (hemna/basemap-kit, docs/CLIENTS.md §2)
@@ -55,7 +75,7 @@ def _kit_manifest(regions=("sample", "world")):
             {"id": rid,
              "name": rid.title(),
              "group": "sample" if rid == "sample" else "world",
-             "url": f"pmtiles://https://cloud.hemna.com/basemap-kit/"
+             "url": f"pmtiles://https://aprslive.com/basemap-kit/"
                     f"archives/{rid}.pmtiles",
              "bytes": 999999,
              "sha256": "a" * 64,
@@ -74,7 +94,7 @@ def _full_kit_manifest():
         {"id": f"{g['id']}-{i}",
          "name": f"{g['name']} {i}",
          "group": g["id"],
-         "url": f"pmtiles://https://cloud.hemna.com/basemap-kit/"
+         "url": f"pmtiles://https://aprslive.com/basemap-kit/"
                 f"archives/{g['id']}-{i}.pmtiles",
          "bytes": 999999,
          "sha256": "a" * 64,
@@ -151,10 +171,22 @@ def test_loader_raises_when_the_file_is_not_valid_json(tmp_path):
 
 def test_loader_raises_when_a_region_field_is_missing(tmp_path):
     doc = _kit_manifest()
-    del doc["regions"][0]["bounds"]
+    del doc["regions"][0]["url"]
     path = _write_manifest(tmp_path, doc)
-    with pytest.raises(BasemapSourceError, match="bounds"):
+    with pytest.raises(BasemapSourceError, match="url"):
         kit_region_manifest(path)
+
+
+def test_loader_accepts_the_kit_planet_entry_without_bounds_or_maxzoom(tmp_path):
+    # The published list carries a capped planet entry with no bounds/maxzoom;
+    # both are optional, so the published list must load unchanged.
+    doc = _kit_manifest()
+    del doc["regions"][0]["bounds"]
+    del doc["regions"][0]["maxzoom"]
+    path = _write_manifest(tmp_path, doc)
+    loaded = kit_region_manifest(path)
+    assert "bounds" not in loaded["regions"][0]
+    assert "maxzoom" not in loaded["regions"][0]
 
 
 def test_loader_raises_when_a_region_points_at_an_undeclared_group(tmp_path):
@@ -230,9 +262,10 @@ def test_int_type_violations_do_not_say_missing(tmp_path):
 
 
 def _basemap_app() -> Starlette:
-    """App holding only the two new routes (they read the package tree,
-    not live services, so a bare container is enough)."""
+    """App holding only the two new routes. The manifest route reads
+    ``data_dir`` / ``basemap.manifest_url`` from the services config."""
     container = ServiceContainer()
+    container.services = SimpleNamespace(config=Config())
     return Starlette(
         routes=[
             create_basemap_manifest_route(container),
@@ -242,7 +275,7 @@ def _basemap_app() -> Starlette:
 
 
 def test_maps_manifest_serves_the_kit_list_verbatim():
-    # The committed kit list (33 regions) served through this app must
+    # The committed kit list served through this app must
     # carry its groups untouched and only the regions this host can
     # actually serve — every field verbatim, only ``url`` rewritten to
     # the same-origin archive route (never the kit's production host).
@@ -258,7 +291,7 @@ def test_maps_manifest_serves_the_kit_list_verbatim():
             assert part.headers["accept-ranges"] == "bytes"
     assert r.status_code == 200
     assert body["groups"] == published["groups"]
-    assert [reg["id"] for reg in body["regions"]] == ["sample", "world"]
+    assert [reg["id"] for reg in body["regions"]] == ["world"]
     published_by_id = {reg["id"]: reg for reg in published["regions"]}
     for served in body["regions"]:
         kit_region = published_by_id[served["id"]]
@@ -266,7 +299,7 @@ def test_maps_manifest_serves_the_kit_list_verbatim():
             k: v for k, v in kit_region.items() if k != "url"
         }
         assert served["url"] == f"/basemap/regions/{served['id']}.pmtiles"
-    assert "cloud.hemna.com" not in r.text
+    assert "aprslive.com" not in r.text
     assert r.headers["cache-control"] == "no-cache"
     assert r.headers["access-control-allow-origin"] == "*"
 
@@ -296,59 +329,45 @@ def test_region_archive_route_404_and_traversal():
         )
 
 
-def test_maps_manifest_errors_when_the_list_is_missing(monkeypatch, tmp_path, caplog):
+def test_maps_manifest_falls_back_to_the_world_region(monkeypatch, tmp_path, caplog):
+    # #212: with no live list, no cache and no bundled copy, the served list
+    # degrades to the one region every install ships instead of an error.
     monkeypatch.setattr(
         "direwolf_dashboard.basemap.REGION_MANIFEST_FILE", tmp_path / "nope.json"
     )
     with TestClient(_basemap_app(), raise_server_exceptions=False) as client:
-        with caplog.at_level("ERROR", logger="direwolf_dashboard.routers"):
+        with caplog.at_level("WARNING", logger="direwolf_dashboard.basemap"):
             r = client.get("/basemap/maps-manifest.json")
-    assert r.status_code == 503
-    assert "unreadable" in r.json()["detail"]
+    assert r.status_code == 200
+    body = r.json()
+    assert [reg["id"] for reg in body["regions"]] == ["world"]
+    assert body["regions"][0]["url"] == "/basemap/regions/world.pmtiles"
+    assert body["regions"][0]["maxzoom"] == 4
     assert "nope.json" in caplog.text
 
 
-def test_maps_manifest_errors_when_the_list_is_malformed(monkeypatch, tmp_path, caplog):
+def test_maps_manifest_rejects_a_malformed_bundled_copy(monkeypatch, tmp_path, caplog):
     path = tmp_path / "maps-manifest.json"
     path.write_text('{"regions": [', encoding="utf-8")
     monkeypatch.setattr(
         "direwolf_dashboard.basemap.REGION_MANIFEST_FILE", path
     )
     with TestClient(_basemap_app(), raise_server_exceptions=False) as client:
-        with caplog.at_level("ERROR", logger="direwolf_dashboard.routers"):
+        with caplog.at_level("WARNING", logger="direwolf_dashboard.basemap"):
             r = client.get("/basemap/maps-manifest.json")
-    assert r.status_code == 503
-    assert "not valid JSON" in r.json()["detail"]
+    assert r.status_code == 200
+    assert [reg["id"] for reg in r.json()["regions"]] == ["world"]
     assert "not valid JSON" in caplog.text
 
 
-def test_maps_manifest_errors_when_a_region_field_is_missing(monkeypatch, tmp_path, caplog):
-    doc = _kit_manifest()
-    del doc["regions"][0]["bounds"]
-    path = _write_manifest(tmp_path, doc)
+def test_maps_manifest_503_when_no_region_is_readable(monkeypatch, tmp_path, caplog):
     monkeypatch.setattr(
-        "direwolf_dashboard.basemap.REGION_MANIFEST_FILE", path
+        "direwolf_dashboard.basemap.REGION_MANIFEST_FILE", tmp_path / "nope.json"
     )
+    monkeypatch.setattr("direwolf_dashboard.basemap.REGIONS_DIR", tmp_path)
     with TestClient(_basemap_app(), raise_server_exceptions=False) as client:
         with caplog.at_level("ERROR", logger="direwolf_dashboard.routers"):
             r = client.get("/basemap/maps-manifest.json")
     assert r.status_code == 503
-    assert "bounds" in r.json()["detail"]
-    assert "bounds" in caplog.text
-
-
-def test_maps_manifest_errors_when_a_region_points_at_an_undeclared_group(
-    monkeypatch, tmp_path, caplog
-):
-    doc = _kit_manifest()
-    doc["regions"][0]["group"] = "atlantis"
-    path = _write_manifest(tmp_path, doc)
-    monkeypatch.setattr(
-        "direwolf_dashboard.basemap.REGION_MANIFEST_FILE", path
-    )
-    with TestClient(_basemap_app(), raise_server_exceptions=False) as client:
-        with caplog.at_level("ERROR", logger="direwolf_dashboard.routers"):
-            r = client.get("/basemap/maps-manifest.json")
-    assert r.status_code == 503
-    assert "atlantis" in r.json()["detail"]
-    assert "atlantis" in caplog.text
+    assert "usable world archive" in r.json()["detail"]
+    assert "usable world archive" in caplog.text

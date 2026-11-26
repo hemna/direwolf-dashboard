@@ -27,6 +27,6 @@ def test_vendored_world_archive_is_z0_4_and_pinned():
     assert data[:7] == b"PMTiles"
     assert data[100] == 0 and data[101] == 4  # header min/max zoom
     assert hashlib.sha256(data).hexdigest() == (
-        "ab259c5d3716d9a6b8205ce6b4ec3705cbdb879ea9842d1e861cc02e83912f46"
+        "c6428a4856ec8e8802b9667dfa38b17a506c497fae20a1169baed83835e708aa"
     )
     assert len(data) < 8 * 1024 * 1024

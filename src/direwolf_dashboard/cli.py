@@ -168,7 +168,7 @@ def basemap():
     "planet",
     default=None,
     help="Planet .pmtiles URL or path to extract from (default: basemap.sources in order: "
-    "cloud.hemna.com basemap-kit planet, then yesterday's Protomaps build).",
+    "aprslive.com basemap-kit planet, then yesterday's Protomaps build).",
 )
 @click.option(
     "--output",
